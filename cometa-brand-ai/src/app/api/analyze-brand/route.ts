@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 //import { scrapeFacebookPage } from "@/lib/scrapers/facebook";
 //import { scrapeTikTokProfile } from "@/lib/scrapers/tiktok";
 //import { scrapeWebsite } from "@/lib/scrapers/website";
-import { scrapeCompetitors } from "@/lib/scrapers/benchmark";
+//import { scrapeCompetitors } from "@/lib/scrapers/benchmark";
 import fs from "fs";
 import path from "path";
 
@@ -201,10 +201,7 @@ const websiteContext = null;
 
     const competitorUrls = parseCompetitors(competitors);
 
-    const competitorData =
-      competitorUrls.length > 0
-        ? await scrapeCompetitors(competitorUrls)
-        : [];
+    const competitorData = [];
 
     const instagramVisualAnalysis = await analyzeScreenshotWithVision({
       screenshotUrl: instagramContext?.screenshotUrl,
