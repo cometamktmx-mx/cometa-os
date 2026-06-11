@@ -1,33 +1,14 @@
-import { scrapeInstagramProfile } from "./instagram";
-
-export async function scrapeCompetitors(urls: string[]) {
-  const competitors = [];
-
-  for (const url of urls) {
-    try {
-      const profile = await scrapeInstagramProfile(url);
-
-      competitors.push({
-        url,
-        followers:
-          profile?.profileSignals?.followersLine || "No detectado",
-        following:
-          profile?.profileSignals?.followingLine || "No detectado",
-        posts:
-          profile?.profileSignals?.postsLine || "No detectado",
-        bio:
-          profile?.profileSignals?.possibleBio || "",
-      });
-    } catch (error) {
-      competitors.push({
-        url,
-        followers: "Error",
-        following: "Error",
-        posts: "Error",
-        bio: "",
-      });
-    }
-  }
-
-  return competitors;
+export async function scrapeCompetitors(competitorUrls: string[]) {
+  return competitorUrls.map((url) => ({
+    url,
+    followers: "No detectado",
+    following: "No detectado",
+    posts: "No detectado",
+    engagementSignals: null,
+    scrapingStatus: {
+      success: false,
+      source: url,
+      error: "Benchmark scraper desactivado temporalmente para producción en Vercel.",
+    },
+  }));
 }
