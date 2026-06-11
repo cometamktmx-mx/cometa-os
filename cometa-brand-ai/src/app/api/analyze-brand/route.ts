@@ -204,7 +204,7 @@ const websiteContext = null;
     const competitorData: unknown[] = [];
     
     const instagramVisualAnalysis = await analyzeScreenshotWithVision({
-      screenshotUrl: instagramContext?.screenshotUrl,
+      screenshotUrl: undefined,
       platform: "Instagram",
       systemPrompt: `
 Eres un analista visual experto en branding, social media, diseño, percepción de marca y contenido para Instagram.
@@ -238,7 +238,7 @@ Responde en texto claro, estratégico y específico.
     });
 
     const facebookVisualAnalysis = await analyzeScreenshotWithVision({
-      screenshotUrl: facebookContext?.screenshotUrl,
+      screenshotUrl: undefined,
       platform: "Facebook",
       systemPrompt: `
 Eres un analista visual experto en Facebook, branding, confianza digital, social proof, conversión por mensajes y percepción comercial.
@@ -270,7 +270,7 @@ Responde en texto claro, estratégico y específico.
     });
 
     const tiktokVisualAnalysis = await analyzeScreenshotWithVision({
-      screenshotUrl: tiktokContext?.screenshotUrl,
+      screenshotUrl: undefined,
       platform: "TikTok",
       systemPrompt: `
 Eres un analista experto en TikTok, contenido viral, hooks, retención, percepción de marca y crecimiento orgánico.
@@ -302,7 +302,7 @@ Responde en texto claro, estratégico y específico.
     });
 
     const websiteVisualAnalysis = await analyzeScreenshotWithVision({
-      screenshotUrl: websiteContext?.screenshotUrl,
+      screenshotUrl: undefined,
       platform: "Website",
       systemPrompt: `
 Eres un analista experto en sitios web, UX, CRO, SEO básico, branding digital, confianza y conversión.
@@ -335,18 +335,14 @@ Responde en texto claro, estratégico y específico.
       `,
     });
 
-    const profileSignalsText = instagramContext?.profileSignals
-      ? JSON.stringify(instagramContext.profileSignals, null, 2)
-      : "No se detectaron señales estructuradas del perfil.";
+    const profileSignalsText =
+  "Scraper de Instagram desactivado temporalmente.";
 
-    const engagementSignalsText = instagramContext?.engagementSignals
-      ? JSON.stringify(instagramContext.engagementSignals, null, 2)
-      : "No se detectaron señales de engagement.";
+const engagementSignalsText =
+  "Scraper de Instagram desactivado temporalmente.";
 
-    const scrapingStatusText = instagramContext?.scrapingStatus
-      ? JSON.stringify(instagramContext.scrapingStatus, null, 2)
-      : "No se detectó estado técnico del scraping.";
-
+const scrapingStatusText =
+  "Scraper de Instagram desactivado temporalmente.";
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       temperature: 0.55,
@@ -403,40 +399,40 @@ ESTADO TÉCNICO DE INSTAGRAM:
 ${scrapingStatusText}
 
 TEXTO EXTRAÍDO DE INSTAGRAM:
-${instagramContext?.extractedText || "No se pudo extraer texto visible."}
+Scraper de Instagram desactivado temporalmente en producción.
 
 ANÁLISIS VISUAL DE INSTAGRAM:
 ${instagramVisualAnalysis}
 
 SEÑALES ESTRUCTURADAS DE FACEBOOK:
-${facebookContext?.profileSignals ? JSON.stringify(facebookContext.profileSignals, null, 2) : "No se detectaron señales estructuradas de Facebook."}
+Scraper de Facebook desactivado temporalmente en producción.
 
 SEÑALES DE CONTENIDO DE FACEBOOK:
-${facebookContext?.contentSignals ? JSON.stringify(facebookContext.contentSignals, null, 2) : "No se detectaron señales de contenido de Facebook."}
+Scraper de Facebook desactivado temporalmente en producción.
 
 TEXTO EXTRAÍDO DE FACEBOOK:
-${facebookContext?.extractedText || "No se pudo extraer texto visible de Facebook."}
+Scraper de Facebook desactivado temporalmente en producción.
 
 ANÁLISIS VISUAL DE FACEBOOK:
 ${facebookVisualAnalysis}
 
 SEÑALES ESTRUCTURADAS DE TIKTOK:
-${tiktokContext?.profileSignals ? JSON.stringify(tiktokContext.profileSignals, null, 2) : "No se detectaron señales estructuradas de TikTok."}
+Scraper de TikTok desactivado temporalmente en producción.
 
 SEÑALES DE CONTENIDO DE TIKTOK:
-${tiktokContext?.contentSignals ? JSON.stringify(tiktokContext.contentSignals, null, 2) : "No se detectaron señales de contenido de TikTok."}
+Scraper de TikTok desactivado temporalmente en producción.
 
 TEXTO EXTRAÍDO DE TIKTOK:
-${tiktokContext?.extractedText || "No se pudo extraer texto visible de TikTok."}
+Scraper de TikTok desactivado temporalmente en producción.
 
 ANÁLISIS VISUAL DE TIKTOK:
 ${tiktokVisualAnalysis}
 
 SEÑALES DEL SITIO WEB:
-${websiteContext?.extractedData ? JSON.stringify(websiteContext.extractedData, null, 2) : "No se detectaron señales del sitio web."}
+Scraper de sitio web desactivado temporalmente en producción.
 
 ESTADO TÉCNICO DEL SITIO WEB:
-${websiteContext?.scrapingStatus ? JSON.stringify(websiteContext.scrapingStatus, null, 2) : "No se detectó estado técnico del sitio web."}
+Scraper de sitio web desactivado temporalmente en producción.
 
 ANÁLISIS VISUAL DEL SITIO WEB:
 ${websiteVisualAnalysis}
