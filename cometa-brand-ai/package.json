@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "save:instagram": "tsx src/lib/scrapers/saveInstagramSession.ts"
+    "lint": "eslint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

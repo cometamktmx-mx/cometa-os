@@ -1,11 +1,6 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-//import { scrapeInstagramProfile } from "@/lib/scrapers/instagram";
-//import { scrapeFacebookPage } from "@/lib/scrapers/facebook";
-//import { scrapeTikTokProfile } from "@/lib/scrapers/tiktok";
-//import { scrapeWebsite } from "@/lib/scrapers/website";
-//import { scrapeCompetitors } from "@/lib/scrapers/benchmark";
 import fs from "fs";
 import path from "path";
 
