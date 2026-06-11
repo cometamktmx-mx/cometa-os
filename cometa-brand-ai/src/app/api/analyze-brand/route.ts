@@ -201,8 +201,8 @@ const websiteContext = null;
 
     const competitorUrls = parseCompetitors(competitors);
 
-    const competitorData = [];
-
+    const competitorData: unknown[] = [];
+    
     const instagramVisualAnalysis = await analyzeScreenshotWithVision({
       screenshotUrl: instagramContext?.screenshotUrl,
       platform: "Instagram",
