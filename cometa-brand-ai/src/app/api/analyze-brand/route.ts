@@ -1,10 +1,10 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { scrapeInstagramProfile } from "@/lib/scrapers/instagram";
-import { scrapeFacebookPage } from "@/lib/scrapers/facebook";
-import { scrapeTikTokProfile } from "@/lib/scrapers/tiktok";
-import { scrapeWebsite } from "@/lib/scrapers/website";
+//import { scrapeInstagramProfile } from "@/lib/scrapers/instagram";
+//import { scrapeFacebookPage } from "@/lib/scrapers/facebook";
+//import { scrapeTikTokProfile } from "@/lib/scrapers/tiktok";
+//import { scrapeWebsite } from "@/lib/scrapers/website";
 import { scrapeCompetitors } from "@/lib/scrapers/benchmark";
 import fs from "fs";
 import path from "path";
@@ -194,21 +194,10 @@ export async function POST(req: Request) {
       problem,
     } = body;
 
-    const instagramContext = instagram
-      ? await scrapeInstagramProfile(instagram)
-      : null;
-
-    const facebookContext = facebook
-      ? await scrapeFacebookPage(facebook)
-      : null;
-
-    const tiktokContext = tiktok
-      ? await scrapeTikTokProfile(tiktok)
-      : null;
-
-    const websiteContext = website
-      ? await scrapeWebsite(normalizeWebsiteUrl(website))
-      : null;
+    const instagramContext = null;
+const facebookContext = null;
+const tiktokContext = null;
+const websiteContext = null;
 
     const competitorUrls = parseCompetitors(competitors);
 
