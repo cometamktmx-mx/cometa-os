@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { analyzeWebsiteLite } from "@/lib/intelligence/websiteAnalyzer";
 import fs from "fs";
 import path from "path";
 
@@ -192,7 +193,14 @@ export async function POST(req: Request) {
     const instagramContext = null;
 const facebookContext = null;
 const tiktokContext = null;
-const websiteContext = null;
+const websiteContext = website
+  ? await analyzeWebsiteLite(normalizeWebsiteUrl(website))
+  : null;
+
+console.log(
+  "WEBSITE CONTEXT:",
+  JSON.stringify(websiteContext, null, 2)
+);
 
     const competitorUrls = parseCompetitors(competitors);
 
@@ -424,10 +432,10 @@ ANÁLISIS VISUAL DE TIKTOK:
 ${tiktokVisualAnalysis}
 
 SEÑALES DEL SITIO WEB:
-Scraper de sitio web desactivado temporalmente en producción.
+${websiteContext ? JSON.stringify(websiteContext, null, 2) : "No se proporcionó sitio web."}
 
 ESTADO TÉCNICO DEL SITIO WEB:
-Scraper de sitio web desactivado temporalmente en producción.
+${websiteContext?.available ? "Sitio web analizado correctamente con Website Intelligence." : "Sitio web no disponible o no analizado."}
 
 ANÁLISIS VISUAL DEL SITIO WEB:
 ${websiteVisualAnalysis}

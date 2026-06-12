@@ -301,46 +301,42 @@ contenido, confianza, competencia, oportunidades comerciales y potencial de crec
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <SmallMetricCard
-              label="WhatsApp"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasWhatsApp)}
-            />
+  label="WhatsApp"
+  value={result.website_context?.extractedData?.whatsapp}
+/>
 
-            <SmallMetricCard
-              label="Email"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasEmail)}
-            />
+<SmallMetricCard
+  label="Email"
+  value={result.website_context?.extractedData?.email}
+/>
 
-            <SmallMetricCard
-              label="Teléfono"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasPhone)}
-            />
+<SmallMetricCard
+  label="Teléfono"
+  value={result.website_context?.extractedData?.phone}
+/>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <SmallMetricCard
-              label="Formulario"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasForm)}
-            />
+  label="Formulario"
+  value={result.website_context?.extractedData?.form}
+/>
 
-            <SmallMetricCard
-              label="Carrito"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasCart)}
-            />
+<SmallMetricCard
+  label="Carrito"
+  value={result.website_context?.extractedData?.cart}
+/>
 
-            <SmallMetricCard
-              label="Checkout"
-              value={formatBooleanSignal(result.website_context?.extractedData?.signals?.hasCheckout)}
-            />
+<SmallMetricCard
+  label="Checkout"
+  value={result.website_context?.extractedData?.checkout}
+/>
           </div>
 
           <InsightCard
-            title="CTAs detectados"
-            content={
-              result.website_context?.extractedData?.detectedCtas?.length
-                ? result.website_context.extractedData.detectedCtas.join(", ")
-                : "No detectado"
-            }
-          />
+  title="CTAs detectados"
+  content={result.website_context?.extractedData?.ctas || "No detectado"}
+/>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <InsightCard title="Nivel SEO" content={result.website_analysis?.seo_level} />
