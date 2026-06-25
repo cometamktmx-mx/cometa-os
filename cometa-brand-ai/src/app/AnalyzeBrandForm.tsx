@@ -52,12 +52,12 @@ export default function AnalyzeBrandForm() {
 );
 
   setResult({
-    ...data.result,
-    instagram_context: data.instagramContext,
-    facebook_context: data.facebookContext,
-    tiktok_context: data.tiktokContext,
-    website_context: data.websiteContext,
-  });
+  ...data.result,
+  instagram_context: data.instagramContext || data.result?.instagram_context,
+  facebook_context: data.facebookContext || data.result?.facebook_context,
+  tiktok_context: data.result?.tiktok_context || data.tiktokContext,
+  website_context: data.websiteContext || data.result?.website_context,
+});
       } else {
         setResult("Error al analizar la marca.");
       }
@@ -190,16 +190,66 @@ contenido, confianza, competencia, oportunidades comerciales y potencial de crec
           <SectionTitle title="Señales detectadas de Facebook" />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <SmallMetricCard label="Seguidores" value={result.facebook_context?.profileSignals?.followers} />
-            <SmallMetricCard label="Me gusta" value={result.facebook_context?.profileSignals?.likes} />
-            <SmallMetricCard label="Categoría" value={result.facebook_context?.profileSignals?.category} />
-          </div>
+  <SmallMetricCard
+    label="Seguidores"
+    value={
+      result.facebook_analysis?.facebook_followers ||
+      result.facebook_analysis?.followers ||
+      result.facebook_context?.profileSignals?.followers ||
+      "No detectado"
+    }
+  />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <SmallMetricCard label="Ubicación" value={result.facebook_context?.profileSignals?.location} />
-            <SmallMetricCard label="Messenger" value={result.facebook_context?.contentSignals?.hasMessenger} />
-            <SmallMetricCard label="WhatsApp" value={result.facebook_context?.contentSignals?.hasWhatsApp} />
-          </div>
+  <SmallMetricCard
+    label="Me gusta"
+    value={
+      result.facebook_analysis?.facebook_likes ||
+      result.facebook_analysis?.likes ||
+      result.facebook_context?.profileSignals?.likes ||
+      "No detectado"
+    }
+  />
+
+  <SmallMetricCard
+    label="Personas hablando"
+    value={
+      result.facebook_analysis?.talking_about ||
+      result.facebook_context?.profileSignals?.talking_about ||
+      "No detectado"
+    }
+  />
+</div>
+
+<div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+  <SmallMetricCard
+    label="Categoría"
+    value={
+      result.facebook_analysis?.category ||
+      result.facebook_context?.profileSignals?.category ||
+      "No detectado"
+    }
+  />
+
+  <SmallMetricCard
+    label="Messenger"
+    value={
+      result.facebook_analysis?.has_messenger ||
+      result.facebook_analysis?.messenger ||
+      result.facebook_context?.contentSignals?.hasMessenger ||
+      "No detectado"
+    }
+  />
+
+  <SmallMetricCard
+    label="WhatsApp"
+    value={
+      result.facebook_analysis?.has_whatsapp ||
+      result.facebook_analysis?.whatsapp ||
+      result.facebook_context?.contentSignals?.hasWhatsapp ||
+      "No detectado"
+    }
+  />
+</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <InsightCard title="Actividad" content={result.facebook_analysis?.activity_level} />

@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import StrategyCard from "./StrategyCard";
+import { useRouter } from "next/navigation";
 
 export default function AnalysisHistoryCard({ item }: { item: any }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
 
   let parsed: any = null;
 
@@ -151,6 +153,15 @@ export default function AnalysisHistoryCard({ item }: { item: any }) {
         >
           Generar estrategia
         </button>
+
+        <button
+  onClick={() =>
+    router.push(`/workspace/${encodeURIComponent(item.brand_name)}`)
+  }
+  className="bg-white border border-slate-300 hover:border-blue-500 text-slate-900 font-bold px-5 py-3 rounded-2xl transition"
+>
+  Abrir Workspace
+</button>
       </div>
     </div>
   );

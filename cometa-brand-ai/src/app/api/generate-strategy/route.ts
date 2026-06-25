@@ -1,12 +1,17 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { generalStrategyPrompt } from "@/lib/prompts/strategy/general";
 import { getIndustryPrompt } from "@/lib/prompts/strategy/getIndustryPrompt";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 function getPackageRules(packageName: string) {
   const packages: any = {
@@ -107,13 +112,13 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!memory.orion_analysis || !memory.nova_business_map) {
-      return NextResponse.json({
-        success: false,
-        error:
-          "COSMOS todavía no tiene ORION y NOVA completos. Ejecuta ambos antes de ATLAS.",
-      });
-    }
+    if (!memory.orion_memory || !memory.business_memory) {
+  return NextResponse.json({
+    success: false,
+    error:
+      "COSMOS todavía no tiene ORION y BUSINESS_MEMORY completos. Ejecuta ambos antes de ATLAS.",
+  });
+}
 
     const finalBrandName = memory.brand_name || brandName;
     const industry = memory.industry || "No especificado";
@@ -129,55 +134,89 @@ ${generalStrategyPrompt}
 
 ${industryPrompt}
 
-REGLAS UNIVERSALES DE ATLAS V2:
+REGLAS UNIVERSALES DE ATLAS V3:
 
-- ATLAS es el Director Estratégico de Cometa OS.
-- ATLAS NO depende de formularios largos.
-- ATLAS debe leer COSMOS como fuente principal de verdad.
-- ATLAS debe construir la estrategia usando ORION + NOVA + variables operativas del mes.
+ATLAS es el Director de Crecimiento Estratégico de COMETA OS.
+
+ATLAS NO ES:
+- community manager
+- creador de calendarios
+- generador de ideas virales
+- planificador de posts
+- ejecutivo de pauta
+- redactor de redes sociales
+
+ATLAS ES:
+- estratega de crecimiento
+- director comercial
+- analista de negocio
+- arquitecto de revenue
+- diseñador de hipótesis de crecimiento
+- traductor de memoria COSMOS en decisiones accionables
+
+PRINCIPIO CENTRAL:
+ATLAS no debe preguntarse primero "qué contenido hacemos".
+ATLAS debe preguntarse primero "cómo crece este negocio".
+
+ANTES DE HABLAR DE CONTENIDO, ATLAS DEBE ANALIZAR:
+
+1. Revenue drivers.
+2. Ticket promedio.
+3. Frecuencia de compra.
+4. Recompra.
+5. Retención.
+6. Cross-selling.
+7. Upselling.
+8. Capacidad operativa.
+9. Objeciones de venta.
+10. Barreras de confianza.
+11. Diferenciadores reales.
+12. Riesgos comerciales.
+13. Oportunidades de rentabilidad.
+14. Proceso de compra.
+15. Cuello de botella principal.
 
 FUENTES DE COSMOS:
 
 1. ORION:
-Diagnóstico digital, percepción de marca, presencia en redes, contenido, posicionamiento, confianza, comunidad, sitio web, benchmark y madurez digital.
+Percepción externa, madurez digital, presencia social, confianza visual, sitio web, posicionamiento, contenido actual y oportunidad percibida.
 
-2. NOVA:
-Mapa de negocio, oferta real, buyer persona, objeciones, revenue drivers, diferenciadores, temporadas, promociones sugeridas, oportunidades comerciales y restricciones internas.
+2. BUSINESS_MEMORY:
+Realidad interna del negocio, oferta, buyer persona, ticket, capacidad, diferenciadores, objeciones, revenue drivers, proceso comercial, oportunidades y riesgos.
 
-VARIABLES OPERATIVAS DEL MES:
-- Paquete contratado.
-- Meta a 90 días.
-- Presupuesto mensual de pauta.
-- Contexto especial del mes.
-
-JERARQUÍA DE INFORMACIÓN:
-- NOVA tiene prioridad sobre ORION para buyer persona, productos, servicios, oferta, ticket, capacidad operativa, objeciones, revenue drivers, diferenciadores, temporadas, promociones y restricciones.
-- ORION tiene prioridad para percepción digital, contenido actual, branding, confianza visual, presencia social, posicionamiento y madurez digital.
-- Si ORION y NOVA se contradicen, usa NOVA como realidad interna del negocio y ORION como percepción externa.
-- La meta a 90 días y el contexto mensual pueden ajustar la estrategia, pero no deben contradecir la realidad de COSMOS.
+JERARQUÍA DE VERDAD:
+- BUSINESS_MEMORY manda sobre ORION para negocio, ventas, buyer persona, oferta, ticket, objeciones, diferenciadores, revenue drivers y restricciones.
+- ORION manda para percepción digital, presencia, branding, confianza visual, contenido actual y madurez digital.
+- Si se contradicen, explica la contradicción y usa BUSINESS_MEMORY como realidad interna.
 
 REGLAS DE ESTRATEGIA:
-- No hagas calendarios monotemáticos.
-- No mezcles giros comerciales.
-- No reutilices ejemplos literalmente.
-- Cada concepto debe pertenecer al negocio analizado.
-- Cada concepto debe sonar como idea publicable, no como tarea operativa.
-- La estrategia debe sentirse comercial, accionable y realista.
-- Usa revenue_drivers, customer_objections, buyer_persona, key_offers, main_growth_opportunity y sales_angles de NOVA.
-- No inventes buyer personas si NOVA ya los detectó.
-- No inventes temporadas si NOVA ya identificó estacionalidad.
-- La arquitectura de contenido debe responder directamente a revenue drivers y objeciones.
-- Las promociones sugeridas deben ser estratégicas, no depender únicamente de descuentos.
+- No generes una estrategia centrada en redes sociales.
+- No uses "contenido viral" como solución principal.
+- No recomiendes TikTok, Reels, influencers, UGC o pauta como respuesta automática.
+- Las redes sociales son vehículos, no estrategia.
+- El contenido debe ser consecuencia de una hipótesis comercial.
+- Cada recomendación debe conectar con ventas, confianza, retención, ticket, recompra, frecuencia o posicionamiento.
+- No inventes métricas exactas.
+- No inventes capacidad operativa.
+- No inventes márgenes.
+- No inventes temporadas si BUSINESS_MEMORY no las detectó.
+- Si falta información clave, conviértela en riesgo o dato pendiente.
+- La estrategia debe sonar como consultoría senior, no como plan de community manager.
 
-REGLAS DE CALENDARIO:
-- El calendario debe contener exactamente 4 semanas.
-- Cada semana debe contener Lunes, Martes, Miércoles, Jueves, Viernes, Sábado y Domingo.
-- Si no hay publicación, marca "Sin publicación".
-- Respeta exactamente las publicaciones, reels y posts del paquete.
+REGLAS PARA CALENDARIO:
+- El calendario existe solo como traducción operativa de la estrategia.
+- No debe ser la parte más importante.
+- Debe respetar paquete, recursos y capacidad.
+- Cada concepto debe tener una razón comercial.
+- Si un día no hay publicación, marca "Sin publicación".
+
+RESPUESTA:
 - Responde únicamente JSON válido.
+- No uses markdown.
+- No agregues texto fuera del JSON.
 `;
-
-    const userPrompt = `
+   
+const userPrompt = `
 Crea una estrategia operativa de 90 días para esta marca usando COSMOS.
 
 DATOS BASE DESDE COSMOS:
@@ -196,10 +235,26 @@ REGLAS INTERNAS DEL PAQUETE:
 ${JSON.stringify(packageRules, null, 2)}
 
 MEMORIA ORION:
-${JSON.stringify(memory.orion_analysis || {}, null, 2)}
+${JSON.stringify(memory.orion_memory || {}, null, 2)}
 
-MEMORIA NOVA:
-${JSON.stringify(memory.nova_business_map || {}, null, 2)}
+MEMORIA BUSINESS_MEMORY:
+${JSON.stringify(memory.business_memory || {}, null, 2)}
+
+INSTRUCCIÓN ESTRATÉGICA CRÍTICA:
+
+Antes de llenar el JSON, razona como director de crecimiento:
+
+- ¿Cuál es el verdadero cuello de botella comercial?
+- ¿Qué debe crecer primero: ticket, frecuencia, recompra, confianza, leads, cierre o posicionamiento?
+- ¿Qué revenue driver tiene más potencial?
+- ¿Qué objeción impide la venta?
+- ¿Qué acción tendría mayor impacto en 30 días?
+- ¿Qué acción tendría mayor impacto en 90 días?
+- ¿Qué NO debe hacer Cometa aunque parezca atractivo?
+- ¿Qué debe hacer ATLAS antes de pensar en contenido?
+
+La estrategia debe priorizar crecimiento del negocio.
+El contenido, pauta y calendario deben aparecer solo como ejecución.
 
 ESTRUCTURA JSON OBLIGATORIA:
 
@@ -222,6 +277,20 @@ ESTRUCTURA JSON OBLIGATORIA:
     "growth_hypothesis": "",
     "strategic_focus": "",
     "what_not_to_do": ""
+  },
+
+    "growth_model": {
+    "primary_growth_lever": "",
+    "secondary_growth_lever": "",
+    "revenue_driver_to_prioritize": "",
+    "ticket_strategy": "",
+    "frequency_strategy": "",
+    "retention_strategy": "",
+    "cross_sell_or_upsell_strategy": "",
+    "trust_strategy": "",
+    "conversion_strategy": "",
+    "operational_dependency": "",
+    "main_growth_hypothesis": ""
   },
 
   "brand_context_lock": {
@@ -489,6 +558,10 @@ REGLAS CRÍTICAS:
 - Los porcentajes de content_architecture.pillars deben sumar 100.
 - Los porcentajes de commercial_content_engine.recommended_monthly_content_mix deben sumar 100.
 - recommended_distribution debe sumar 100.
+- growth_model debe ser la parte más importante de la estrategia.
+- No pongas redes sociales como primary_growth_lever salvo que el negocio dependa directamente de ellas.
+- primary_growth_lever debe ser comercial: ticket, frecuencia, recompra, confianza, cierre, leads, conversión, retención, posicionamiento o capacidad.
+- Cada recomendación debe explicar cómo ayuda a crecer el negocio.
 - No agregues texto fuera del JSON.
 `;
 
@@ -549,14 +622,41 @@ REGLAS CRÍTICAS:
       });
     }
 
-    await supabase
-      .from("cosmos_memory")
-      .update({
-        atlas_strategy: parsedResult,
-        last_agent: "ATLAS",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", memory.id);
+    const now = new Date().toISOString();
+
+const currentTimeline = Array.isArray(memory.activity_timeline)
+  ? memory.activity_timeline
+  : [];
+
+const timelineEvent = {
+  timestamp: now,
+  agent: "ATLAS",
+  action: "generate_strategy",
+  memory_column: "growth_memory",
+  summary:
+    parsedResult?.executive_summary?.current_situation ||
+    parsedResult?.executive_summary?.main_objective ||
+    null,
+};
+
+const { error: updateCosmosError } = await supabase
+  .from("cosmos_memory")
+  .update({
+    growth_memory: parsedResult,
+    last_agent: "ATLAS",
+    activity_timeline: [...currentTimeline, timelineEvent],
+    updated_at: now,
+  })
+  .eq("id", memory.id);
+
+if (updateCosmosError) {
+  console.log("Error guardando ATLAS en COSMOS:", updateCosmosError);
+
+  return NextResponse.json({
+    success: false,
+    error: "ATLAS generó la estrategia, pero no pudo guardar en COSMOS.",
+  });
+}
 
     await supabase.from("cosmos_agent_runs").insert([
       {

@@ -32,6 +32,7 @@ function normalizeDiscoveryData(discoveryData: any) {
 }
 
 export async function POST(req: Request) {
+  console.log("🔥 BUSINESS MEMORY NUEVO EJECUTANDO");
   try {
     const body = await req.json();
 
@@ -44,10 +45,10 @@ export async function POST(req: Request) {
       discoveryData,
     } = body;
 
-    if (!brandAnalysis || !discoveryData) {
+    if (!brandAnalysis || !discoveryData || !brandName) {
       return NextResponse.json({
         success: false,
-        error: "Faltan datos para generar Business Map.",
+        error: "Faltan datos para generar Business Memory.",
       });
     }
 
@@ -60,19 +61,19 @@ export async function POST(req: Request) {
         {
           role: "system",
           content: `
-Eres NOVA, Business Intelligence AI de COMETA OS.
+Eres BUSINESS MEMORY AI de COMETA OS.
 
-Tu función es convertir la información de ORION Brand AI + Business Discovery en una radiografía comercial profunda del negocio.
+Tu función es construir la memoria comercial viva del negocio a partir de ORION + Business Discovery.
 
-NOVA NO ES UN ESTRATEGA DE MARKETING.
-NOVA NO CREA CALENDARIOS.
-NOVA NO CREA CAMPAÑAS.
-NOVA NO RECOMIENDA CONTENIDO.
-NOVA NO HABLA DE TIKTOK, INSTAGRAM, FACEBOOK, REELS, UGC, INFLUENCERS, ADS O PAUTA.
+BUSINESS MEMORY AI NO ES UN ESTRATEGA DE MARKETING.
+BUSINESS MEMORY AI NO CREA CALENDARIOS.
+BUSINESS MEMORY AI NO CREA CAMPAÑAS.
+BUSINESS MEMORY AI NO RECOMIENDA CONTENIDO.
+BUSINESS MEMORY AI NO HABLA DE TIKTOK, INSTAGRAM, FACEBOOK, REELS, UGC, INFLUENCERS, ADS O PAUTA COMO RECOMENDACIÓN.
 
-Eso pertenece a ATLAS.
+Eso pertenece a ATLAS o STRATEGY AI.
 
-NOVA construye la línea base estratégica que ATLAS usará después.
+Tu trabajo es entender el negocio, el cliente, la oferta, las objeciones, las oportunidades comerciales, los diferenciadores reales y las señales que otros agentes usarán después.
 
 TU ENFOQUE ES:
 
@@ -122,7 +123,7 @@ REGLAS DE NO INVENCIÓN:
 
 REGLAS SOBRE MARKETING Y CONTENIDO:
 
-NOVA no debe recomendar:
+No debes recomendar:
 - UGC
 - TikTok
 - Reels
@@ -132,7 +133,7 @@ NOVA no debe recomendar:
 - campañas publicitarias
 - estrategia de redes
 
-NOVA puede mencionar redes sociales solo como señal detectada por ORION, pero no como recomendación principal.
+Puedes mencionar redes sociales solo como señal detectada por ORION, pero no como recomendación principal.
 
 Si detectas necesidades de marketing, colócalas únicamente en:
 "atlas_context.relevant_signals_for_strategy"
@@ -174,7 +175,7 @@ Si el negocio es B2C, prioriza:
 - temporadas
 - fricción de compra
 
-NOVA debe sonar como consultor senior de negocio, no como community manager.
+Debes sonar como consultor senior de negocio, no como community manager.
 
 Responde únicamente en JSON válido.
 No uses markdown.
@@ -184,7 +185,7 @@ No agregues texto fuera del JSON.
         {
           role: "user",
           content: `
-Construye un Business Map definitivo usando la siguiente información:
+Construye Business Memory usando la siguiente información:
 
 DATOS GENERALES:
 Nombre de marca: ${brandName}
@@ -305,7 +306,7 @@ Reglas finales:
 - No recomiendes campañas.
 - No recomiendes calendario de contenido.
 - Si algo corresponde a marketing, pásalo a atlas_context.
-- El Business Map debe servir como insumo estratégico para ATLAS, no como estrategia final.
+- Business Memory debe servir como memoria estratégica para los demás agentes, no como estrategia final.
 - Los quick_wins deben ser comerciales, operativos o de confianza, no de contenido.
 - Las oportunidades deben estar conectadas al modelo de negocio.
 - El buyer persona debe ser específico al tipo de venta.
@@ -324,112 +325,137 @@ Reglas finales:
       .replace(/```/g, "")
       .trim();
 
-    let businessMap;
+    let businessMemory;
 
     try {
-      businessMap = JSON.parse(cleanedResult);
+      businessMemory = JSON.parse(cleanedResult);
     } catch (parseError) {
-      console.log("Error parseando Business Map:", parseError);
-      console.log("Respuesta cruda NOVA:", cleanedResult);
+      console.log("Error parseando Business Memory:", parseError);
+      console.log("Respuesta cruda BUSINESS_MEMORY:", cleanedResult);
 
       return NextResponse.json({
         success: false,
-        error: "NOVA generó un JSON inválido.",
+        error: "BUSINESS_MEMORY generó un JSON inválido.",
         rawResult: cleanedResult,
       });
     }
 
-    businessMap.declared_business_data = {
-      ...(businessMap.declared_business_data || {}),
-      offers: ensureArray(businessMap.declared_business_data?.offers),
+    businessMemory.declared_business_data = {
+      ...(businessMemory.declared_business_data || {}),
+      offers: ensureArray(businessMemory.declared_business_data?.offers),
       forbidden_topics: ensureArray(
-        businessMap.declared_business_data?.forbidden_topics
+        businessMemory.declared_business_data?.forbidden_topics
       ),
     };
 
-    businessMap.buyer_persona = businessMap.buyer_persona || {};
-    businessMap.buyer_persona.needs = ensureArray(
-      businessMap.buyer_persona.needs
+    businessMemory.buyer_persona = businessMemory.buyer_persona || {};
+    businessMemory.buyer_persona.needs = ensureArray(
+      businessMemory.buyer_persona.needs
     );
-    businessMap.buyer_persona.desires = ensureArray(
-      businessMap.buyer_persona.desires
+    businessMemory.buyer_persona.desires = ensureArray(
+      businessMemory.buyer_persona.desires
     );
-    businessMap.buyer_persona.fears = ensureArray(
-      businessMap.buyer_persona.fears
+    businessMemory.buyer_persona.fears = ensureArray(
+      businessMemory.buyer_persona.fears
     );
-    businessMap.buyer_persona.purchase_triggers = ensureArray(
-      businessMap.buyer_persona.purchase_triggers
-    );
-
-    businessMap.decision_makers = ensureArray(businessMap.decision_makers);
-    businessMap.purchase_influencers = ensureArray(
-      businessMap.purchase_influencers
-    );
-    businessMap.purchase_process = ensureArray(businessMap.purchase_process);
-    businessMap.purchase_criteria = ensureArray(businessMap.purchase_criteria);
-
-    businessMap.key_offers = ensureArray(businessMap.key_offers);
-    businessMap.revenue_drivers = ensureArray(businessMap.revenue_drivers);
-    businessMap.high_margin_opportunities = ensureArray(
-      businessMap.high_margin_opportunities
-    );
-    businessMap.products_to_push = ensureArray(businessMap.products_to_push);
-    businessMap.recurring_revenue_opportunities = ensureArray(
-      businessMap.recurring_revenue_opportunities
+    businessMemory.buyer_persona.purchase_triggers = ensureArray(
+      businessMemory.buyer_persona.purchase_triggers
     );
 
-    businessMap.customer_objections = ensureArray(
-      businessMap.customer_objections
+    businessMemory.decision_makers = ensureArray(businessMemory.decision_makers);
+    businessMemory.purchase_influencers = ensureArray(
+      businessMemory.purchase_influencers
     );
-    businessMap.sales_barriers = ensureArray(businessMap.sales_barriers);
-    businessMap.sales_accelerators = ensureArray(
-      businessMap.sales_accelerators
+    businessMemory.purchase_process = ensureArray(
+      businessMemory.purchase_process
     );
-
-    businessMap.trust_assets = ensureArray(businessMap.trust_assets);
-    businessMap.differentiators = ensureArray(businessMap.differentiators);
-    businessMap.proof_needed_to_sell = ensureArray(
-      businessMap.proof_needed_to_sell
+    businessMemory.purchase_criteria = ensureArray(
+      businessMemory.purchase_criteria
     );
 
-    businessMap.commercial_opportunities = ensureArray(
-      businessMap.commercial_opportunities
+    businessMemory.key_offers = ensureArray(businessMemory.key_offers);
+    businessMemory.revenue_drivers = ensureArray(
+      businessMemory.revenue_drivers
     );
-    businessMap.quick_wins = ensureArray(businessMap.quick_wins);
-    businessMap.risks_or_limitations = ensureArray(
-      businessMap.risks_or_limitations
+    businessMemory.high_margin_opportunities = ensureArray(
+      businessMemory.high_margin_opportunities
     );
-    businessMap.operational_considerations = ensureArray(
-      businessMap.operational_considerations
+    businessMemory.products_to_push = ensureArray(
+      businessMemory.products_to_push
     );
-    businessMap.strategic_notes_for_cometa = ensureArray(
-      businessMap.strategic_notes_for_cometa
-    );
-
-    businessMap.atlas_context = businessMap.atlas_context || {};
-    businessMap.atlas_context.relevant_signals_for_strategy = ensureArray(
-      businessMap.atlas_context.relevant_signals_for_strategy
-    );
-    businessMap.atlas_context.what_atlas_should_consider = ensureArray(
-      businessMap.atlas_context.what_atlas_should_consider
-    );
-    businessMap.atlas_context.what_atlas_should_not_assume = ensureArray(
-      businessMap.atlas_context.what_atlas_should_not_assume
+    businessMemory.recurring_revenue_opportunities = ensureArray(
+      businessMemory.recurring_revenue_opportunities
     );
 
-    businessMap.ai_inferences = businessMap.ai_inferences || {};
-    businessMap.ai_inferences.what_ai_detected_from_orion = ensureArray(
-      businessMap.ai_inferences.what_ai_detected_from_orion
+    businessMemory.customer_objections = ensureArray(
+      businessMemory.customer_objections
     );
-    businessMap.ai_inferences.what_client_declared = ensureArray(
-      businessMap.ai_inferences.what_client_declared
+    businessMemory.sales_barriers = ensureArray(
+      businessMemory.sales_barriers
     );
-    businessMap.ai_inferences.what_ai_inferred = ensureArray(
-      businessMap.ai_inferences.what_ai_inferred
+    businessMemory.sales_accelerators = ensureArray(
+      businessMemory.sales_accelerators
     );
-    businessMap.ai_inferences.missing_information = ensureArray(
-      businessMap.ai_inferences.missing_information
+
+    businessMemory.trust_assets = ensureArray(businessMemory.trust_assets);
+    businessMemory.differentiators = ensureArray(
+      businessMemory.differentiators
     );
+    businessMemory.proof_needed_to_sell = ensureArray(
+      businessMemory.proof_needed_to_sell
+    );
+
+    businessMemory.commercial_opportunities = ensureArray(
+      businessMemory.commercial_opportunities
+    );
+    businessMemory.quick_wins = ensureArray(businessMemory.quick_wins);
+    businessMemory.risks_or_limitations = ensureArray(
+      businessMemory.risks_or_limitations
+    );
+    businessMemory.operational_considerations = ensureArray(
+      businessMemory.operational_considerations
+    );
+    businessMemory.strategic_notes_for_cometa = ensureArray(
+      businessMemory.strategic_notes_for_cometa
+    );
+
+    businessMemory.atlas_context = businessMemory.atlas_context || {};
+    businessMemory.atlas_context.relevant_signals_for_strategy = ensureArray(
+      businessMemory.atlas_context.relevant_signals_for_strategy
+    );
+    businessMemory.atlas_context.what_atlas_should_consider = ensureArray(
+      businessMemory.atlas_context.what_atlas_should_consider
+    );
+    businessMemory.atlas_context.what_atlas_should_not_assume = ensureArray(
+      businessMemory.atlas_context.what_atlas_should_not_assume
+    );
+
+    businessMemory.ai_inferences = businessMemory.ai_inferences || {};
+    businessMemory.ai_inferences.what_ai_detected_from_orion = ensureArray(
+      businessMemory.ai_inferences.what_ai_detected_from_orion
+    );
+    businessMemory.ai_inferences.what_client_declared = ensureArray(
+      businessMemory.ai_inferences.what_client_declared
+    );
+    businessMemory.ai_inferences.what_ai_inferred = ensureArray(
+      businessMemory.ai_inferences.what_ai_inferred
+    );
+    businessMemory.ai_inferences.missing_information = ensureArray(
+      businessMemory.ai_inferences.missing_information
+    );
+
+    const now = new Date().toISOString();
+
+    const timelineEvent = {
+      timestamp: now,
+      agent: "BUSINESS_MEMORY",
+      action: "generate_business_memory",
+      memory_column: "business_memory",
+      summary:
+        businessMemory?.business_summary ||
+        businessMemory?.commercial_diagnosis ||
+        null,
+    };
 
     let existingMemory = null;
 
@@ -456,7 +482,7 @@ Reglas finales:
       const { data, error } = await supabase
         .from("cosmos_memory")
         .select("*")
-        .eq("brand_name", brandName)
+        .ilike("brand_name", brandName)
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -474,6 +500,10 @@ Reglas finales:
     }
 
     if (existingMemory) {
+      const currentTimeline = Array.isArray(existingMemory.activity_timeline)
+        ? existingMemory.activity_timeline
+        : [];
+
       const { error: updateMemoryError } = await supabase
         .from("cosmos_memory")
         .update({
@@ -481,21 +511,23 @@ Reglas finales:
           brand_name: brandName,
           industry,
           city,
-          nova_business_map: businessMap,
-          last_agent: "NOVA",
-          updated_at: new Date().toISOString(),
+          business_memory: businessMemory,
+          last_agent: "BUSINESS_MEMORY",
+          activity_timeline: [...currentTimeline, timelineEvent],
+          updated_at: now,
         })
         .eq("id", existingMemory.id);
 
       if (updateMemoryError) {
         console.log(
-          "Error actualizando memoria NOVA en COSMOS:",
+          "Error actualizando Business Memory en COSMOS:",
           updateMemoryError
         );
 
         return NextResponse.json({
           success: false,
-          error: "NOVA generó el Business Map, pero no pudo actualizar COSMOS.",
+          error:
+            "BUSINESS_MEMORY generó la memoria, pero no pudo actualizar COSMOS.",
         });
       }
     } else {
@@ -507,19 +539,23 @@ Reglas finales:
             brand_name: brandName,
             industry,
             city,
-            nova_business_map: businessMap,
-            last_agent: "NOVA",
+            business_memory: businessMemory,
+            last_agent: "BUSINESS_MEMORY",
+            activity_timeline: [timelineEvent],
             status: "active",
           },
         ]);
 
       if (insertMemoryError) {
-        console.log("Error creando memoria NOVA en COSMOS:", insertMemoryError);
+        console.log(
+          "Error creando Business Memory en COSMOS:",
+          insertMemoryError
+        );
 
         return NextResponse.json({
           success: false,
           error:
-            "NOVA generó el Business Map, pero no pudo crear memoria en COSMOS.",
+            "BUSINESS_MEMORY generó la memoria, pero no pudo crear memoria en COSMOS.",
         });
       }
     }
@@ -530,8 +566,8 @@ Reglas finales:
         {
           brand_name: brandName,
           brand_analysis_id: brandAnalysisId || null,
-          agent_name: "NOVA",
-          action_type: "business_map",
+          agent_name: "BUSINESS_MEMORY",
+          action_type: "generate_business_memory",
           input_data: {
             brandAnalysisId,
             brandName,
@@ -540,27 +576,30 @@ Reglas finales:
             discoveryData: cleanDiscoveryData,
           },
           output_data: {
-            businessMap,
+            businessMemory,
           },
           status: "success",
         },
       ]);
 
     if (runInsertError) {
-      console.log("Error registrando ejecución NOVA:", runInsertError);
+      console.log(
+        "Error registrando ejecución BUSINESS_MEMORY:",
+        runInsertError
+      );
     }
 
     return NextResponse.json({
       success: true,
       brandAnalysisId,
-      businessMap,
+      businessMemory,
     });
   } catch (error: any) {
-    console.log("Error generando Business Map:", error);
+    console.log("Error generando Business Memory:", error);
 
     return NextResponse.json({
       success: false,
-      error: error?.message || "Error generando Business Map.",
+      error: error?.message || "Error generando Business Memory.",
       detail: JSON.stringify(error, null, 2),
     });
   }

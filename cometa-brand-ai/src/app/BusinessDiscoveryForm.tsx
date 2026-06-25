@@ -15,7 +15,7 @@ export default function BusinessDiscoveryForm() {
     internalNotes: "",
   });
 
-  const [businessMap, setBusinessMap] = useState<any>(null);
+  const [businessMemory, setBusinessMemory] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   function loadSelectedBrandAnalysis() {
@@ -56,14 +56,14 @@ export default function BusinessDiscoveryForm() {
     });
   }
 
-  async function generateBusinessMap() {
+  async function generateBusinessMemory() {
     if (!selectedBrandAnalysis?.analysis) {
       alert("Primero selecciona un análisis de Brand AI desde el historial.");
       return;
     }
 
     setLoading(true);
-    setBusinessMap(null);
+    setBusinessMemory(null);
 
     try {
       const response = await fetch("/api/generate-business-map", {
@@ -83,27 +83,29 @@ export default function BusinessDiscoveryForm() {
 
       const data = await response.json();
 
+      console.log("BUSINESS MEMORY RESPONSE:", data);
+
       if (data.success) {
-        setBusinessMap(data.businessMap);
+        setBusinessMemory(data.businessMemory);
 
         localStorage.setItem(
-          "cometa_selected_business_map",
+          "cometa_selected_business_memory",
           JSON.stringify({
             brandAnalysisId: selectedBrandAnalysis.brandAnalysisId,
             brandName: selectedBrandAnalysis.brandName,
             industry: selectedBrandAnalysis.industry,
             city: selectedBrandAnalysis.city,
-            businessMap: data.businessMap,
+            businessMemory: data.businessMemory,
           })
         );
 
-        window.dispatchEvent(new Event("cometa-business-map-selected"));
+        window.dispatchEvent(new Event("cometa-business-memory-selected"));
       } else {
-        setBusinessMap("Error generando Business Map.");
+        setBusinessMemory("Error generando Business Memory.");
       }
     } catch (error) {
       console.error(error);
-      setBusinessMap("Error de conexión con Business Map AI.");
+      setBusinessMemory("Error de conexión con Business Memory AI.");
     } finally {
       setLoading(false);
     }
@@ -114,10 +116,10 @@ export default function BusinessDiscoveryForm() {
       <h2 className="text-2xl font-semibold mb-4">Business Discovery AI</h2>
 
       <p className="text-slate-500 mb-6 leading-7">
-        Completa la información clave que no siempre es visible en redes sociales.
-  Con estos datos, NOVA construirá el mapa estratégico del negocio y detectará
-  oportunidades comerciales, perfiles de cliente, objeciones, temporadas y
-  rutas de crecimiento.
+        Completa la información clave que no siempre es visible en redes
+        sociales. Con estos datos, Business Memory construirá la memoria
+        comercial del negocio y detectará oportunidades comerciales, perfiles
+        de cliente, objeciones y rutas de crecimiento.
       </p>
 
       {selectedBrandAnalysis ? (
@@ -193,66 +195,68 @@ export default function BusinessDiscoveryForm() {
         />
 
         <button
-          onClick={generateBusinessMap}
+          onClick={generateBusinessMemory}
           disabled={loading || !selectedBrandAnalysis}
           className="bg-slate-900 hover:bg-blue-700 text-white font-bold px-6 py-4 rounded-2xl disabled:opacity-50 transition"
         >
-          {loading ? "Generando Business Map..." : "Generar Business Map"}
+          {loading
+            ? "Generando Business Memory..."
+            : "Generar Business Memory"}
         </button>
       </div>
 
-      {businessMap && typeof businessMap === "string" && (
+      {businessMemory && typeof businessMemory === "string" && (
         <div className="mt-6 bg-red-50 border border-red-100 text-red-700 rounded-3xl p-6">
-          {businessMap}
+          {businessMemory}
         </div>
       )}
 
-      {businessMap && typeof businessMap !== "string" && (
+      {businessMemory && typeof businessMemory !== "string" && (
         <div className="mt-8 space-y-6">
           <ResultBlock
             title="LECTURA GENERAL DEL NEGOCIO"
-            content={businessMap.business_summary}
+            content={businessMemory.business_summary}
           />
 
           <ResultBlock
             title="BUYER PERSONA INFERIDO"
-            content={businessMap.buyer_persona?.primary_persona}
+            content={businessMemory.buyer_persona?.primary_persona}
           />
 
           <ResultBlock
             title="OPORTUNIDAD PRINCIPAL"
-            content={businessMap.main_growth_opportunity}
+            content={businessMemory.main_growth_opportunity}
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <ListCard
               title="Revenue Drivers"
-              items={businessMap.revenue_drivers}
+              items={businessMemory.revenue_drivers}
             />
 
             <ListCard
               title="Ofertas clave"
-              items={businessMap.key_offers}
+              items={businessMemory.key_offers}
             />
 
             <ListCard
               title="Objeciones inferidas"
-              items={businessMap.customer_objections}
+              items={businessMemory.customer_objections}
             />
 
             <ListCard
-              title="Ángulos de contenido"
-              items={businessMap.content_angles}
+              title="Oportunidades comerciales"
+              items={businessMemory.commercial_opportunities}
             />
 
             <ListCard
-              title="Temporadas inferidas"
-              items={businessMap.inferred_seasonality}
+              title="Quick Wins"
+              items={businessMemory.quick_wins}
             />
 
             <ListCard
-              title="Promociones sugeridas"
-              items={businessMap.suggested_promotions}
+              title="Riesgos o limitaciones"
+              items={businessMemory.risks_or_limitations}
             />
           </div>
         </div>

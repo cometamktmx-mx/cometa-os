@@ -4,6 +4,10 @@ import { supabase } from "@/lib/supabase";
 import { analyzeWebsiteLite } from "@/lib/intelligence/websiteAnalyzer";
 import fs from "fs";
 import path from "path";
+import { buildOrionEvidenceRecords } from "@/lib/orionEvidence";
+import { buildOrionEvidenceContext } from "@/lib/orionEvidenceContext";
+import { buildOrionLatestEvidenceContext } from "@/lib/orionLatestEvidenceContext";
+import { slugifyBrand } from "@/lib/brand-resolver";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -65,18 +69,151 @@ function ensureGrowthPotential(result: any) {
   result.growth_potential.six_month_scenario ||= "Si la marca corrige su narrativa, fortalece la confianza visual y construye comunidad, puede aumentar su autoridad percibida y mejorar su capacidad de convertir seguidores en clientes.";
 }
 
+function applyLatestEvidenceToOrionResult(result: any, latestEvidence: any[]) {
+  if (!result || !Array.isArray(latestEvidence)) return result;
+
+  const instagramEvidence = latestEvidence.find(
+    (item) => item.source_type === "instagram"
+  );
+
+  const facebookEvidence = latestEvidence.find(
+    (item) => item.source_type === "facebook"
+  );
+
+  if (instagramEvidence?.raw_data) {
+    const raw = instagramEvidence.raw_data;
+
+    if (!result.social_signals) result.social_signals = {};
+
+    if (raw.followers) {
+      result.social_signals.instagram_followers = raw.followers;
+    }
+
+    if (raw.following) {
+      result.social_signals.instagram_following = raw.following;
+    }
+
+    if (raw.posts) {
+      result.social_signals.instagram_posts = raw.posts;
+    }
+
+    result.instagram_evidence = {
+      source: "ORION Evidence Worker",
+      extraction_quality: raw.extraction_quality || null,
+      confidence_score: instagramEvidence.confidence_score || null,
+      evidence_status: instagramEvidence.evidence_status || null,
+    };
+  }
+
+  if (facebookEvidence?.raw_data) {
+    const raw = facebookEvidence.raw_data;
+
+    if (!result.facebook_analysis) result.facebook_analysis = {};
+
+    result.facebook_analysis.presence_level =
+      raw.extraction_quality === "high" ? "Alta" : "Media";
+
+    result.facebook_analysis.facebook_score =
+      raw.extraction_quality === "high" ? 75 : 55;
+
+    result.facebook_analysis.followers = raw.followers || "No detectado";
+    result.facebook_analysis.facebook_followers =
+      raw.followers || "No detectado";
+
+    result.facebook_analysis.likes = raw.likes || "No detectado";
+    result.facebook_analysis.facebook_likes =
+      raw.likes || "No detectado";
+
+    result.facebook_analysis.talking_about =
+      raw.talking_about || "No detectado";
+
+    result.facebook_analysis.category = raw.category || "No detectado";
+    result.facebook_analysis.location = raw.location || "No detectado";
+
+    result.facebook_analysis.messenger = raw.has_messenger
+      ? "Sí detectado"
+      : "No detectado";
+
+    result.facebook_analysis.has_messenger = raw.has_messenger
+      ? "Sí detectado"
+      : "No detectado";
+
+    result.facebook_analysis.whatsapp = raw.has_whatsapp
+      ? "Sí detectado"
+      : "No detectado";
+
+    result.facebook_analysis.has_whatsapp = raw.has_whatsapp
+      ? "Sí detectado"
+      : "No detectado";
+
+    result.facebook_analysis.activity_level =
+      raw.talking_about && raw.likes
+        ? `${raw.talking_about} personas hablando de esto con ${raw.likes} me gusta acumulados.`
+        : raw.likes
+        ? `${raw.likes} me gusta acumulados.`
+        : "Actividad pendiente de validar con más profundidad.";
+
+    result.facebook_analysis.conversion_level =
+      raw.has_whatsapp || raw.has_messenger
+        ? "Se detectan señales de contacto o mensajería."
+        : "No se detectaron señales claras de conversión pública.";
+
+    result.facebook_analysis.diagnosis =
+      raw.likes && raw.talking_about
+        ? `Facebook muestra ${raw.likes} me gusta acumulados y ${raw.talking_about} personas hablando de esto. Esto indica autoridad social y una comunidad activa, aunque todavía falta validar calidad de contenido, frecuencia y conversión directa.`
+        : raw.likes
+        ? `Facebook muestra ${raw.likes} me gusta acumulados. Esto indica presencia social relevante, aunque falta validar actividad reciente y conversión.`
+        : result.facebook_analysis.diagnosis ||
+          "Facebook requiere validación adicional.";
+
+    result.facebook_analysis.content_type =
+      result.facebook_analysis.content_type ||
+      "Pendiente de validar visualmente con contenido reciente.";
+
+    result.facebook_analysis.trust_level =
+      raw.likes || raw.talking_about
+        ? "Alto por volumen de prueba social pública."
+        : "Pendiente de validar.";
+
+    result.facebook_evidence = {
+      source: "ORION Evidence Worker",
+      extraction_quality: raw.extraction_quality || null,
+      confidence_score: facebookEvidence.confidence_score || null,
+      evidence_status: facebookEvidence.evidence_status || null,
+      title: raw.title || null,
+      description: raw.description || null,
+    };
+  }
+
+  return result;
+}
+
 function ensureFacebookAnalysis(result: any, facebook: string) {
   if (!result.facebook_analysis) {
     result.facebook_analysis = {
       presence_level: facebook ? "Básica" : "No detectada",
-      activity_level: facebook ? "Facebook tiene presencia, pero requiere análisis real de actividad, consistencia y formatos." : "No se proporcionó Facebook.",
-      conversion_level: facebook ? "Facebook puede funcionar como canal de confianza, mensajes y remarketing." : "No evaluable sin enlace.",
-      diagnosis: facebook ? "Facebook representa una oportunidad para fortalecer confianza y conversión." : "No se detectó presencia de Facebook.",
+      activity_level: facebook
+        ? "Facebook tiene presencia, pero requiere análisis real de actividad, consistencia y formatos."
+        : "No se proporcionó Facebook.",
+      conversion_level: facebook
+        ? "Facebook puede funcionar como canal de confianza, mensajes y remarketing."
+        : "No evaluable sin enlace.",
+      diagnosis: facebook
+        ? "Facebook representa una oportunidad para fortalecer confianza y conversión."
+        : "No se detectó presencia de Facebook.",
       content_type: "No detectado con precisión.",
-      trust_level: facebook ? "Potencial medio si muestra contenido real, reseñas y llamados a la acción." : "No evaluable.",
-      main_opportunity: facebook ? "Usar Facebook como canal de conversión, prueba social y remarketing." : "Agregar una página de Facebook.",
-      main_problem: facebook ? "El canal necesita mayor consistencia y enfoque comercial." : "No se proporcionó Facebook.",
-      recommended_action: facebook ? "Crear contenido para Facebook enfocado en confianza, mensajes y prueba social." : "Agregar Facebook al diagnóstico.",
+      trust_level: facebook
+        ? "Potencial medio si muestra contenido real, reseñas y llamados a la acción."
+        : "No evaluable.",
+      main_opportunity: facebook
+        ? "Usar Facebook como canal de conversión, prueba social y remarketing."
+        : "Agregar una página de Facebook.",
+      main_problem: facebook
+        ? "El canal necesita mayor consistencia y enfoque comercial."
+        : "No se proporcionó Facebook.",
+      recommended_action: facebook
+        ? "Crear contenido para Facebook enfocado en confianza, mensajes y prueba social."
+        : "Agregar Facebook al diagnóstico.",
       facebook_score: facebook ? 60 : 0,
     };
   }
@@ -87,14 +224,24 @@ function ensureTikTokAnalysis(result: any, tiktok: string) {
     result.tiktok_analysis = {
       presence_level: tiktok ? "Básica" : "No detectada",
       tiktok_score: tiktok ? 50 : 0,
-      viral_potential: tiktok ? "Potencial por evaluar con datos reales del perfil." : "No evaluable sin enlace.",
+      viral_potential: tiktok
+        ? "Potencial por evaluar con datos reales del perfil."
+        : "No evaluable sin enlace.",
       content_style: "No detectado con precisión.",
       hook_quality: "No detectado con precisión.",
       posting_consistency: "No detectado con precisión.",
-      diagnosis: tiktok ? "TikTok puede ser una palanca de descubrimiento y viralidad si la marca trabaja hooks, formatos cortos y repetición estratégica." : "No se proporcionó TikTok.",
-      main_opportunity: tiktok ? "Usar TikTok para generar alcance orgánico, autoridad y tráfico hacia otros canales." : "Agregar TikTok al diagnóstico.",
-      main_problem: tiktok ? "Sin una estrategia clara de hooks y formatos, TikTok puede no generar crecimiento real." : "No se proporcionó TikTok.",
-      recommended_action: tiktok ? "Crear una línea de videos cortos con hooks fuertes, prueba social, producto en uso y contenido de comunidad." : "Agregar TikTok de la marca.",
+      diagnosis: tiktok
+        ? "TikTok puede ser una palanca de descubrimiento y viralidad si la marca trabaja hooks, formatos cortos y repetición estratégica."
+        : "No se proporcionó TikTok.",
+      main_opportunity: tiktok
+        ? "Usar TikTok para generar alcance orgánico, autoridad y tráfico hacia otros canales."
+        : "Agregar TikTok al diagnóstico.",
+      main_problem: tiktok
+        ? "Sin una estrategia clara de hooks y formatos, TikTok puede no generar crecimiento real."
+        : "No se proporcionó TikTok.",
+      recommended_action: tiktok
+        ? "Crear una línea de videos cortos con hooks fuertes, prueba social, producto en uso y contenido de comunidad."
+        : "Agregar TikTok de la marca.",
     };
   }
 }
@@ -105,17 +252,207 @@ function ensureWebsiteAnalysis(result: any, website: string) {
       website_score: website ? 50 : 0,
       presence_level: website ? "Básica" : "No detectada",
       seo_score: website ? 50 : 0,
-conversion_score: website ? 50 : 0,
-trust_score: website ? 50 : 0,
-ux_score: website ? 50 : 0,
-      seo_level: website ? "Por evaluar con datos reales del sitio." : "No evaluable sin sitio web.",
-      conversion_level: website ? "El sitio puede funcionar como punto de conversión si tiene CTA, WhatsApp, formularios o carrito visibles." : "No evaluable sin sitio web.",
-      trust_level: website ? "La confianza depende de señales visibles como contacto, prueba social, políticas, diseño y claridad comercial." : "No evaluable.",
-      diagnosis: website ? "El sitio web debe evaluarse como activo de conversión, no solo como presencia digital." : "No se proporcionó sitio web.",
-      main_problem: website ? "El sitio puede estar perdiendo conversiones si no comunica confianza, propuesta de valor y siguiente paso con claridad." : "No se proporcionó sitio web.",
-      main_opportunity: website ? "Convertir el sitio en un centro de confianza, captación y cierre conectado con redes sociales." : "Agregar sitio web al diagnóstico.",
-      recommended_action: website ? "Optimizar la primera pantalla, CTA, WhatsApp, prueba social, SEO básico y claridad de oferta." : "Agregar sitio web de la marca.",
+      conversion_score: website ? 50 : 0,
+      trust_score: website ? 50 : 0,
+      ux_score: website ? 50 : 0,
+      seo_level: website
+        ? "Por evaluar con datos reales del sitio."
+        : "No evaluable sin sitio web.",
+      conversion_level: website
+        ? "El sitio puede funcionar como punto de conversión si tiene CTA, WhatsApp, formularios o carrito visibles."
+        : "No evaluable sin sitio web.",
+      trust_level: website
+        ? "La confianza depende de señales visibles como contacto, prueba social, políticas, diseño y claridad comercial."
+        : "No evaluable.",
+      diagnosis: website
+        ? "El sitio web debe evaluarse como activo de conversión, no solo como presencia digital."
+        : "No se proporcionó sitio web.",
+      main_problem: website
+        ? "El sitio puede estar perdiendo conversiones si no comunica confianza, propuesta de valor y siguiente paso con claridad."
+        : "No se proporcionó sitio web.",
+      main_opportunity: website
+        ? "Convertir el sitio en un centro de confianza, captación y cierre conectado con redes sociales."
+        : "Agregar sitio web al diagnóstico.",
+      recommended_action: website
+        ? "Optimizar la primera pantalla, CTA, WhatsApp, prueba social, SEO básico y claridad de oferta."
+        : "Agregar sitio web de la marca.",
     };
+  }
+}
+
+function applyEvidenceMetricsToUiPayload(
+  parsedResult: any,
+  latestEvidenceData: any[] = []
+) {
+  if (!parsedResult || !Array.isArray(latestEvidenceData)) return;
+
+  const getRawBySource = (sourceType: string) => {
+    const item = latestEvidenceData.find(
+      (e: any) => String(e.source_type || "").toLowerCase() === sourceType
+    );
+
+    return item?.raw_data || {};
+  };
+
+  const instagramRaw = getRawBySource("instagram");
+  const facebookRaw = getRawBySource("facebook");
+  const tiktokRaw = getRawBySource("tiktok");
+
+  const tiktokEvidenceText = String(
+    tiktokRaw.metric_source_sample ||
+      tiktokRaw.visible_text_preview ||
+      tiktokRaw.detected_text_sample ||
+      ""
+  );
+
+  const tiktokBlockedByChallenge =
+    /iniciar sesión|captcha|arrastra|deslizador|drag|slider|login|verify|verification|audio/i.test(
+      tiktokEvidenceText
+    );
+
+  function extractTikTokUsernameFromUrl(url: string) {
+    const match = String(url || "").match(/tiktok\.com\/@([^/?#]+)/i);
+    return match?.[1] ? `@${match[1]}` : null;
+  }
+
+  parsedResult.social_signals = parsedResult.social_signals || {};
+
+  if (instagramRaw.followers) {
+    parsedResult.social_signals.instagram_followers = String(
+      instagramRaw.followers
+    );
+  }
+
+  if (instagramRaw.following) {
+    parsedResult.social_signals.instagram_following = String(
+      instagramRaw.following
+    );
+  }
+
+  if (instagramRaw.posts) {
+    parsedResult.social_signals.instagram_posts = String(instagramRaw.posts);
+  }
+
+  parsedResult.facebook_analysis = parsedResult.facebook_analysis || {};
+
+  if (facebookRaw.followers) {
+    parsedResult.facebook_analysis.facebook_followers = String(
+      facebookRaw.followers
+    );
+    parsedResult.facebook_analysis.followers = String(facebookRaw.followers);
+  }
+
+  if (facebookRaw.likes) {
+    parsedResult.facebook_analysis.facebook_likes = String(facebookRaw.likes);
+    parsedResult.facebook_analysis.likes = String(facebookRaw.likes);
+  }
+
+  if (facebookRaw.talking_about) {
+    parsedResult.facebook_analysis.talking_about = String(
+      facebookRaw.talking_about
+    );
+  }
+
+  if (
+    facebookRaw.has_messenger !== undefined &&
+    facebookRaw.has_messenger !== null
+  ) {
+    parsedResult.facebook_analysis.has_messenger = facebookRaw.has_messenger
+      ? "Detectado"
+      : "No detectado";
+  }
+
+  if (
+    facebookRaw.has_whatsapp !== undefined &&
+    facebookRaw.has_whatsapp !== null
+  ) {
+    parsedResult.facebook_analysis.has_whatsapp = facebookRaw.has_whatsapp
+      ? "Detectado"
+      : "No detectado";
+  }
+
+  parsedResult.tiktok_context = parsedResult.tiktok_context || {};
+  parsedResult.tiktok_context.profileSignals =
+    parsedResult.tiktok_context.profileSignals || {};
+  parsedResult.tiktok_context.contentSignals =
+    parsedResult.tiktok_context.contentSignals || {};
+
+  if (tiktokBlockedByChallenge) {
+    const username =
+      tiktokRaw.username ||
+      extractTikTokUsernameFromUrl(tiktokRaw.url || tiktokRaw.source_url || "") ||
+      parsedResult.tiktok_context.profileSignals.username ||
+      "Perfil detectado";
+
+    parsedResult.tiktok_context.profileSignals.username = username;
+    parsedResult.tiktok_context.profileSignals.followers = "No detectado";
+    parsedResult.tiktok_context.profileSignals.likes = "No detectado";
+    parsedResult.tiktok_context.profileSignals.following = "No detectado";
+    parsedResult.tiktok_context.profileSignals.bio =
+      "TikTok mostró una barrera de inicio de sesión o verificación. No se pudieron validar métricas públicas exactas.";
+
+    parsedResult.tiktok_context.contentSignals.hasVideos = "No detectado";
+    parsedResult.tiktok_context.contentSignals.viralPotential = "No detectado";
+
+    parsedResult.tiktok_analysis = parsedResult.tiktok_analysis || {};
+    parsedResult.tiktok_analysis.presence_level =
+      "Detectado con extracción limitada";
+    parsedResult.tiktok_analysis.diagnosis =
+      "El perfil de TikTok fue detectado, pero TikTok mostró una barrera de inicio de sesión o verificación, por lo que no se pudieron validar seguidores, likes, siguiendo o videos con certeza.";
+    parsedResult.tiktok_analysis.main_problem =
+      "TikTok limita la lectura pública de métricas sin conexión oficial.";
+    parsedResult.tiktok_analysis.recommended_action =
+      "Mantener TikTok como canal detectado y conectar la cuenta oficialmente en el futuro módulo de Integrations para obtener métricas reales.";
+
+    return;
+  }
+
+  const tiktokUrl = tiktokRaw.url || tiktokRaw.source_url || "";
+  const tiktokUsernameMatch = String(tiktokUrl).match(
+    /tiktok\.com\/@([^/?#]+)/i
+  );
+
+  if (tiktokRaw.username) {
+    parsedResult.tiktok_context.profileSignals.username = String(
+      tiktokRaw.username
+    );
+  } else if (tiktokUsernameMatch?.[1]) {
+    parsedResult.tiktok_context.profileSignals.username = `@${tiktokUsernameMatch[1]}`;
+  }
+
+  if (tiktokRaw.followers) {
+    parsedResult.tiktok_context.profileSignals.followers = String(
+      tiktokRaw.followers
+    );
+  }
+
+  if (tiktokRaw.likes) {
+    parsedResult.tiktok_context.profileSignals.likes = String(tiktokRaw.likes);
+  }
+
+  if (tiktokRaw.following) {
+    parsedResult.tiktok_context.profileSignals.following = String(
+      tiktokRaw.following
+    );
+  }
+
+  if (tiktokRaw.visible_text_preview || tiktokRaw.detected_text_sample) {
+    parsedResult.tiktok_context.profileSignals.bio =
+      tiktokRaw.visible_text_preview || tiktokRaw.detected_text_sample;
+  }
+
+  if (tiktokRaw.content_signals?.video_context_detected !== undefined) {
+    parsedResult.tiktok_context.contentSignals.hasVideos =
+      tiktokRaw.content_signals.video_context_detected
+        ? "Detectado"
+        : "No detectado";
+  }
+
+  if (tiktokRaw.content_signals?.fashion_context_detected !== undefined) {
+    parsedResult.tiktok_context.contentSignals.viralPotential =
+      tiktokRaw.content_signals.fashion_context_detected
+        ? "Señal de contenido detectada"
+        : "No detectado";
   }
 }
 
@@ -190,22 +527,42 @@ export async function POST(req: Request) {
       problem,
     } = body;
 
-    const instagramContext = null;
-const facebookContext = null;
-const tiktokContext = null;
-const websiteContext = website
-  ? await analyzeWebsiteLite(normalizeWebsiteUrl(website))
-  : null;
+    const normalizedBrandName = String(
+      body.brandName || body.brand_name || brandName || ""
+    ).trim();
 
-console.log(
-  "WEBSITE CONTEXT:",
-  JSON.stringify(websiteContext, null, 2)
-);
+    const brandSlug = slugifyBrand(
+      String(body.brandSlug || body.brand_slug || normalizedBrandName)
+    );
+
+    const orionEvidenceContext = buildOrionEvidenceContext({
+      brandName,
+      industry,
+      city,
+      instagram,
+      facebook,
+      tiktok,
+      website,
+      competitors,
+    });
+
+    const orionLatestEvidenceContext = await buildOrionLatestEvidenceContext({
+      supabase,
+      brandName,
+    });
+
+    const instagramContext = null;
+    const facebookContext = null;
+    const tiktokContext = null;
+    const websiteContext = website
+      ? await analyzeWebsiteLite(normalizeWebsiteUrl(website))
+      : null;
+
+    console.log("WEBSITE CONTEXT:", JSON.stringify(websiteContext, null, 2));
 
     const competitorUrls = parseCompetitors(competitors);
-
     const competitorData: unknown[] = [];
-    
+
     const instagramVisualAnalysis = await analyzeScreenshotWithVision({
       screenshotUrl: undefined,
       platform: "Instagram",
@@ -339,13 +696,14 @@ Responde en texto claro, estratégico y específico.
     });
 
     const profileSignalsText =
-  "Scraper de Instagram desactivado temporalmente.";
+      "Scraper de Instagram desactivado temporalmente.";
 
-const engagementSignalsText =
-  "Scraper de Instagram desactivado temporalmente.";
+    const engagementSignalsText =
+      "Scraper de Instagram desactivado temporalmente.";
 
-const scrapingStatusText =
-  "Scraper de Instagram desactivado temporalmente.";
+    const scrapingStatusText =
+      "Scraper de Instagram desactivado temporalmente.";
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       temperature: 0.55,
@@ -372,12 +730,33 @@ REGLAS CRÍTICAS:
 - facebook_analysis es obligatorio.
 - tiktok_analysis es obligatorio.
 - website_analysis es obligatorio.
+- ORION debe diferenciar entre dato declarado, evidencia visual, señal estructurada, inferencia estratégica e información pendiente de validar.
+- Si solo existe una URL de Instagram, Facebook, TikTok o sitio web, no afirmes que se navegó, scrapeó o validó el perfil.
+- Si el scraper está desactivado, debes decir que el análisis de redes se basa en información declarada y oportunidades pendientes de validación.
+- No inventes seguidores, publicaciones, engagement, frecuencia, tráfico web, ventas ni conversiones.
+- Cuando una métrica no esté disponible, usa "No detectado" o 0 según corresponda en el JSON.
+- Las oportunidades estratégicas sí pueden inferirse, pero deben estar redactadas como inferencias basadas en la información disponible.
           `,
         },
         {
           role: "user",
           content: `
 Analiza esta marca con profundidad estratégica.
+
+${orionEvidenceContext}
+
+${orionLatestEvidenceContext}
+
+REGLAS CRÍTICAS DE VERACIDAD PARA ORION:
+
+1. Si una métrica no aparece explícitamente en ORION LATEST EVIDENCE CONTEXT, debes responder "No detectado".
+2. Nunca inventes números de seguidores, likes, publicaciones, vistas, engagement, comentarios, ventas, conversiones o tráfico.
+3. Si un campo dice "No detectado", el diagnóstico narrativo NO puede mencionar una cifra relacionada con ese campo.
+4. Si Facebook tiene seguidores = "No detectado", no puedes decir "buen número de seguidores", "1.5k seguidores", "alta comunidad" ni frases similares.
+5. Si TikTok tiene seguidores, likes o videos como "No detectado", no puedes calificarlo por tamaño de audiencia; solo puedes hablar de presencia detectada, accesibilidad y señales de contenido.
+6. Puedes hacer inferencias estratégicas, pero deben escribirse como inferencias, no como datos medidos.
+7. Si la evidencia pública fue limitada, dilo claramente: "La plataforma fue detectada, pero la extracción pública no permitió validar métricas exactas".
+8. La narrativa debe ser consistente con las tarjetas de métricas. Si la tarjeta dice "No detectado", el texto debe respetarlo.
 
 DATOS DECLARADOS:
 Nombre: ${brandName}
@@ -499,20 +878,20 @@ Estructura exacta:
   },
 
   "website_analysis": {
-  "website_score": 0,
-  "presence_level": "",
-  "seo_score": 0,
-  "conversion_score": 0,
-  "trust_score": 0,
-  "ux_score": 0,
-  "seo_level": "",
-  "conversion_level": "",
-  "trust_level": "",
-  "diagnosis": "",
-  "main_problem": "",
-  "main_opportunity": "",
-  "recommended_action": ""
-},
+    "website_score": 0,
+    "presence_level": "",
+    "seo_score": 0,
+    "conversion_score": 0,
+    "trust_score": 0,
+    "ux_score": 0,
+    "seo_level": "",
+    "conversion_level": "",
+    "trust_level": "",
+    "diagnosis": "",
+    "main_problem": "",
+    "main_opportunity": "",
+    "recommended_action": ""
+  },
 
   "current_losses": {
     "lost_attention": "",
@@ -642,38 +1021,70 @@ Criterios:
 
     let parsedResult;
 
-try {
-  parsedResult = JSON.parse(cleanedResult);
-} catch (parseError) {
-  console.error("ERROR PARSEANDO JSON DE ORION:", parseError);
-  console.error("RESPUESTA LIMPIA DE ORION:", cleanedResult);
+    try {
+      parsedResult = JSON.parse(cleanedResult);
+    } catch (parseError) {
+      console.error("ERROR PARSEANDO JSON DE ORION:", parseError);
+      console.error("RESPUESTA LIMPIA DE ORION:", cleanedResult);
 
-  return Response.json({
-    success: false,
-    error: "ORION generó una respuesta con formato JSON inválido.",
-    rawResult: cleanedResult,
-  });
-}
+      return Response.json({
+        success: false,
+        error: "ORION generó una respuesta con formato JSON inválido.",
+        rawResult: cleanedResult,
+      });
+    }
 
-if (parsedResult.social_signals) {
-  parsedResult.social_signals.instagram_followers = cleanMetricValue(
-    parsedResult.social_signals.instagram_followers
-  );
+    const brandSearchKey = String(brandName || "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "");
 
-  parsedResult.social_signals.instagram_following = cleanMetricValue(
-    parsedResult.social_signals.instagram_following
-  );
+    const { data: latestEvidenceData, error: latestEvidenceError } =
+      await supabase
+        .from("orion_latest_evidence")
+        .select("*")
+        .eq("brand_search_key", brandSearchKey);
 
-  parsedResult.social_signals.instagram_posts = cleanMetricValue(
-    parsedResult.social_signals.instagram_posts
-  );
-}
+    console.log("LATEST EVIDENCE DEBUG:", {
+      brandName,
+      brandSearchKey,
+      latestEvidenceCount: latestEvidenceData?.length || 0,
+      sources: latestEvidenceData?.map((item: any) => ({
+        source_type: item.source_type,
+        followers: item.raw_data?.followers,
+        following: item.raw_data?.following,
+        posts: item.raw_data?.posts,
+        likes: item.raw_data?.likes,
+        talking_about: item.raw_data?.talking_about,
+      })),
+    });
+
+    if (latestEvidenceError) {
+      console.log("Error leyendo latest evidence para ORION:", latestEvidenceError);
+    }
+
+    applyLatestEvidenceToOrionResult(parsedResult, latestEvidenceData || []);
+
+    if (parsedResult.social_signals) {
+      parsedResult.social_signals.instagram_followers = cleanMetricValue(
+        parsedResult.social_signals.instagram_followers
+      );
+
+      parsedResult.social_signals.instagram_following = cleanMetricValue(
+        parsedResult.social_signals.instagram_following
+      );
+
+      parsedResult.social_signals.instagram_posts = cleanMetricValue(
+        parsedResult.social_signals.instagram_posts
+      );
+    }
 
     ensureCurrentLosses(parsedResult);
     ensureGrowthPotential(parsedResult);
     ensureFacebookAnalysis(parsedResult, facebook);
     ensureTikTokAnalysis(parsedResult, tiktok);
     ensureWebsiteAnalysis(parsedResult, website);
+    applyEvidenceMetricsToUiPayload(parsedResult, latestEvidenceData || []);
 
     if (!parsedResult.opportunity_level) {
       parsedResult.opportunity_level = {
@@ -685,144 +1096,248 @@ if (parsedResult.social_signals) {
     }
 
     const { data: savedAnalysis, error: brandInsertError } = await supabase
-  .from("brand_analysis")
-  .insert([
-    {
-      brand_name: brandName,
-      industry,
-      city,
+      .from("brand_analysis")
+      .insert([
+        {
+          brand_name: normalizedBrandName,
+          brand_slug: brandSlug,
+          industry,
+          city,
+          instagram,
+          facebook,
+          tiktok,
+          website,
+          competitors,
+          objective,
+          budget,
+          problem,
+          analysis: JSON.stringify(parsedResult),
+        },
+      ])
+      .select("id")
+      .single();
+
+    if (brandInsertError) {
+      console.log("Error guardando análisis ORION:", brandInsertError);
+
+      return NextResponse.json({
+        success: false,
+        error: "Error guardando análisis de ORION.",
+      });
+    }
+
+    const evidenceRecords = buildOrionEvidenceRecords({
+      brandAnalysisId: savedAnalysis?.id || null,
+      brandName: normalizedBrandName,
       instagram,
       facebook,
       tiktok,
       website,
       competitors,
-      objective,
-      budget,
-      problem,
-      analysis: JSON.stringify(parsedResult),
-    },
-  ])
-  .select("id")
-  .single();
+    });
 
-if (brandInsertError) {
-  console.log("Error guardando análisis ORION:", brandInsertError);
+    if (evidenceRecords.length > 0) {
+      const { error: evidenceError } = await supabase
+        .from("orion_evidence")
+        .insert(evidenceRecords);
 
-  return NextResponse.json({
-    success: false,
-    error: "Error guardando análisis de ORION.",
-  });
-}
+      if (evidenceError) {
+        console.log("Error guardando ORION Evidence:", evidenceError);
+      }
+    }
 
-const orionMemory = {
-  result: parsedResult,
-  instagramContext,
-  facebookContext,
-  tiktokContext,
-  websiteContext,
-  instagramVisualAnalysis,
-  facebookVisualAnalysis,
-  tiktokVisualAnalysis,
-  websiteVisualAnalysis,
-};
+    try {
+      const evidenceResponse = await fetch(
+        new URL("/api/orion/evidence", req.url),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brandAnalysisId: savedAnalysis?.id || null,
+            brandName: normalizedBrandName,
+            brandSlug,
+            industry,
+            city,
+            instagram,
+            facebook,
+            tiktok,
+            website,
+          }),
+        }
+      );
 
-let existingMemory = null;
+      const evidenceData = await evidenceResponse.json();
 
-if (savedAnalysis?.id) {
-  const { data, error } = await supabase
-    .from("cosmos_memory")
-    .select("*")
-    .eq("brand_analysis_id", savedAnalysis.id)
-    .maybeSingle();
+      console.log("ORION EVIDENCE RESULT:", evidenceData);
+    } catch (evidenceError) {
+      console.log("ORION Evidence Layer no pudo ejecutarse:", evidenceError);
+    }
 
-  if (error) {
-    console.log("Error buscando memoria ORION por brandAnalysisId:", error);
-  }
+    const orionMemory = {
+      result: parsedResult,
+      instagramContext,
+      facebookContext,
+      tiktokContext,
+      websiteContext,
+      instagramVisualAnalysis,
+      facebookVisualAnalysis,
+      tiktokVisualAnalysis,
+      websiteVisualAnalysis,
+    };
 
-  existingMemory = data;
-}
+    const now = new Date().toISOString();
 
-if (!existingMemory) {
-  const { data, error } = await supabase
-    .from("cosmos_memory")
-    .select("*")
-    .eq("brand_name", brandName)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    const timelineEvent = {
+      timestamp: now,
+      agent: "ORION",
+      action: "brand_analysis",
+      memory_column: "orion_memory",
+      summary: parsedResult?.executive_summary || null,
+    };
 
-  if (error) {
-    console.log("Error buscando memoria ORION por brandName:", error);
-  }
+    let existingMemory = null;
 
-  existingMemory = data;
-}
+    if (savedAnalysis?.id) {
+      const { data, error } = await supabase
+        .from("cosmos_memory")
+        .select("*")
+        .eq("brand_analysis_id", savedAnalysis.id)
+        .maybeSingle();
 
-if (existingMemory) {
-  await supabase
-    .from("cosmos_memory")
-    .update({
-      brand_analysis_id: savedAnalysis?.id || existingMemory.brand_analysis_id,
-      brand_name: brandName,
-      industry,
-      city,
-      orion_analysis: orionMemory,
-      last_agent: "ORION",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", existingMemory.id);
-} else {
-  await supabase.from("cosmos_memory").insert([
-    {
-      brand_analysis_id: savedAnalysis?.id || null,
-      brand_name: brandName,
-      industry,
-      city,
-      orion_analysis: orionMemory,
-      last_agent: "ORION",
-      status: "active",
-    },
-  ]);
-}
+      if (error) {
+        console.log("Error buscando memoria ORION por brandAnalysisId:", error);
+      }
 
-await supabase.from("cosmos_agent_runs").insert([
-  {
-    brand_name: brandName,
-    brand_analysis_id: savedAnalysis?.id || null,
-    agent_name: "ORION",
-    action_type: "brand_analysis",
-    input_data: {
-      brandName,
-      industry,
-      city,
-      instagram,
-      facebook,
-      tiktok,
-      website,
-      competitors,
-      objective,
-      budget,
-      problem,
-    },
-    output_data: orionMemory,
-    status: "success",
-  },
-]);
+      existingMemory = data;
+    }
 
-return NextResponse.json({
-  success: true,
-  brandAnalysisId: savedAnalysis?.id || null,
-  result: parsedResult,
-  instagramContext,
-  facebookContext,
-  tiktokContext,
-  websiteContext,
-  instagramVisualAnalysis,
-  facebookVisualAnalysis,
-  tiktokVisualAnalysis,
-  websiteVisualAnalysis,
-});
+    const { data: memoryByBrandSlug, error: memoryByBrandSlugError } =
+      await supabase
+        .from("cosmos_memory")
+        .select("*")
+        .eq("brand_slug", brandSlug)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
+    console.log("ORION MEMORY BY SLUG:", memoryByBrandSlug);
+    console.log("ORION MEMORY BY SLUG ERROR:", memoryByBrandSlugError);
+
+    const { data: memoryByBrandName, error: memoryByBrandNameError } =
+      await supabase
+        .from("cosmos_memory")
+        .select("*")
+        .ilike("brand_name", normalizedBrandName)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    console.log("ORION MEMORY BY BRAND:", memoryByBrandName);
+    console.log("ORION MEMORY BY BRAND ERROR:", memoryByBrandNameError);
+
+    const memoryToUpdate = existingMemory || memoryByBrandSlug || memoryByBrandName;
+
+    if (memoryToUpdate) {
+      const currentTimeline = Array.isArray(memoryToUpdate.activity_timeline)
+        ? memoryToUpdate.activity_timeline
+        : [];
+
+      const { data: updatedData, error: updateMemoryError } = await supabase
+        .from("cosmos_memory")
+        .update({
+          brand_analysis_id: savedAnalysis?.id || memoryToUpdate.brand_analysis_id,
+          brand_name: normalizedBrandName,
+          brand_slug: brandSlug,
+          industry,
+          city,
+          orion_memory: orionMemory,
+          last_agent: "ORION",
+          activity_timeline: [...currentTimeline, timelineEvent],
+          updated_at: now,
+        })
+        .eq("id", memoryToUpdate.id)
+        .select();
+
+      console.log("ORION UPDATE RESULT:", updatedData);
+      console.log("ORION UPDATE ERROR:", updateMemoryError);
+
+      if (updateMemoryError) {
+        return NextResponse.json({
+          success: false,
+          error: "ORION generó el análisis, pero no pudo actualizar COSMOS.",
+          detail: updateMemoryError,
+        });
+      }
+    } else {
+      const { data: insertedData, error: insertMemoryError } = await supabase
+        .from("cosmos_memory")
+        .insert([
+          {
+            brand_analysis_id: savedAnalysis?.id || null,
+            brand_name: normalizedBrandName,
+            brand_slug: brandSlug,
+            industry,
+            city,
+            orion_memory: orionMemory,
+            last_agent: "ORION",
+            activity_timeline: [timelineEvent],
+            status: "active",
+            updated_at: now,
+          },
+        ])
+        .select();
+
+      console.log("ORION INSERT RESULT:", insertedData);
+      console.log("ORION INSERT ERROR:", insertMemoryError);
+
+      if (insertMemoryError) {
+        return NextResponse.json({
+          success: false,
+          error: "ORION generó el análisis, pero no pudo crear memoria en COSMOS.",
+          detail: insertMemoryError,
+        });
+      }
+    }
+
+    await supabase.from("cosmos_agent_runs").insert([
+      {
+        brand_name: normalizedBrandName,
+        brand_analysis_id: savedAnalysis?.id || null,
+        agent_name: "ORION",
+        action_type: "brand_analysis",
+        input_data: {
+          brandName: normalizedBrandName,
+          brandSlug,
+          industry,
+          city,
+          instagram,
+          facebook,
+          tiktok,
+          website,
+          competitors,
+          objective,
+          budget,
+          problem,
+        },
+        output_data: orionMemory,
+        status: "success",
+      },
+    ]);
+
+    return NextResponse.json({
+      success: true,
+      brandAnalysisId: savedAnalysis?.id || null,
+      brandSlug,
+      result: parsedResult,
+      instagramContext,
+      facebookContext,
+      tiktokContext,
+      websiteContext,
+      instagramVisualAnalysis,
+      facebookVisualAnalysis,
+      tiktokVisualAnalysis,
+      websiteVisualAnalysis,
+    });
   } catch (error) {
     console.log(error);
 

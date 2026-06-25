@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function NovaClient({ analysisId }: { analysisId: string }) {
+  const router = useRouter();
   const [analysis, setAnalysis] = useState<any>(null);
-  const [businessMap, setBusinessMap] = useState<any>(null);
+  const [businessMemory, setBusinessMemory] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [novaLoading, setNovaLoading] = useState(false);
+  const [memoryLoading, setMemoryLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const [discoveryData, setDiscoveryData] = useState({
@@ -56,10 +58,10 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
     }
   }
 
-  async function runNova() {
+  async function runBusinessMemory() {
     if (!analysis) return;
 
-    setNovaLoading(true);
+    setMemoryLoading(true);
     setErrorMessage("");
 
     try {
@@ -101,17 +103,34 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
 
       const data = await response.json();
 
+      console.log("BUSINESS MEMORY RESPONSE:", data);
+
       if (!data.success) {
-        setErrorMessage(data.error || "NOVA no pudo generar el Business Map.");
+        setErrorMessage(
+          data.error || "Business Memory no pudo generar la memoria del negocio."
+        );
         return;
       }
 
-      setBusinessMap(data.businessMap);
+      setBusinessMemory(data.businessMemory);
+
+      localStorage.setItem(
+        "cometa_selected_business_memory",
+        JSON.stringify({
+          brandAnalysisId: analysisId,
+          brandName: analysis.brand_name,
+          industry: analysis.industry,
+          city: analysis.city,
+          businessMemory: data.businessMemory,
+        })
+      );
+
+      window.dispatchEvent(new Event("cometa-business-memory-selected"));
     } catch (error) {
       console.log(error);
-      setErrorMessage("Error ejecutando NOVA.");
+      setErrorMessage("Error ejecutando Business Memory.");
     } finally {
-      setNovaLoading(false);
+      setMemoryLoading(false);
     }
   }
 
@@ -137,11 +156,11 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
     <main className="min-h-screen p-10 bg-slate-50">
       <section className="bg-white rounded-3xl p-10 shadow-sm border border-slate-200">
         <p className="text-blue-600 font-bold mb-2">
-          NOVA · Business Intelligence AI
+          BUSINESS MEMORY · COMETA OS
         </p>
 
         <h1 className="text-4xl font-black mb-6">
-          Mapa comercial del negocio
+          Memoria comercial del negocio
         </h1>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
@@ -150,7 +169,7 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
           <InfoCard title="Ciudad" value={analysis?.city} />
         </div>
 
-        {!businessMap && (
+        {!businessMemory && (
           <div className="bg-white border border-slate-200 rounded-3xl p-8 mb-8 shadow-sm">
             <p className="text-blue-600 font-bold mb-2">BUSINESS DISCOVERY</p>
 
@@ -159,8 +178,9 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
             </h2>
 
             <p className="text-slate-600 leading-7 mb-6">
-              ORION ya analizó la marca. NOVA necesita lo que solo el negocio
-              sabe: oferta, ticket, capacidad, diferenciador y restricciones.
+              ORION ya analizó la marca. Business Memory necesita lo que solo el
+              negocio sabe: oferta, ticket, capacidad, diferenciador y
+              restricciones.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -216,28 +236,28 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
           </div>
         )}
 
-        {!businessMap && (
+        {!businessMemory && (
           <div className="bg-slate-900 text-white rounded-3xl p-8">
             <p className="text-blue-300 font-bold mb-2">SIGUIENTE PASO</p>
 
             <h2 className="text-2xl font-black mb-4">
-              Ejecutar NOVA para construir el mapa comercial
+              Construir Business Memory
             </h2>
 
             <p className="text-slate-300 leading-7 mb-6">
-              NOVA convertirá ORION + Business Discovery en una radiografía
+              Business Memory convertirá ORION + Business Discovery en memoria
               comercial: buyer persona, tomadores de decisión, barreras,
               aceleradores, revenue drivers y oportunidades.
             </p>
 
             <button
-              onClick={runNova}
-              disabled={novaLoading}
+              onClick={runBusinessMemory}
+              disabled={memoryLoading}
               className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black px-6 py-4 rounded-2xl transition"
             >
-              {novaLoading
-                ? "NOVA está construyendo el Business Map..."
-                : "Ejecutar NOVA →"}
+              {memoryLoading
+                ? "Construyendo Business Memory..."
+                : "Construir Business Memory →"}
             </button>
           </div>
         )}
@@ -249,53 +269,56 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
         )}
       </section>
 
-      {businessMap && (
+      {businessMemory && (
         <section className="mt-8 space-y-6">
           <div className="bg-blue-600 text-white rounded-3xl p-8 shadow-sm">
             <p className="text-blue-100 font-bold mb-2">
-              BUSINESS MAP GENERADO
+              BUSINESS MEMORY GENERADO
             </p>
 
             <h2 className="text-3xl font-black mb-4">
-              {businessMap.business_summary || "Radiografía comercial"}
+              {businessMemory.business_summary || "Memoria comercial"}
             </h2>
 
             <p className="text-blue-50 leading-8">
-              {businessMap.commercial_diagnosis ||
-                businessMap.main_growth_opportunity ||
-                "NOVA generó el mapa comercial del negocio."}
+              {businessMemory.commercial_diagnosis ||
+                businessMemory.main_growth_opportunity ||
+                "Business Memory generó la memoria comercial del negocio."}
             </p>
           </div>
 
           <GridSection
             title="Modelo comercial"
             items={[
-              ["Modelo de negocio", businessMap.business_model],
-              ["Contexto de industria", businessMap.industry_context],
-              ["Mercado objetivo", businessMap.target_market],
-              ["Posicionamiento", businessMap.brand_positioning],
+              ["Modelo de negocio", businessMemory.business_model],
+              ["Contexto de industria", businessMemory.industry_context],
+              ["Mercado objetivo", businessMemory.target_market],
+              ["Posicionamiento", businessMemory.brand_positioning],
             ]}
           />
 
           <GridSection
             title="Buyer Persona"
             items={[
-              ["Persona principal", businessMap.buyer_persona?.primary_persona],
-              ["Persona secundaria", businessMap.buyer_persona?.secondary_persona],
-              ["Necesidades", formatList(businessMap.buyer_persona?.needs)],
-              ["Deseos", formatList(businessMap.buyer_persona?.desires)],
-              ["Miedos", formatList(businessMap.buyer_persona?.fears)],
+              ["Persona principal", businessMemory.buyer_persona?.primary_persona],
+              [
+                "Persona secundaria",
+                businessMemory.buyer_persona?.secondary_persona,
+              ],
+              ["Necesidades", formatList(businessMemory.buyer_persona?.needs)],
+              ["Deseos", formatList(businessMemory.buyer_persona?.desires)],
+              ["Miedos", formatList(businessMemory.buyer_persona?.fears)],
               [
                 "Disparadores de compra",
-                formatList(businessMap.buyer_persona?.purchase_triggers),
+                formatList(businessMemory.buyer_persona?.purchase_triggers),
               ],
               [
                 "Nivel de confianza",
-                `${businessMap.buyer_persona?.confidence_level || 0}/100`,
+                `${businessMemory.buyer_persona?.confidence_level || 0}/100`,
               ],
               [
                 "Razón de inferencia",
-                businessMap.buyer_persona?.inference_reason,
+                businessMemory.buyer_persona?.inference_reason,
               ],
             ]}
           />
@@ -303,29 +326,44 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
           <GridSection
             title="Decisión de compra"
             items={[
-              ["Tomadores de decisión", formatList(businessMap.decision_makers)],
+              [
+                "Tomadores de decisión",
+                formatList(businessMemory.decision_makers),
+              ],
               [
                 "Influenciadores de compra",
-                formatList(businessMap.purchase_influencers),
+                formatList(businessMemory.purchase_influencers),
               ],
-              ["Proceso de compra", formatList(businessMap.purchase_process)],
-              ["Criterios de compra", formatList(businessMap.purchase_criteria)],
+              [
+                "Proceso de compra",
+                formatList(businessMemory.purchase_process),
+              ],
+              [
+                "Criterios de compra",
+                formatList(businessMemory.purchase_criteria),
+              ],
             ]}
           />
 
           <GridSection
             title="Revenue Drivers"
             items={[
-              ["Ofertas clave", formatList(businessMap.key_offers)],
-              ["Motores de ingreso", formatList(businessMap.revenue_drivers)],
+              ["Ofertas clave", formatList(businessMemory.key_offers)],
+              [
+                "Motores de ingreso",
+                formatList(businessMemory.revenue_drivers),
+              ],
               [
                 "Oportunidades de alto margen",
-                formatList(businessMap.high_margin_opportunities),
+                formatList(businessMemory.high_margin_opportunities),
               ],
-              ["Productos a empujar", formatList(businessMap.products_to_push)],
+              [
+                "Productos a empujar",
+                formatList(businessMemory.products_to_push),
+              ],
               [
                 "Recompra / ingreso recurrente",
-                formatList(businessMap.recurring_revenue_opportunities),
+                formatList(businessMemory.recurring_revenue_opportunities),
               ],
             ]}
           />
@@ -335,25 +373,28 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
             items={[
               [
                 "Problema principal",
-                businessMap.customer_psychology?.main_problem,
+                businessMemory.customer_psychology?.main_problem,
               ],
               [
                 "Problema oculto",
-                businessMap.customer_psychology?.hidden_problem,
+                businessMemory.customer_psychology?.hidden_problem,
               ],
-              ["Deseo principal", businessMap.customer_psychology?.main_desire],
-              ["Miedo principal", businessMap.customer_psychology?.main_fear],
+              [
+                "Deseo principal",
+                businessMemory.customer_psychology?.main_desire,
+              ],
+              ["Miedo principal", businessMemory.customer_psychology?.main_fear],
               [
                 "Disparador emocional",
-                businessMap.customer_psychology?.emotional_trigger,
+                businessMemory.customer_psychology?.emotional_trigger,
               ],
               [
                 "Disparador racional",
-                businessMap.customer_psychology?.rational_trigger,
+                businessMemory.customer_psychology?.rational_trigger,
               ],
               [
                 "Disparador de estatus",
-                businessMap.customer_psychology?.status_trigger,
+                businessMemory.customer_psychology?.status_trigger,
               ],
             ]}
           />
@@ -361,23 +402,32 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
           <GridSection
             title="Barreras y aceleradores de venta"
             items={[
-              ["Objeciones", formatList(businessMap.customer_objections)],
-              ["Barreras de venta", formatList(businessMap.sales_barriers)],
+              ["Objeciones", formatList(businessMemory.customer_objections)],
+              [
+                "Barreras de venta",
+                formatList(businessMemory.sales_barriers),
+              ],
               [
                 "Aceleradores de venta",
-                formatList(businessMap.sales_accelerators),
+                formatList(businessMemory.sales_accelerators),
               ],
-              ["Pruebas necesarias", formatList(businessMap.proof_needed_to_sell)],
+              [
+                "Pruebas necesarias",
+                formatList(businessMemory.proof_needed_to_sell),
+              ],
             ]}
           />
 
           <GridSection
             title="Confianza y diferenciación"
             items={[
-              ["Activos de confianza", formatList(businessMap.trust_assets)],
-              ["Diferenciadores", formatList(businessMap.differentiators)],
-              ["Voz de marca", businessMap.brand_voice],
-              ["Canales de venta", formatList(businessMap.sales_channels)],
+              [
+                "Activos de confianza",
+                formatList(businessMemory.trust_assets),
+              ],
+              ["Diferenciadores", formatList(businessMemory.differentiators)],
+              ["Voz de marca", businessMemory.brand_voice],
+              ["Canales de venta", formatList(businessMemory.sales_channels)],
             ]}
           />
 
@@ -386,16 +436,16 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
             items={[
               [
                 "Oportunidades comerciales",
-                formatList(businessMap.commercial_opportunities),
+                formatList(businessMemory.commercial_opportunities),
               ],
-              ["Quick wins", formatList(businessMap.quick_wins)],
+              ["Quick wins", formatList(businessMemory.quick_wins)],
               [
                 "Riesgos o limitaciones",
-                formatList(businessMap.risks_or_limitations),
+                formatList(businessMemory.risks_or_limitations),
               ],
               [
                 "Consideraciones operativas",
-                formatList(businessMap.operational_considerations),
+                formatList(businessMemory.operational_considerations),
               ],
             ]}
           />
@@ -405,12 +455,15 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
             items={[
               [
                 "Generación de prospectos",
-                businessMap.commercial_journey?.lead_generation,
+                businessMemory.commercial_journey?.lead_generation,
               ],
-              ["Calificación", businessMap.commercial_journey?.qualification],
-              ["Propuesta", businessMap.commercial_journey?.proposal],
-              ["Cierre", businessMap.commercial_journey?.closing],
-              ["Retención", businessMap.commercial_journey?.retention],
+              [
+                "Calificación",
+                businessMemory.commercial_journey?.qualification,
+              ],
+              ["Propuesta", businessMemory.commercial_journey?.proposal],
+              ["Cierre", businessMemory.commercial_journey?.closing],
+              ["Retención", businessMemory.commercial_journey?.retention],
             ]}
           />
 
@@ -419,19 +472,23 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
             items={[
               [
                 "Información que falta",
-                formatList(businessMap.ai_inferences?.missing_information),
+                formatList(businessMemory.ai_inferences?.missing_information),
               ],
               [
                 "Detectado por ORION",
-                formatList(businessMap.ai_inferences?.what_ai_detected_from_orion),
+                formatList(
+                  businessMemory.ai_inferences?.what_ai_detected_from_orion
+                ),
               ],
               [
                 "Declarado por cliente",
-                formatList(businessMap.ai_inferences?.what_client_declared),
+                formatList(
+                  businessMemory.ai_inferences?.what_client_declared
+                ),
               ],
               [
-                "Inferido por NOVA",
-                formatList(businessMap.ai_inferences?.what_ai_inferred),
+                "Inferido por IA",
+                formatList(businessMemory.ai_inferences?.what_ai_inferred),
               ],
             ]}
           />
@@ -442,22 +499,24 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
               [
                 "Señales relevantes para estrategia",
                 formatList(
-                  businessMap.atlas_context?.relevant_signals_for_strategy
+                  businessMemory.atlas_context?.relevant_signals_for_strategy
                 ),
               ],
               [
                 "ATLAS debe considerar",
-                formatList(businessMap.atlas_context?.what_atlas_should_consider),
+                formatList(
+                  businessMemory.atlas_context?.what_atlas_should_consider
+                ),
               ],
               [
                 "ATLAS no debe asumir",
                 formatList(
-                  businessMap.atlas_context?.what_atlas_should_not_assume
+                  businessMemory.atlas_context?.what_atlas_should_not_assume
                 ),
               ],
               [
                 "Notas estratégicas",
-                formatList(businessMap.strategic_notes_for_cometa),
+                formatList(businessMemory.strategic_notes_for_cometa),
               ],
             ]}
           />
@@ -465,21 +524,25 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
           <div className="bg-slate-900 text-white rounded-3xl p-8">
             <p className="text-blue-300 font-bold mb-2">SIGUIENTE PASO</p>
 
-            <h2 className="text-2xl font-black mb-4">
-              Continuar con ATLAS
-            </h2>
+            <h2 className="text-2xl font-black mb-4">Continuar con ATLAS</h2>
 
             <p className="text-slate-300 leading-7 mb-6">
-              ATLAS usará esta radiografía comercial para construir la
-              estrategia de contenido, comunicación y crecimiento.
+              ATLAS usará esta memoria comercial para construir la estrategia de
+              contenido, comunicación y crecimiento.
             </p>
 
             <button
-              onClick={() => alert("Siguiente fase: conectar ATLAS")}
-              className="bg-white text-slate-900 font-black px-6 py-4 rounded-2xl"
-            >
-              Continuar con ATLAS →
-            </button>
+  onClick={() =>
+    router.push(
+      `/generate-strategy?brandName=${encodeURIComponent(
+        analysis?.brand_name || ""
+      )}`
+    )
+  }
+  className="bg-white text-slate-900 font-black px-6 py-4 rounded-2xl"
+>
+  Continuar con ATLAS →
+</button>
           </div>
         </section>
       )}
@@ -506,7 +569,13 @@ function InfoCard({ title, value }: { title: string; value?: string }) {
   );
 }
 
-function GridSection({ title, items }: { title: string; items: [string, any][] }) {
+function GridSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: [string, any][];
+}) {
   return (
     <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm">
       <h3 className="text-2xl font-black text-slate-900 mb-6">{title}</h3>

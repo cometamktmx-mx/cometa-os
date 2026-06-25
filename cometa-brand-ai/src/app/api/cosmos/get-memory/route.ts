@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       const { data } = await supabase
         .from("cosmos_memory")
         .select("*")
-        .eq("brand_name", brandName)
+        .ilike("brand_name", `%${brandName}%`)
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
