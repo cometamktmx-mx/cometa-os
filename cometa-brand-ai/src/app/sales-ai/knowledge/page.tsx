@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type SectionKey = "brain" | "catalog" | "rules" | "faqs" | "notes" | "gaps";
 type ModalType = "catalog" | "rule" | "faq" | "note" | null;
+type AccessType = "view" | "edit" | "soon";
 
 type NavItem = {
   code: string;
@@ -13,6 +14,7 @@ type NavItem = {
   href: string;
   active?: boolean;
   disabled?: boolean;
+  access?: AccessType;
 };
 
 type BrandContext = {
@@ -69,10 +71,13 @@ const ruleTypes = [
   { value: "pricing", label: "Precios" },
   { value: "payment", label: "Pagos" },
   { value: "shipping", label: "Envíos" },
-  { value: "stock", label: "Stock" },
-  { value: "schedule", label: "Horario" },
-  { value: "escalation", label: "Escalación" },
-  { value: "forbidden", label: "Prohibición" },
+  { value: "stock", label: "Stock / disponibilidad" },
+  { value: "schedule", label: "Horarios" },
+  { value: "promotion", label: "Promociones" },
+  { value: "objection", label: "Objeciones" },
+  { value: "tone", label: "Tono de atención" },
+  { value: "escalation", label: "Escalación humana" },
+  { value: "forbidden", label: "Lo que NO puede decir" },
   { value: "followup", label: "Seguimiento" },
 ];
 
@@ -174,13 +179,17 @@ function SalesAIKnowledgeBrainInner() {
       }
 
       if (!res.ok || data.ok === false) {
-        throw new Error(data?.error || "No se pudo cargar Knowledge Brain.");
+        throw new Error(
+          data?.error || "No se pudo cargar la información para agentes IA."
+        );
       }
 
       setBrand(data.brand || fallbackBrand);
       setKnowledgeBase(normalizeKnowledgeBase(data, data.brand?.name));
     } catch (error: any) {
-      setSystemMessage(error?.message || "Error cargando Knowledge Brain.");
+      setSystemMessage(
+        error?.message || "Error cargando información para agentes IA."
+      );
       setBrand(fallbackBrand);
       setKnowledgeBase(null);
     } finally {
@@ -203,7 +212,7 @@ function SalesAIKnowledgeBrainInner() {
 
   return (
     <main className="min-h-screen bg-[#f2f7fb] text-slate-950">
-      <section className="mx-auto grid min-h-screen w-full max-w-[1800px] grid-cols-1 gap-4 p-4 xl:grid-cols-[214px_minmax(0,1fr)_390px]">
+      <section className="mx-auto grid min-h-screen w-full max-w-[1800px] grid-cols-1 gap-4 p-4 xl:grid-cols-[238px_minmax(0,1fr)_390px]">
         <Dock nav={nav} brand={brand} />
 
         <section className="flex min-w-0 flex-col gap-4">
@@ -225,6 +234,8 @@ function SalesAIKnowledgeBrainInner() {
             gapsCount={gaps.length}
             loading={loading}
           />
+
+          <EditableBoundary />
 
           <KnowledgeCore
             activeSection={activeSection}
@@ -288,10 +299,10 @@ function KnowledgeLoadingScreen() {
     <main className="min-h-screen bg-[#f2f7fb] p-6">
       <div className="mx-auto max-w-6xl rounded-[38px] bg-slate-950 p-10 text-white">
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">
-          Knowledge Brain
+          Información para Agentes IA
         </p>
         <h1 className="mt-4 text-5xl font-black tracking-[-0.08em]">
-          Cargando cerebro comercial...
+          Cargando base comercial...
         </h1>
       </div>
     </main>
@@ -303,17 +314,69 @@ function buildNav(brandSlug: string): NavItem[] {
   const brandQuery = `brandSlug=${safeBrandSlug}`;
 
   return [
-    { code: "WS", label: "Workspace", href: "/workspace" },
-    { code: "HM", label: "Brand OS", href: `/brand/${safeBrandSlug}` },
-    { code: "IN", label: "Inbox", href: `/sales-ai/inbox?${brandQuery}` },
     {
-      code: "KB",
-      label: "Knowledge",
+      code: "IN",
+      label: "Resumen",
+      href: `/brand/${safeBrandSlug}`,
+      access: "view",
+    },
+    {
+      code: "CD",
+      label: "Cuenta Digital",
+      href: `/brand/${safeBrandSlug}#cuenta-digital`,
+      access: "view",
+    },
+    {
+      code: "TR",
+      label: "Trabajo Realizado",
+      href: `/brand/${safeBrandSlug}#trabajo-realizado`,
+      access: "view",
+    },
+    {
+      code: "MC",
+      label: "Estrategia",
+      href: `/brand/${safeBrandSlug}#estrategia-mes`,
+      access: "view",
+    },
+    {
+      code: "SA",
+      label: "Ventas / Leads",
+      href: `/sales-ai/inbox?${brandQuery}`,
+      access: "edit",
+    },
+    {
+      code: "AI",
+      label: "Agentes IA",
       href: `/sales-ai/knowledge?${brandQuery}`,
       active: true,
+      access: "edit",
     },
-    { code: "LR", label: "Learning", href: `/sales-ai/learning?${brandQuery}` },
-    { code: "MC", label: "Misión", href: `/cometa-os/design?${brandQuery}` },
+    {
+      code: "CX",
+      label: "Conexiones",
+      href: `/brand/${safeBrandSlug}#conexiones`,
+      access: "edit",
+    },
+    {
+      code: "RP",
+      label: "Reportes",
+      href: `/brand/${safeBrandSlug}#reportes`,
+      access: "view",
+    },
+    {
+      code: "IV",
+      label: "Inventario",
+      href: `/brand/${safeBrandSlug}#inventario`,
+      disabled: true,
+      access: "soon",
+    },
+    {
+      code: "OP",
+      label: "Oportunidades",
+      href: `/brand/${safeBrandSlug}#oportunidades`,
+      disabled: true,
+      access: "soon",
+    },
   ];
 }
 
@@ -328,7 +391,10 @@ function LoadWarning({ message }: { message: string }) {
 function Dock({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
   return (
     <aside className="hidden rounded-[34px] border border-white bg-white/90 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur xl:flex xl:flex-col">
-      <div className="flex items-center gap-3 rounded-[26px] bg-slate-50 px-3 py-3">
+      <Link
+        href={`/brand/${brand.slug}`}
+        className="flex items-center gap-3 rounded-[26px] bg-slate-50 px-3 py-3 transition hover:bg-cyan-50"
+      >
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-slate-950 shadow-xl shadow-cyan-400/20">
           <div className="absolute h-7 w-7 rounded-full bg-cyan-400 blur-[6px]" />
           <div className="relative h-7 w-7 rounded-full bg-gradient-to-br from-cyan-300 via-emerald-400 to-slate-950" />
@@ -342,15 +408,15 @@ function Dock({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
             OS
           </p>
         </div>
-      </div>
+      </Link>
 
-      <nav className="mt-7 flex flex-1 flex-col gap-2">
+      <nav className="mt-7 flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
         {nav.map((item) => {
-          const className = `flex h-12 items-center gap-3 rounded-2xl px-3 text-left transition ${
+          const className = `flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2 text-left transition ${
             item.active
               ? "border border-cyan-200 bg-cyan-50 text-slate-950 shadow-sm shadow-cyan-950/5"
               : item.disabled
-              ? "cursor-not-allowed text-slate-300"
+              ? "cursor-not-allowed text-slate-300 opacity-70"
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
           }`;
 
@@ -368,8 +434,12 @@ function Dock({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
                 {item.code}
               </span>
 
-              <span className="truncate text-[13px] font-black">
-                {item.label}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-black">
+                  {item.label}
+                </span>
+
+                <AccessPill access={item.access} />
               </span>
             </>
           );
@@ -411,13 +481,37 @@ function Dock({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
         <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
 
         <div className="min-w-0">
-          <p className="text-xs font-bold text-emerald-700">Sistema</p>
+          <p className="text-xs font-bold text-emerald-700">Acceso</p>
           <p className="truncate text-xs font-black text-emerald-950">
-            Knowledge activo
+            Información editable
           </p>
         </div>
       </div>
     </aside>
+  );
+}
+
+function AccessPill({ access }: { access?: AccessType }) {
+  if (access === "edit") {
+    return (
+      <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700">
+        Editable
+      </span>
+    );
+  }
+
+  if (access === "soon") {
+    return (
+      <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700">
+        Próximo
+      </span>
+    );
+  }
+
+  return (
+    <span className="mt-1 inline-flex rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-cyan-700">
+      Visual
+    </span>
   );
 }
 
@@ -447,11 +541,11 @@ function Hero({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-white">
-              Sales AI
+              Agentes IA
             </span>
 
             <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-200">
-              Knowledge Brain
+              Información editable
             </span>
 
             <span
@@ -470,25 +564,28 @@ function Hero({
           </p>
 
           <h1 className="mt-3 max-w-5xl text-5xl font-black leading-[0.92] tracking-[-0.085em] md:text-6xl 2xl:text-[76px]">
-            Knowledge
+            Información
             <br />
-            Command Center
+            para Agentes IA
           </h1>
 
           <p className="mt-6 max-w-4xl text-[17px] font-semibold leading-8 text-slate-300">
-            El cerebro comercial que SALES AI usa para vender, responder,
-            aprender y escalar sin inventar información crítica.
+            Aquí el cliente actualiza la información real del negocio: productos,
+            reglas, preguntas frecuentes, restricciones y contexto comercial. Los
+            agentes usan estos datos para responder sin inventar.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
             <button
+              type="button"
               onClick={onAdd}
               className="flex h-14 items-center justify-center rounded-2xl bg-white px-6 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
             >
-              + Entrenar agente
+              + Agregar información
             </button>
 
             <button
+              type="button"
               onClick={onRefresh}
               disabled={loading}
               className="flex h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm font-black text-white transition hover:bg-white/10 disabled:opacity-50"
@@ -500,7 +597,7 @@ function Hero({
 
         <div className="rounded-[32px] border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">
-            Agent Readiness
+            Preparación IA
           </p>
 
           <div className="mt-5 flex items-center justify-between gap-4">
@@ -510,7 +607,7 @@ function Hero({
               </h2>
 
               <p className="mt-2 text-sm font-bold text-slate-300">
-                Preparación comercial
+                Información aprobada
               </p>
             </div>
 
@@ -541,7 +638,7 @@ function KnowledgeMetrics({
   loading: boolean;
 }) {
   const items = [
-    { label: "Readiness", value: `${readiness}%`, code: "RD" },
+    { label: "Preparación", value: `${readiness}%`, code: "RD" },
     { label: "Catálogo", value: counts.catalog, code: "CT" },
     { label: "Reglas", value: counts.rules, code: "RL" },
     { label: "FAQs", value: counts.faqs, code: "FQ" },
@@ -574,6 +671,44 @@ function KnowledgeMetrics({
   );
 }
 
+function EditableBoundary() {
+  return (
+    <section className="grid gap-4 2xl:grid-cols-2">
+      <article className="rounded-[34px] border border-emerald-100 bg-emerald-50 p-6">
+        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-700">
+          Editable por cliente
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Información real del negocio
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-600">
+          Productos, servicios, precios autorizados, promociones, horarios,
+          reglas de venta, preguntas frecuentes, restricciones, objeciones y tono
+          de atención.
+        </p>
+      </article>
+
+      <article className="rounded-[34px] border border-slate-200 bg-white p-6">
+        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+          No editable por cliente
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Lógica interna de Cometa OS
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-500">
+          Prompts, scoring, estrategia, hipótesis internas, criterio de agentes,
+          automatizaciones sensibles y decisiones estratégicas aprobadas por
+          Cometa.
+        </p>
+      </article>
+    </section>
+  );
+}
+
 function TopControls({
   onRefresh,
   loading,
@@ -584,6 +719,7 @@ function TopControls({
   return (
     <div className="flex justify-end gap-3">
       <button
+        type="button"
         onClick={onRefresh}
         disabled={loading}
         className="flex h-12 items-center gap-3 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-slate-800 disabled:opacity-50"
@@ -620,44 +756,44 @@ function KnowledgeCore({
   }[] = [
     {
       key: "brain",
-      code: "KB",
-      title: "Brain",
-      description: "Vista general del cerebro comercial.",
+      code: "AI",
+      title: "Resumen IA",
+      description: "Vista general de la información que usan los agentes.",
       value: `${readiness}%`,
     },
     {
       key: "catalog",
       code: "CAT",
       title: "Catálogo",
-      description: "Qué puede vender y recomendar.",
+      description: "Productos, servicios, lotes u ofertas que puede vender.",
       value: counts.catalog,
     },
     {
       key: "rules",
-      code: "RUL",
+      code: "REG",
       title: "Reglas",
-      description: "Qué debe respetar siempre.",
+      description: "Límites, condiciones y decisiones comerciales.",
       value: counts.rules,
     },
     {
       key: "faqs",
       code: "FAQ",
       title: "FAQs",
-      description: "Qué puede responder con seguridad.",
+      description: "Preguntas frecuentes con respuestas autorizadas.",
       value: counts.faqs,
     },
     {
       key: "notes",
       code: "CTX",
       title: "Contexto",
-      description: "Qué debe entender del negocio.",
+      description: "Información general que el agente debe entender.",
       value: counts.notes,
     },
     {
       key: "gaps",
       code: "GAP",
       title: "Huecos",
-      description: "Qué falta antes de escalar autonomía.",
+      description: "Información faltante que puede causar errores.",
       value: gaps.length,
       warning: gaps.length > 0,
     },
@@ -668,11 +804,11 @@ function KnowledgeCore({
       <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-            Knowledge Operating Core
+            Base de información IA
           </p>
 
           <h2 className="mt-1 text-3xl font-black tracking-[-0.055em] text-slate-950">
-            Cerebro comercial
+            Información que usan los agentes
           </h2>
         </div>
 
@@ -693,6 +829,7 @@ function KnowledgeCore({
 
           return (
             <button
+              type="button"
               key={item.key}
               onClick={() => setActiveSection(item.key)}
               className={`group rounded-[30px] border p-5 text-left transition hover:-translate-y-1 ${
@@ -760,6 +897,7 @@ function KnowledgeDetails({
         </div>
 
         <button
+          type="button"
           onClick={onAdd}
           className="min-h-12 rounded-2xl bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700"
         >
@@ -769,7 +907,7 @@ function KnowledgeDetails({
 
       <div className="pt-5">
         {loading ? (
-          <EmptyState title="Cargando conocimiento..." />
+          <EmptyState title="Cargando información..." />
         ) : activeSection === "brain" ? (
           <BrainSummary knowledgeBase={knowledgeBase} gaps={gaps} />
         ) : activeSection === "catalog" ? (
@@ -810,7 +948,7 @@ function BrainSummary({
       />
 
       <CompactBrainCard
-        code="RUL"
+        code="REG"
         title="Reglas"
         value={rules.length}
         items={rules
@@ -846,20 +984,20 @@ function BrainSummary({
                 gaps.length ? "text-amber-700" : "text-emerald-700"
               }`}
             >
-              Estado de la base comercial
+              Estado de la información IA
             </p>
 
             <h3 className="mt-2 text-2xl font-black tracking-[-0.05em] text-slate-950">
               {gaps.length
                 ? `Hay ${gaps.length} huecos por resolver`
-                : "SALES AI tiene una base saludable"}
+                : "Los agentes tienen una base saludable"}
             </h3>
           </div>
 
           <p className="max-w-xl text-sm font-semibold leading-6 text-slate-600">
             {gaps.length
-              ? "Resuelve los huecos para aumentar autonomía y reducir escalaciones innecesarias."
-              : "El agente puede responder con mayor seguridad usando catálogo, reglas, FAQs y contexto aprobado."}
+              ? "Resolver estos huecos reduce respuestas inseguras, errores comerciales y escalaciones innecesarias."
+              : "Los agentes pueden responder con mayor seguridad usando información aprobada por el negocio."}
           </p>
         </div>
       </div>
@@ -1101,8 +1239,8 @@ function GapsList({
           No hay huecos críticos detectados
         </h3>
         <p className="mx-auto mt-3 max-w-2xl text-sm font-semibold leading-7 text-emerald-800">
-          SALES AI tiene una base comercial sólida para responder con mayor
-          autonomía sin inventar información crítica.
+          Los agentes tienen una base comercial más sólida para responder sin
+          inventar información crítica.
         </p>
       </div>
     );
@@ -1118,7 +1256,7 @@ function GapsList({
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
-                Hueco detectado
+                Información faltante
               </p>
 
               <h3 className="mt-2 text-xl font-black tracking-[-0.04em] text-amber-950">
@@ -1131,6 +1269,7 @@ function GapsList({
             </div>
 
             <button
+              type="button"
               onClick={() => onCreateRule(gap)}
               className="h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700"
             >
@@ -1162,8 +1301,9 @@ function EmptyState({ title }: { title: string }) {
       </h3>
 
       <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-6 text-slate-500">
-        Agrega información para que SALES AI responda con más contexto,
-        seguridad y criterio comercial.
+        Agrega información real del negocio para que los agentes IA puedan
+        responder con seguridad. Si no existe una respuesta autorizada, la IA
+        deberá preguntar, usar reglas aprobadas o escalar a revisión humana.
       </p>
     </div>
   );
@@ -1181,7 +1321,7 @@ function ReadinessPanel({
       <div className="flex items-start justify-between gap-5">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">
-            Agent Readiness
+            Preparación IA
           </p>
 
           <h2 className="mt-4 whitespace-nowrap text-[46px] font-black leading-[0.92] tracking-[-0.075em]">
@@ -1195,7 +1335,7 @@ function ReadinessPanel({
               }`}
             />
             <p className="text-sm font-bold text-slate-300">
-              {gapsCount ? "Requiere ajustes" : "Listo para operar"}
+              {gapsCount ? "Requiere datos" : "Base saludable"}
             </p>
           </div>
         </div>
@@ -1205,7 +1345,7 @@ function ReadinessPanel({
 
       <div className="mt-6">
         <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-          <span>Preparación comercial</span>
+          <span>Información aprobada</span>
           <span>{readiness}%</span>
         </div>
 
@@ -1220,8 +1360,8 @@ function ReadinessPanel({
       <div className="mt-6 grid grid-cols-2 gap-3">
         <DarkMini label="Huecos" value={String(gapsCount)} />
         <DarkMini label="Estado" value={gapsCount ? "Revisión" : "Sólido"} />
-        <DarkMini label="Uso" value="Ventas" />
-        <DarkMini label="Control" value="Humano" />
+        <DarkMini label="Uso" value="Agentes IA" />
+        <DarkMini label="Control" value="Cometa" />
       </div>
     </section>
   );
@@ -1273,21 +1413,22 @@ function BrainActions({
 }) {
   const buttons = [
     { code: "CAT", label: "Subir catálogo", action: onCatalog },
-    { code: "RUL", label: "Crear regla", action: onRule },
+    { code: "REG", label: "Crear regla", action: onRule },
     { code: "FAQ", label: "Crear FAQ", action: onFaq },
     { code: "CTX", label: "Agregar contexto", action: onNote },
-    { code: "GAP", label: "Detectar huecos", action: onGaps },
+    { code: "GAP", label: "Ver huecos", action: onGaps },
   ];
 
   return (
     <section className="rounded-[34px] border border-white bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.07)]">
       <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
-        Entrenar agente
+        Información editable
       </p>
 
       <div className="mt-5 grid gap-3">
         {buttons.map((button) => (
           <button
+            type="button"
             key={button.code}
             onClick={button.action}
             className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left transition hover:border-cyan-200 hover:bg-cyan-50"
@@ -1314,16 +1455,16 @@ function QuickLinks({
   brandSlug: string;
 }) {
   const links = [
-    { label: "Brand OS", href: `/brand/${brandSlug}` },
-    { label: "Sales Inbox", href: `/sales-ai/inbox?${brandQuery}` },
-    { label: "Learning Hub", href: `/sales-ai/learning?${brandQuery}` },
-    { label: "Mission Control", href: `/cometa-os/design?${brandQuery}` },
+    { label: "Dashboard", href: `/brand/${brandSlug}` },
+    { label: "Ventas / Leads", href: `/sales-ai/inbox?${brandQuery}` },
+    { label: "Conexiones", href: `/brand/${brandSlug}#conexiones` },
+    { label: "Reportes", href: `/brand/${brandSlug}#reportes` },
   ];
 
   return (
     <section className="rounded-[34px] border border-cyan-100 bg-cyan-50 p-5 shadow-sm">
       <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-700">
-        Navegación de marca
+        Navegación
       </p>
 
       <div className="mt-4 grid gap-2">
@@ -1355,16 +1496,16 @@ function SystemPrinciple({ gapsCount }: { gapsCount: number }) {
           gapsCount ? "text-amber-700" : "text-cyan-700"
         }`}
       >
-        Principio del agente
+        Principio del sistema
       </p>
 
       <p className="mt-3 text-sm font-black leading-6 text-slate-950">
-        Si SALES AI no sabe, no inventa.
+        Si la IA no sabe, no inventa.
       </p>
 
       <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-        Primero pregunta, después responde con información aprobada y escala
-        cuando hay riesgo comercial.
+        Primero usa información aprobada. Si falta un dato, pregunta o escala a
+        revisión humana.
       </p>
     </section>
   );
@@ -1440,7 +1581,7 @@ function KnowledgeModal({
 
       if (modalType === "catalog") {
         if (!catalogForm.name.trim()) {
-          throw new Error("El nombre del producto o lote es obligatorio.");
+          throw new Error("El nombre del producto, servicio o lote es obligatorio.");
         }
 
         payload.catalogItems = [catalogForm];
@@ -1489,7 +1630,7 @@ function KnowledgeModal({
       const data = await res.json();
 
       if (!res.ok || data.ok === false) {
-        throw new Error(data?.error || "No se pudo guardar el conocimiento.");
+        throw new Error(data?.error || "No se pudo guardar la información.");
       }
 
       onSaved();
@@ -1506,18 +1647,19 @@ function KnowledgeModal({
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
-              Knowledge Brain
+              Información para Agentes IA
             </p>
             <h3 className="mt-1 text-3xl font-black tracking-[-0.06em] text-slate-950">
               {getModalTitle(modalType)}
             </h3>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              Esta información se convertirá en contexto operativo para SALES AI
-              de {brand.name}.
+              Esta información será usada por los agentes IA de {brand.name}. No
+              modifica la estrategia ni la lógica interna del sistema.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
@@ -1543,6 +1685,7 @@ function KnowledgeModal({
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
           <button
+            type="button"
             onClick={onClose}
             disabled={saving}
             className="h-12 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
@@ -1551,11 +1694,12 @@ function KnowledgeModal({
           </button>
 
           <button
+            type="button"
             onClick={save}
             disabled={saving}
             className="h-12 rounded-2xl bg-slate-950 px-5 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700 disabled:opacity-50"
           >
-            {saving ? "Guardando..." : "Guardar conocimiento"}
+            {saving ? "Guardando..." : "Guardar información"}
           </button>
         </div>
       </div>
@@ -1567,7 +1711,7 @@ function CatalogForm({ form, setForm }: { form: any; setForm: any }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Input
-        label="Nombre del producto o lote"
+        label="Nombre del producto, servicio o lote"
         value={form.name}
         onChange={(value) => setForm({ ...form, name: value })}
       />
@@ -1833,7 +1977,8 @@ function normalizeKnowledgeBase(data: any, brandName?: string): KnowledgeBase {
   const kb = data?.knowledgeBase || data?.knowledge_base || data || {};
 
   return {
-    brandName: kb.brandName || kb.brand_name || data?.brandName || brandName || "",
+    brandName:
+      kb.brandName || kb.brand_name || data?.brandName || brandName || "",
     knowledgeSources: kb.knowledgeSources || kb.knowledge_sources || [],
     catalogItems: kb.catalogItems || kb.catalog_items || [],
     businessRules: kb.businessRules || kb.business_rules || [],
@@ -1854,13 +1999,13 @@ function detectKnowledgeGaps(
       key: "pricing",
       title: "Falta regla de precios",
       description:
-        "Define cuándo SALES AI puede hablar de precios, rangos o cuándo debe pedir presupuesto.",
+        "Define cuándo la IA puede hablar de precios, rangos o cuándo debe pedir validación.",
       ruleType: "pricing",
       ruleName: "Regla de precios autorizados",
       ruleContent:
-        "SALES AI no debe inventar precios. Si no hay precio autorizado, debe pedir presupuesto y recomendar de forma general.",
+        "La IA no debe inventar precios. Si no hay precio autorizado, debe pedir más datos o escalar a revisión humana.",
       conditionText:
-        "Aplica cuando el cliente pregunta precio, costo o cuánto cuesta.",
+        "Aplica cuando el cliente pregunta precio, costo, cuánto cuesta o cotización.",
       priority: 100,
       requiresHumanConfirmation: false,
     });
@@ -1871,11 +2016,11 @@ function detectKnowledgeGaps(
       key: "payment",
       title: "Falta regla de pagos",
       description:
-        "Define si el agente puede hablar de métodos de pago o si debe escalar cuando el cliente quiere pagar.",
+        "Define si la IA puede hablar de métodos de pago o si debe escalar cuando el cliente quiere pagar.",
       ruleType: "payment",
       ruleName: "Pagos requieren validación",
       ruleContent:
-        "Si el cliente quiere pagar, apartar o cerrar pedido, SALES AI debe escalar a humano para confirmar datos.",
+        "Si el cliente quiere pagar, apartar o cerrar pedido, la IA debe escalar a humano para confirmar datos.",
       conditionText:
         "Aplica cuando el cliente pide pagar, transferencia, apartado o datos bancarios.",
       priority: 100,
@@ -1888,11 +2033,11 @@ function detectKnowledgeGaps(
       key: "shipping",
       title: "Falta regla de envíos",
       description:
-        "Define ciudades, tiempos, costos, horario de corte y cuándo prometer envío mismo día.",
+        "Define ciudades, tiempos, costos, horario de corte y cuándo prometer envío.",
       ruleType: "shipping",
       ruleName: "Envíos requieren ciudad",
       ruleContent:
-        "Para hablar de envío, SALES AI debe pedir ciudad. No debe prometer costo ni tiempo exacto sin confirmación.",
+        "Para hablar de envío, la IA debe pedir ciudad. No debe prometer costo ni tiempo exacto sin confirmación.",
       conditionText:
         "Aplica cuando el cliente pregunta por envío, paquetería, entrega o costo de envío.",
       priority: 95,
@@ -1905,11 +2050,11 @@ function detectKnowledgeGaps(
       key: "stock",
       title: "Falta regla de disponibilidad",
       description:
-        "Define si el agente puede confirmar stock o si debe escalar antes de cerrar pedido.",
+        "Define si la IA puede confirmar stock o si debe escalar antes de cerrar pedido.",
       ruleType: "stock",
       ruleName: "Stock requiere confirmación",
       ruleContent:
-        "SALES AI no debe confirmar stock exacto sin validación humana.",
+        "La IA no debe confirmar stock exacto sin validación humana o sin conexión de inventario.",
       conditionText:
         "Aplica cuando el cliente pregunta disponibilidad, apartados o existencia.",
       priority: 95,
@@ -1938,25 +2083,25 @@ function getModalFromSection(section: SectionKey): ModalType {
 }
 
 function getSectionEyebrow(section: SectionKey) {
-  if (section === "catalog") return "Productos, lotes y ofertas";
-  if (section === "rules") return "Sistema de decisión";
+  if (section === "catalog") return "Productos, servicios y ofertas";
+  if (section === "rules") return "Reglas comerciales";
   if (section === "faqs") return "Respuestas autorizadas";
-  if (section === "notes") return "Contexto comercial";
-  if (section === "gaps") return "Riesgos de información";
+  if (section === "notes") return "Contexto del negocio";
+  if (section === "gaps") return "Información faltante";
   return "Vista general";
 }
 
 function getSectionTitle(section: SectionKey) {
-  if (section === "catalog") return "Lo que SALES AI puede vender";
-  if (section === "rules") return "Lo que SALES AI debe respetar";
-  if (section === "faqs") return "Lo que SALES AI puede responder";
-  if (section === "notes") return "Lo que SALES AI debe entender";
-  if (section === "gaps") return "Lo que falta para vender seguro";
-  return "Resumen del cerebro comercial";
+  if (section === "catalog") return "Catálogo autorizado para la IA";
+  if (section === "rules") return "Reglas comerciales que debe respetar";
+  if (section === "faqs") return "Respuestas frecuentes autorizadas";
+  if (section === "notes") return "Contexto que debe entender";
+  if (section === "gaps") return "Información faltante para operar seguro";
+  return "Resumen de información para IA";
 }
 
 function getModalTitle(type: ModalType) {
-  if (type === "catalog") return "Agregar producto, lote o servicio";
+  if (type === "catalog") return "Agregar producto, servicio o lote";
   if (type === "rule") return "Agregar regla comercial";
   if (type === "faq") return "Agregar pregunta frecuente";
   return "Agregar contexto comercial";

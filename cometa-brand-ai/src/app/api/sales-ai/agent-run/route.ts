@@ -415,19 +415,33 @@ Devuelve únicamente JSON válido.
       );
     }
 
-    if (
-      normalizedDecision.action === "schedule_followup" &&
-      normalizedDecision.follow_up_message &&
-      nextFollowUpAt
-    ) {
-      await supabase.from("sales_followups").insert({
-        lead_id: finalLeadId,
-        followup_number: 1,
-        scheduled_at: nextFollowUpAt,
-        status: "pending",
-        message_text: normalizedDecision.follow_up_message,
-      });
-    }
+    const shouldCreateFollowUp =
+  Boolean(normalizedDecision.follow_up_message) &&
+  Boolean(nextFollowUpAt) &&
+  normalizedDecision.requires_human !== true &&
+  !["mark_lost", "mark_unqualified", "closed", "human_required"].includes(
+    normalizedDecision.lead_stage
+  );
+
+if (shouldCreateFollowUp) {
+  const { error: followupError } = await supabase.from("sales_followups").insert({
+    lead_id: finalLeadId,
+    followup_number: 1,
+    scheduled_at: nextFollowUpAt,
+    status: "pending",
+    message_text: normalizedDecision.follow_up_message,
+  });
+
+  if (followupError) {
+    console.error("Error creando sales_followups:", followupError.message);
+  }
+}
+
+    await triggerLearningEngine(req, {
+  brandName: finalBrandName,
+  leadId: finalLeadId,
+  agentRunId: run.id,
+});
 
     return NextResponse.json({
       success: true,
@@ -634,6 +648,68 @@ function getNextFollowUpAt(delayMinutes?: number | null) {
   if (!delayMinutes || delayMinutes <= 0) return null;
 
   return new Date(Date.now() + delayMinutes * 60 * 1000).toISOString();
+}
+
+async function triggerLearningEngine(
+  req: Request,
+  {
+    brandName,
+    leadId,
+    agentRunId,
+  }: {
+    brandName: string;
+    leadId: string;
+    agentRunId: string;
+  }
+) {
+  try {
+    const autoLearningEnabled =
+      process.env.SALES_AI_AUTO_LEARNING !== "false";
+
+    if (!autoLearningEnabled) {
+      return;
+    }
+
+    const learningRes = await fetch(
+      `${getBaseUrl(req)}/api/sales-ai/learning/run`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          brandName,
+          leadId,
+          agentRunId,
+          minConfidence: 75,
+          maxSuggestions: 3,
+        }),
+      }
+    );
+
+    if (!learningRes.ok) {
+      const errorText = await learningRes.text();
+
+      console.error("Learning Engine no pudo ejecutarse:", {
+        status: learningRes.status,
+        error: errorText,
+      });
+
+      return;
+    }
+
+    const learningData = await learningRes.json();
+
+    console.log("Learning Engine ejecutado:", {
+      brandName,
+      leadId,
+      agentRunId,
+      insertedCount: learningData.insertedCount,
+      generatedCount: learningData.generatedCount,
+    });
+  } catch (error: any) {
+    console.error("Error disparando Learning Engine:", error?.message || error);
+  }
 }
 
 function getBaseUrl(req: Request) {

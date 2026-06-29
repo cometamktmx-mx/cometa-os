@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type RiskLevel = "Bajo" | "Medio" | "Alto";
+type AccessType = "view" | "edit" | "soon";
 
 type NavItem = {
   code: string;
@@ -12,6 +13,7 @@ type NavItem = {
   href: string;
   active?: boolean;
   disabled?: boolean;
+  access?: AccessType;
 };
 
 type BrandData = {
@@ -39,7 +41,7 @@ const genericBrand: BrandData = {
   industry: "Sistema comercial",
   headline: "Tu sistema operativo comercial está en preparación.",
   description:
-    "Cometa OS está organizando contexto, catálogo, reglas y aprendizajes para operar ventas con inteligencia y control humano.",
+    "Cometa OS está organizando contexto, catálogo, reglas, conexiones y datos comerciales para que la marca pueda operar con inteligencia, claridad y control humano.",
   agentStatus: "Configuración",
   agentScore: 0,
   autonomy: 0,
@@ -49,9 +51,9 @@ const genericBrand: BrandData = {
   appliedLearning: 0,
   readyReplies: 0,
   riskLevel: "Medio",
-  mainAction: "Configurar marca",
+  mainAction: "Actualizar información comercial",
   actionDescription:
-    "Esta marca necesita contexto comercial para activar su operación con IA.",
+    "Esta marca necesita información real de negocio para que los agentes IA puedan operar sin inventar datos.",
 };
 
 export default function BrandHomePage() {
@@ -74,6 +76,20 @@ export default function BrandHomePage() {
   const [brand, setBrand] = useState<BrandData>(initialBrand);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [currentHash, setCurrentHash] = useState("");
+
+  useEffect(() => {
+    function syncHash() {
+      setCurrentHash(window.location.hash || "");
+    }
+
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+
+    return () => {
+      window.removeEventListener("hashchange", syncHash);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -147,17 +163,83 @@ export default function BrandHomePage() {
   const brandQuery = `brandSlug=${encodeURIComponent(brand.slug)}`;
 
   const nav: NavItem[] = [
-    { code: "WS", label: "Workspace", href: "/workspace" },
-    { code: "HM", label: "Brand OS", href: `/brand/${brand.slug}`, active: true },
-    { code: "IN", label: "Inbox", href: `/sales-ai/inbox?${brandQuery}` },
-    { code: "KB", label: "Knowledge", href: `/sales-ai/knowledge?${brandQuery}` },
-    { code: "LR", label: "Learning", href: `/sales-ai/learning?${brandQuery}` },
-    { code: "MC", label: "Misión", href: `/cometa-os/design?${brandQuery}` },
+    {
+      code: "IN",
+      label: "Resumen",
+      href: `/brand/${brand.slug}`,
+      active: currentHash === "",
+      access: "view",
+    },
+    {
+      code: "CD",
+      label: "Cuenta Digital",
+      href: `/brand/${brand.slug}#cuenta-digital`,
+      active: currentHash === "#cuenta-digital",
+      access: "view",
+    },
+    {
+      code: "TR",
+      label: "Trabajo Realizado",
+      href: `/brand/${brand.slug}#trabajo-realizado`,
+      active: currentHash === "#trabajo-realizado",
+      access: "view",
+    },
+    {
+      code: "MC",
+      label: "Estrategia",
+      href: `/brand/${brand.slug}#estrategia-mes`,
+      active: currentHash === "#estrategia-mes",
+      access: "view",
+    },
+    {
+      code: "SA",
+      label: "Ventas / Leads",
+      href: `/sales-ai/inbox?${brandQuery}`,
+      active: false,
+      access: "edit",
+    },
+    {
+      code: "AI",
+      label: "Agentes IA",
+      href: `/sales-ai/knowledge?${brandQuery}`,
+      active: false,
+      access: "edit",
+    },
+    {
+      code: "CX",
+      label: "Conexiones",
+      href: `/brand/${brand.slug}#conexiones`,
+      active: currentHash === "#conexiones",
+      access: "edit",
+    },
+    {
+      code: "RP",
+      label: "Reportes",
+      href: `/brand/${brand.slug}#reportes`,
+      active: currentHash === "#reportes",
+      access: "view",
+    },
+    {
+      code: "IV",
+      label: "Inventario",
+      href: `/brand/${brand.slug}#inventario`,
+      active: currentHash === "#inventario",
+      disabled: true,
+      access: "soon",
+    },
+    {
+      code: "OP",
+      label: "Oportunidades",
+      href: `/brand/${brand.slug}#oportunidades`,
+      active: currentHash === "#oportunidades",
+      disabled: true,
+      access: "soon",
+    },
   ];
 
   return (
     <main className="min-h-screen bg-[#f2f7fb] text-slate-950">
-      <section className="mx-auto grid min-h-screen w-full max-w-[1800px] grid-cols-1 gap-4 p-4 xl:grid-cols-[214px_minmax(0,1fr)_390px]">
+      <section className="mx-auto grid min-h-screen w-full max-w-[1800px] grid-cols-1 gap-4 p-4 xl:grid-cols-[238px_minmax(0,1fr)_390px]">
         <BrandDock nav={nav} brand={brand} />
 
         <section className="flex min-w-0 flex-col gap-4">
@@ -167,11 +249,17 @@ export default function BrandHomePage() {
 
           <BrandMetrics brand={brand} isLoading={isLoading} />
 
+          <DigitalAccountDashboard brand={brand} />
+
+          <WorkDoneAndStrategy brand={brand} />
+
           <BrandOperatingSystem brand={brand} />
 
           <NextActionBlock brand={brand} />
 
           <BrandModules brand={brand} />
+
+          <FutureCommercialSystem brand={brand} />
         </section>
 
         <aside className="sticky top-4 hidden h-fit min-w-0 flex-col gap-4 xl:flex">
@@ -199,7 +287,10 @@ function LoadWarning({ message }: { message: string }) {
 function BrandDock({ nav, brand }: { nav: NavItem[]; brand: BrandData }) {
   return (
     <aside className="hidden rounded-[34px] border border-white bg-white/90 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur xl:flex xl:flex-col">
-      <div className="flex items-center gap-3 rounded-[26px] bg-slate-50 px-3 py-3">
+      <Link
+        href={`/brand/${brand.slug}`}
+        className="flex items-center gap-3 rounded-[26px] bg-slate-50 px-3 py-3 transition hover:bg-cyan-50"
+      >
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-slate-950 shadow-xl shadow-cyan-400/20">
           <div className="absolute h-7 w-7 rounded-full bg-cyan-400 blur-[6px]" />
           <div className="relative h-7 w-7 rounded-full bg-gradient-to-br from-cyan-300 via-emerald-400 to-slate-950" />
@@ -213,15 +304,15 @@ function BrandDock({ nav, brand }: { nav: NavItem[]; brand: BrandData }) {
             OS
           </p>
         </div>
-      </div>
+      </Link>
 
-      <nav className="mt-7 flex flex-1 flex-col gap-2">
+      <nav className="mt-7 flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
         {nav.map((item) => {
-          const className = `flex h-12 items-center gap-3 rounded-2xl px-3 text-left transition ${
+          const className = `flex min-h-12 items-center gap-3 rounded-2xl px-3 py-2 text-left transition ${
             item.active
               ? "border border-cyan-200 bg-cyan-50 text-slate-950 shadow-sm shadow-cyan-950/5"
               : item.disabled
-              ? "cursor-not-allowed text-slate-300"
+              ? "cursor-not-allowed text-slate-300 opacity-70"
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-950"
           }`;
 
@@ -239,8 +330,12 @@ function BrandDock({ nav, brand }: { nav: NavItem[]; brand: BrandData }) {
                 {item.code}
               </span>
 
-              <span className="truncate text-[13px] font-black">
-                {item.label}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-black">
+                  {item.label}
+                </span>
+
+                <AccessPill access={item.access} />
               </span>
             </>
           );
@@ -292,6 +387,30 @@ function BrandDock({ nav, brand }: { nav: NavItem[]; brand: BrandData }) {
   );
 }
 
+function AccessPill({ access }: { access?: AccessType }) {
+  if (access === "edit") {
+    return (
+      <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700">
+        Editable
+      </span>
+    );
+  }
+
+  if (access === "soon") {
+    return (
+      <span className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700">
+        Próximo
+      </span>
+    );
+  }
+
+  return (
+    <span className="mt-1 inline-flex rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-cyan-700">
+      Visual
+    </span>
+  );
+}
+
 function BrandHero({
   brand,
   isLoading,
@@ -300,7 +419,10 @@ function BrandHero({
   isLoading: boolean;
 }) {
   return (
-    <header className="relative overflow-hidden rounded-[38px] bg-slate-950 p-7 text-white shadow-[0_30px_100px_rgba(15,23,42,0.20)] md:p-8">
+    <header
+      id="resumen"
+      className="relative overflow-hidden rounded-[38px] bg-slate-950 p-7 text-white shadow-[0_30px_100px_rgba(15,23,42,0.20)] md:p-8"
+    >
       <div className="absolute right-[-120px] top-[-120px] h-80 w-80 rounded-full bg-cyan-400/25 blur-[90px]" />
       <div className="absolute bottom-[-160px] left-[25%] h-72 w-72 rounded-full bg-emerald-400/15 blur-[95px]" />
 
@@ -308,7 +430,7 @@ function BrandHero({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-white">
-              Brand OS
+              Cuenta Digital
             </span>
 
             <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-200">
@@ -332,11 +454,13 @@ function BrandHero({
           <h1 className="mt-3 max-w-5xl text-5xl font-black leading-[0.92] tracking-[-0.085em] md:text-6xl 2xl:text-[76px]">
             {brand.name}
             <br />
-            Command Center
+            Dashboard Digital
           </h1>
 
           <p className="mt-6 max-w-4xl text-[17px] font-semibold leading-8 text-slate-300">
-            {brand.description}
+            Cometa OS te muestra qué está pasando con tu cuenta digital, qué
+            trabajo se está realizando, qué estrategia está activa y qué
+            información necesitan los agentes IA para operar con seguridad.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
@@ -346,7 +470,7 @@ function BrandHero({
               )}`}
               className="flex h-14 items-center justify-center rounded-2xl bg-white px-6 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
             >
-              Abrir Inbox →
+              Abrir ventas / leads →
             </Link>
 
             <Link
@@ -355,14 +479,14 @@ function BrandHero({
               )}`}
               className="flex h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm font-black text-white transition hover:bg-white/10"
             >
-              Knowledge Brain
+              Editar información IA
             </Link>
           </div>
         </div>
 
         <div className="rounded-[32px] border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">
-            Commercial Readiness
+            Preparación del sistema
           </p>
 
           <div className="mt-5 flex items-center justify-between gap-4">
@@ -372,7 +496,7 @@ function BrandHero({
               </h2>
 
               <p className="mt-2 text-sm font-bold text-slate-300">
-                Score del agente
+                Score operativo
               </p>
             </div>
 
@@ -380,8 +504,8 @@ function BrandHero({
           </div>
 
           <div className="mt-6 grid gap-3">
-            <ProgressLine label="Autonomía" value={brand.autonomy} />
-            <ProgressLine label="Knowledge" value={brand.knowledge} />
+            <ProgressLine label="Autonomía IA" value={brand.autonomy} />
+            <ProgressLine label="Información aprobada" value={brand.knowledge} />
           </div>
         </div>
       </div>
@@ -397,11 +521,11 @@ function BrandMetrics({
   isLoading: boolean;
 }) {
   const metrics = [
-    { label: "Autonomía", value: `${brand.autonomy}%`, code: "AU" },
-    { label: "Knowledge", value: `${brand.knowledge}%`, code: "KB" },
+    { label: "Autonomía IA", value: `${brand.autonomy}%`, code: "AU" },
+    { label: "Información IA", value: `${brand.knowledge}%`, code: "AI" },
     { label: "Leads abiertos", value: brand.openLeads, code: "LD" },
     { label: "Respuestas listas", value: brand.readyReplies, code: "RP" },
-    { label: "Learning", value: brand.pendingLearning, code: "LR" },
+    { label: "Alertas internas", value: brand.pendingLearning, code: "AL" },
   ];
 
   return (
@@ -430,13 +554,132 @@ function BrandMetrics({
   );
 }
 
+function DigitalAccountDashboard({ brand }: { brand: BrandData }) {
+  return (
+    <section
+      id="cuenta-digital"
+      className="rounded-[38px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]"
+    >
+      <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+            Cuenta Digital
+          </p>
+
+          <h2 className="mt-1 text-3xl font-black tracking-[-0.055em] text-slate-950">
+            Estado general de {brand.name}
+          </h2>
+        </div>
+
+        <span className="rounded-full border border-cyan-200 bg-cyan-50 px-5 py-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-700">
+          Solo visualización
+        </span>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AccountSignalCard
+          code="IG"
+          title="Instagram"
+          description="Señales de presencia, contenido, consistencia y oportunidad."
+          status="En monitoreo"
+        />
+        <AccountSignalCard
+          code="FB"
+          title="Facebook"
+          description="Actividad, comunidad, mensajes, pauta y confianza digital."
+          status="En monitoreo"
+        />
+        <AccountSignalCard
+          code="WA"
+          title="WhatsApp"
+          description="Leads, intención comercial, seguimiento y cierre."
+          status={`${brand.openLeads} leads`}
+          featured
+        />
+        <AccountSignalCard
+          code="WEB"
+          title="Web / Catálogo"
+          description="Confianza, conversión, información y puntos de fuga."
+          status="Revisión"
+        />
+      </div>
+    </section>
+  );
+}
+
+function WorkDoneAndStrategy({ brand }: { brand: BrandData }) {
+  return (
+    <section className="grid gap-4 2xl:grid-cols-2">
+      <article
+        id="trabajo-realizado"
+        className="rounded-[38px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+          Trabajo Realizado
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Cambios y acciones de Cometa
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-500">
+          Este espacio es para que el cliente vea qué se está haciendo con su
+          cuenta: publicaciones, ajustes, optimizaciones, revisión de leads,
+          cambios de estrategia y acciones completadas.
+        </p>
+
+        <div className="mt-6 grid gap-3">
+          <FlowStep number="01" title="Contenido y presencia digital revisados" />
+          <FlowStep number="02" title="Señales comerciales analizadas" />
+          <FlowStep number="03" title="Información IA pendiente de actualización" />
+          <FlowStep number="04" title="Siguiente acción recomendada definida" />
+        </div>
+      </article>
+
+      <article
+        id="estrategia-mes"
+        className="rounded-[38px] border border-cyan-100 bg-cyan-50 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.05)]"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
+          Estrategia del Mes · MERCURY
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Estrategia visible aprobada por Cometa
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-600">
+          MERCURY puede generar hipótesis y dirección mensual, pero el cliente
+          solo visualiza la versión aprobada por Cometa. La estrategia no se
+          edita desde el dashboard del cliente.
+        </p>
+
+        <div className="mt-6 rounded-[30px] bg-white p-5">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Enfoque actual
+          </p>
+
+          <p className="mt-3 text-2xl font-black leading-tight tracking-[-0.055em] text-slate-950">
+            Mejorar claridad comercial, calidad de leads y seguimiento de ventas.
+          </p>
+
+          <p className="mt-3 text-sm font-semibold leading-7 text-slate-500">
+            La información editable del cliente alimenta a los agentes, pero la
+            decisión estratégica final se mantiene bajo control de Cometa.
+          </p>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function BrandOperatingSystem({ brand }: { brand: BrandData }) {
   return (
     <section className="rounded-[38px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]">
       <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-            Operating System
+            Ventas / Leads
           </p>
 
           <h2 className="mt-1 text-3xl font-black tracking-[-0.055em] text-slate-950">
@@ -460,13 +703,13 @@ function BrandOperatingSystem({ brand }: { brand: BrandData }) {
           </p>
 
           <h3 className="mt-4 max-w-3xl text-4xl font-black leading-[0.98] tracking-[-0.07em]">
-            Atiende, califica, responde y aprende con control humano.
+            Atiende, califica, responde y aprende con información aprobada.
           </h3>
 
           <p className="mt-5 max-w-3xl text-sm font-semibold leading-7 text-slate-300">
-            El agente usa información aprobada del Knowledge Brain. Si detecta
-            riesgo comercial, falta de datos o una condición sensible, escala a
-            revisión humana.
+            El agente usa información comercial autorizada. El cliente puede
+            modificar datos del negocio, productos, reglas, FAQs y restricciones,
+            pero no cambia la lógica interna del agente.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-4">
@@ -478,9 +721,9 @@ function BrandOperatingSystem({ brand }: { brand: BrandData }) {
         </div>
 
         <div className="grid gap-3">
-          <FlowStep number="01" title="Recibe conversación" />
+          <FlowStep number="01" title="Recibe conversaciones" />
           <FlowStep number="02" title="Detecta intención comercial" />
-          <FlowStep number="03" title="Consulta Knowledge Brain" />
+          <FlowStep number="03" title="Consulta información aprobada" />
           <FlowStep number="04" title="Responde, aprende o escala" />
         </div>
       </div>
@@ -489,7 +732,7 @@ function BrandOperatingSystem({ brand }: { brand: BrandData }) {
         <WorkSignalCard
           code="AT"
           title="Atiende"
-          description="Responde primeros mensajes, dudas frecuentes y solicitudes básicas."
+          description="Responde dudas frecuentes, primeros mensajes y solicitudes básicas."
         />
 
         <WorkSignalCard
@@ -533,7 +776,7 @@ function NextActionBlock({ brand }: { brand: BrandData }) {
               href={actionHref}
               className="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-6 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700"
             >
-              Ejecutar acción →
+              Abrir acción →
             </Link>
           </div>
         </div>
@@ -545,12 +788,12 @@ function NextActionBlock({ brand }: { brand: BrandData }) {
         </p>
 
         <p className="mt-4 text-3xl font-black leading-tight tracking-[-0.055em] text-slate-950">
-          Tu IA vende con información aprobada.
+          El cliente alimenta la información. Cometa controla la estrategia.
         </p>
 
         <p className="mt-4 text-sm font-semibold leading-7 text-slate-600 md:text-base">
-          Si no sabe, pregunta. Si hay riesgo, escala. Si aprende algo útil, lo
-          propone para aprobación.
+          Los agentes pueden operar mejor cuando tienen datos reales, conexiones
+          activas y reglas comerciales claras.
         </p>
       </article>
     </section>
@@ -562,32 +805,40 @@ function BrandModules({ brand }: { brand: BrandData }) {
 
   const modules = [
     {
-      code: "IN",
-      title: "Inbox de ventas",
-      description: "Conversaciones, leads, respuestas listas y seguimiento.",
+      code: "SA",
+      title: "Ventas / Leads",
+      description:
+        "Conversaciones, leads, seguimiento, respuestas listas y oportunidades.",
       href: `/sales-ai/inbox?${brandQuery}`,
       status: `${brand.openLeads} leads`,
+      access: "Editable",
     },
     {
-      code: "KB",
-      title: "Knowledge Brain",
-      description: "Catálogo, reglas, FAQs y límites comerciales aprobados.",
+      code: "AI",
+      title: "Información para Agentes IA",
+      description:
+        "Catálogo, reglas, FAQs, límites, objeciones y datos comerciales.",
       href: `/sales-ai/knowledge?${brandQuery}`,
       status: `${brand.knowledge}% listo`,
+      access: "Editable",
     },
     {
-      code: "LR",
-      title: "Learning Hub",
-      description: "Aprendizajes detectados por la IA para revisar y aprobar.",
-      href: `/sales-ai/learning?${brandQuery}`,
-      status: `${brand.pendingLearning} pendientes`,
+      code: "CX",
+      title: "Conexiones",
+      description:
+        "Redes sociales, WhatsApp, Meta, Shopify, POS y fuentes de datos.",
+      href: `/brand/${brand.slug}#conexiones`,
+      status: "Configurar",
+      access: "Editable",
     },
     {
-      code: "MC",
-      title: "Mission Control",
-      description: "Vista profunda del sistema completo de la marca.",
-      href: `/cometa-os/design?${brandQuery}`,
-      status: brand.agentStatus,
+      code: "RP",
+      title: "Reportes",
+      description:
+        "Resultados, avances, trabajo realizado, aprendizajes y siguientes pasos.",
+      href: `/brand/${brand.slug}#reportes`,
+      status: "Visual",
+      access: "Visual",
     },
   ];
 
@@ -596,16 +847,16 @@ function BrandModules({ brand }: { brand: BrandData }) {
       <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-            Módulos Brand OS
+            Accesos del cliente
           </p>
 
           <h2 className="mt-1 text-3xl font-black tracking-[-0.055em] text-slate-950">
-            Control operativo de {brand.name}
+            Qué puede ver y modificar {brand.name}
           </h2>
         </div>
 
         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2 text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
-          Acceso autorizado
+          Acceso controlado
         </span>
       </div>
 
@@ -621,8 +872,14 @@ function BrandModules({ brand }: { brand: BrandData }) {
                 {module.code}
               </div>
 
-              <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
-                {module.status}
+              <span
+                className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] ${
+                  module.access === "Editable"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-cyan-50 text-cyan-700"
+                }`}
+              >
+                {module.access}
               </span>
             </div>
 
@@ -634,10 +891,121 @@ function BrandModules({ brand }: { brand: BrandData }) {
               {module.description}
             </p>
 
-            <p className="mt-5 text-sm font-black text-cyan-700">Entrar →</p>
+            <div className="mt-5 flex items-center justify-between gap-4">
+              <p className="text-sm font-black text-cyan-700">Entrar →</p>
+
+              <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                {module.status}
+              </span>
+            </div>
           </Link>
         ))}
       </div>
+
+      <ConnectionsAndReports brand={brand} />
+    </section>
+  );
+}
+
+function ConnectionsAndReports({ brand }: { brand: BrandData }) {
+  return (
+    <div className="mt-6 grid gap-4 2xl:grid-cols-2">
+      <article
+        id="conexiones"
+        className="rounded-[30px] border border-emerald-100 bg-emerald-50 p-5"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
+          Conexiones
+        </p>
+
+        <h3 className="mt-3 text-2xl font-black tracking-[-0.055em] text-slate-950">
+          Fuentes de datos conectadas
+        </h3>
+
+        <p className="mt-3 text-sm font-semibold leading-7 text-slate-600">
+          Aquí el cliente podrá conectar redes sociales, WhatsApp, Meta Ads,
+          Shopify, POS, catálogo e inventario cuando el módulo esté activo.
+        </p>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <ConnectionStatus label="Instagram" status="Pendiente" />
+          <ConnectionStatus label="Facebook" status="Pendiente" />
+          <ConnectionStatus label="WhatsApp" status="Pendiente" />
+          <ConnectionStatus label="Shopify / POS" status="Próximo" />
+        </div>
+      </article>
+
+      <article
+        id="reportes"
+        className="rounded-[30px] border border-cyan-100 bg-cyan-50 p-5"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">
+          Reportes
+        </p>
+
+        <h3 className="mt-3 text-2xl font-black tracking-[-0.055em] text-slate-950">
+          Claridad de lo que está pasando
+        </h3>
+
+        <p className="mt-3 text-sm font-semibold leading-7 text-slate-600">
+          Este apartado debe mostrar avances, métricas, trabajo realizado,
+          aprendizajes visibles, estrategia aprobada y siguientes pasos de
+          Cometa.
+        </p>
+
+        <div className="mt-5 rounded-2xl bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+            Estado
+          </p>
+          <p className="mt-2 text-sm font-black text-slate-950">
+            Reporte visual de {brand.name} en preparación.
+          </p>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function FutureCommercialSystem({ brand }: { brand: BrandData }) {
+  return (
+    <section className="grid gap-4 2xl:grid-cols-2">
+      <article
+        id="inventario"
+        className="rounded-[38px] border border-dashed border-slate-300 bg-white/70 p-6"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+          Próxima evolución
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Inventario conectado
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-500">
+          A futuro, {brand.name} podrá conectar Shopify, POS, catálogo e
+          inventario para que Cometa OS entienda stock, rotación, margen y
+          productos prioritarios.
+        </p>
+      </article>
+
+      <article
+        id="oportunidades"
+        className="rounded-[38px] border border-dashed border-slate-300 bg-white/70 p-6"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
+          Superagente comercial
+        </p>
+
+        <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+          Oportunidades comerciales
+        </h2>
+
+        <p className="mt-4 text-sm font-semibold leading-7 text-slate-500">
+          Cuando ventas, redes, inventario y POS estén conectados, el sistema
+          podrá detectar qué productos empujar, qué campañas activar y dónde hay
+          mayor oportunidad real de venta.
+        </p>
+      </article>
     </section>
   );
 }
@@ -648,10 +1016,10 @@ function TopControls({ brandSlug }: { brandSlug: string }) {
   return (
     <div className="flex justify-end gap-3">
       <Link
-        href="/workspace"
+        href={`/brand/${brandSlug}#reportes`}
         className="flex h-12 items-center rounded-2xl bg-white px-5 text-sm font-black text-slate-950 shadow-sm transition hover:bg-slate-50"
       >
-        Workspace
+        Reportes
       </Link>
 
       <Link
@@ -661,7 +1029,7 @@ function TopControls({ brandSlug }: { brandSlug: string }) {
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-400/15 text-cyan-300">
           <PlayIcon />
         </span>
-        Inbox
+        Ventas
       </Link>
     </div>
   );
@@ -712,10 +1080,10 @@ function AgentStatusCard({
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
-        <DarkMini label="Knowledge" value={`${brand.knowledge}%`} />
+        <DarkMini label="Info IA" value={`${brand.knowledge}%`} />
         <DarkMini label="Leads" value={String(brand.openLeads)} />
-        <DarkMini label="Learning" value={String(brand.pendingLearning)} />
-        <DarkMini label="Control" value="Humano" />
+        <DarkMini label="Alertas" value={String(brand.pendingLearning)} />
+        <DarkMini label="Control" value="Cometa" />
       </div>
     </section>
   );
@@ -741,8 +1109,8 @@ function RecommendedActions({ brand }: { brand: BrandData }) {
     },
     {
       number: "3",
-      title: "Actualizar información comercial",
-      description: "Mantener reglas, FAQs y catálogo aprobados.",
+      title: "Actualizar información para IA",
+      description: "Mantener productos, reglas, FAQs y límites aprobados.",
       href: `/sales-ai/knowledge?${brandQuery}`,
       priority: "Baja",
     },
@@ -803,14 +1171,58 @@ function SystemPrinciple() {
       </p>
 
       <p className="mt-3 text-sm font-black leading-6 text-slate-950">
-        Tu IA vende con información aprobada.
+        El cliente actualiza información. Cometa controla estrategia.
       </p>
 
       <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-        Si no sabe, pregunta. Si hay riesgo, escala. Si aprende algo útil, lo
-        propone para aprobación.
+        Los agentes IA trabajan con datos aprobados, conexiones y reglas claras.
+        Si falta información, escalan.
       </p>
     </section>
+  );
+}
+
+function AccountSignalCard({
+  code,
+  title,
+  description,
+  status,
+  featured,
+}: {
+  code: string;
+  title: string;
+  description: string;
+  status: string;
+  featured?: boolean;
+}) {
+  return (
+    <article
+      className={`rounded-[28px] border p-5 ${
+        featured ? "border-cyan-200 bg-cyan-50" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xs font-black ${
+            featured ? "bg-white text-cyan-700" : "bg-white text-slate-400"
+          }`}
+        >
+          {code}
+        </div>
+
+        <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+          {status}
+        </span>
+      </div>
+
+      <h3 className="mt-5 text-2xl font-black tracking-[-0.055em] text-slate-950">
+        {title}
+      </h3>
+
+      <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
+        {description}
+      </p>
+    </article>
   );
 }
 
@@ -860,6 +1272,35 @@ function FlowStep({ number, title }: { number: string; title: string }) {
       <p className="min-w-0 truncate text-sm font-black text-slate-950">
         {title}
       </p>
+    </div>
+  );
+}
+
+function ConnectionStatus({
+  label,
+  status,
+}: {
+  label: string;
+  status: "Pendiente" | "Conectado" | "Error" | "Próximo";
+}) {
+  const statusClass =
+    status === "Conectado"
+      ? "bg-emerald-100 text-emerald-700"
+      : status === "Error"
+      ? "bg-rose-100 text-rose-700"
+      : status === "Próximo"
+      ? "bg-amber-100 text-amber-700"
+      : "bg-white text-slate-500";
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3">
+      <p className="truncate text-sm font-black text-slate-950">{label}</p>
+
+      <span
+        className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${statusClass}`}
+      >
+        {status}
+      </span>
     </div>
   );
 }
@@ -918,19 +1359,13 @@ function getActionHref(brand: BrandData) {
   const action = `${brand.mainAction} ${brand.actionDescription}`.toLowerCase();
 
   if (
-    action.includes("aprendiz") ||
-    action.includes("learning") ||
-    action.includes("mejoras detectadas")
-  ) {
-    return `/sales-ai/learning?${brandQuery}`;
-  }
-
-  if (
     action.includes("catálogo") ||
     action.includes("catalogo") ||
     action.includes("reglas") ||
     action.includes("faq") ||
-    action.includes("knowledge")
+    action.includes("knowledge") ||
+    action.includes("información") ||
+    action.includes("informacion")
   ) {
     return `/sales-ai/knowledge?${brandQuery}`;
   }
@@ -939,12 +1374,24 @@ function getActionHref(brand: BrandData) {
     action.includes("lead") ||
     action.includes("conversacion") ||
     action.includes("conversación") ||
-    action.includes("respuestas")
+    action.includes("respuestas") ||
+    action.includes("ventas")
   ) {
     return `/sales-ai/inbox?${brandQuery}`;
   }
 
-  return `/cometa-os/design?${brandQuery}`;
+  if (
+    action.includes("aprendiz") ||
+    action.includes("learning") ||
+    action.includes("mejoras detectadas") ||
+    action.includes("estrategia") ||
+    action.includes("hipótesis") ||
+    action.includes("hipotesis")
+  ) {
+    return `/brand/${brand.slug}#estrategia-mes`;
+  }
+
+  return `/brand/${brand.slug}#conexiones`;
 }
 
 function riskClass(risk: RiskLevel, dark = false) {

@@ -70,6 +70,161 @@ function calculateDailyBudget(adsBudget: any) {
   return Math.round((budget / 30) * 100) / 100;
 }
 
+function slugifyBrand(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatBrandName(value: string) {
+  const cleaned = String(value || "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getOrionMemory(memory: any) {
+  return (
+    memory?.orion_memory ||
+    memory?.orion_analysis ||
+    memory?.orion_data ||
+    null
+  );
+}
+
+function getBusinessMemory(memory: any) {
+  return (
+    memory?.business_memory ||
+    memory?.nova_business_map ||
+    memory?.business_map ||
+    memory?.nova_memory ||
+    null
+  );
+}
+
+async function findCosmosMemory({
+  brandAnalysisId,
+  brandName,
+}: {
+  brandAnalysisId?: string | null;
+  brandName?: string | null;
+}) {
+  const rawBrandName = String(brandName || "").trim();
+  const brandSlug = slugifyBrand(rawBrandName);
+  const formattedBrandName = formatBrandName(rawBrandName);
+
+  if (brandAnalysisId) {
+    const { data, error } = await supabase
+      .from("cosmos_memory")
+      .select("*")
+      .eq("brand_analysis_id", brandAnalysisId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  if (brandSlug) {
+    const { data, error } = await supabase
+      .from("cosmos_memory")
+      .select("*")
+      .eq("brand_slug", brandSlug)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("ATLAS findCosmosMemory brand_slug error:", error.message);
+    }
+
+    if (data) return data;
+  }
+
+  if (rawBrandName) {
+    const { data, error } = await supabase
+      .from("cosmos_memory")
+      .select("*")
+      .eq("brand_name", rawBrandName)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("ATLAS findCosmosMemory exact brand_name error:", error.message);
+    }
+
+    if (data) return data;
+  }
+
+  if (formattedBrandName) {
+    const { data, error } = await supabase
+      .from("cosmos_memory")
+      .select("*")
+      .ilike("brand_name", formattedBrandName)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("ATLAS findCosmosMemory formatted brand_name error:", error.message);
+    }
+
+    if (data) return data;
+  }
+
+  if (brandSlug) {
+    const searchText = `%${brandSlug.replace(/-/g, "%")}%`;
+
+    const { data, error } = await supabase
+      .from("cosmos_memory")
+      .select("*")
+      .ilike("brand_name", searchText)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("ATLAS findCosmosMemory fuzzy brand_name error:", error.message);
+    }
+
+    if (data) return data;
+  }
+
+  return null;
+}
+
+function safeJsonParse(raw: string) {
+  const cleaned = String(raw || "")
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    }
+
+    throw new Error("ATLAS no devolvió JSON válido.");
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -77,10 +232,10 @@ export async function POST(req: Request) {
     const {
       brandAnalysisId,
       brandName,
-      packageName,
-      ninetyDayGoal,
-      adsBudget,
-      monthlyContext,
+      packageName = "Growth",
+      ninetyDayGoal = "",
+      adsBudget = 0,
+      monthlyContext = "",
     } = body;
 
     if (!brandName && !brandAnalysisId) {
@@ -90,40 +245,50 @@ export async function POST(req: Request) {
       });
     }
 
-    let memoryQuery = supabase.from("cosmos_memory").select("*");
-
-    if (brandAnalysisId) {
-      memoryQuery = memoryQuery.eq("brand_analysis_id", brandAnalysisId);
-    } else {
-      memoryQuery = memoryQuery.eq("brand_name", brandName);
-    }
-
-    const { data: memory, error: memoryError } = await memoryQuery
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (memoryError) throw memoryError;
+    const memory = await findCosmosMemory({
+      brandAnalysisId,
+      brandName,
+    });
 
     if (!memory) {
       return NextResponse.json({
         success: false,
-        error: "COSMOS no tiene memoria para esta marca.",
+        error:
+          "COSMOS no tiene memoria para esta marca. Primero ejecuta ORION y NOVA, o revisa que el brandSlug/brandName coincida con la memoria guardada.",
+        debug: {
+          receivedBrandName: brandName || null,
+          receivedBrandAnalysisId: brandAnalysisId || null,
+          searchedBrandSlug: slugifyBrand(brandName || ""),
+          formattedBrandName: formatBrandName(brandName || ""),
+        },
       });
     }
 
-    if (!memory.orion_memory || !memory.business_memory) {
-  return NextResponse.json({
-    success: false,
-    error:
-      "COSMOS todavía no tiene ORION y BUSINESS_MEMORY completos. Ejecuta ambos antes de ATLAS.",
-  });
-}
+    const orionMemory = getOrionMemory(memory);
+    const businessMemory = getBusinessMemory(memory);
 
-    const finalBrandName = memory.brand_name || brandName;
+    if (!orionMemory || !businessMemory) {
+      return NextResponse.json({
+        success: false,
+        error:
+          "ATLAS necesita ORION y NOVA / BUSINESS_MEMORY completos para generar estrategia de crecimiento.",
+        debug: {
+          cosmosMemoryId: memory.id,
+          brandName: memory.brand_name,
+          brandSlug: memory.brand_slug,
+          hasOrionMemory: Boolean(orionMemory),
+          hasBusinessMemory: Boolean(businessMemory),
+          availableKeys: Object.keys(memory || {}),
+        },
+      });
+    }
+
+    const finalBrandName =
+      memory.brand_name || formatBrandName(brandName || "Marca sin nombre");
+
     const industry = memory.industry || "No especificado";
     const city = memory.city || "No especificado";
-    const finalBrandAnalysisId = memory.brand_analysis_id || brandAnalysisId;
+    const finalBrandAnalysisId = memory.brand_analysis_id || brandAnalysisId || null;
 
     const packageRules = getPackageRules(packageName);
     const dailyAdsBudget = calculateDailyBudget(adsBudget);
@@ -134,60 +299,73 @@ ${generalStrategyPrompt}
 
 ${industryPrompt}
 
-REGLAS UNIVERSALES DE ATLAS V3:
+ATLAS STRATEGY AI V4 — DOCTRINA ESTABLE COMETA OS
 
-ATLAS es el Director de Crecimiento Estratégico de COMETA OS.
+ATLAS es el agente de estrategia de crecimiento de COMETA OS.
 
 ATLAS NO ES:
 - community manager
 - creador de calendarios
 - generador de ideas virales
-- planificador de posts
+- planificador de posts diarios
+- redactor de copys
 - ejecutivo de pauta
-- redactor de redes sociales
+- agente de atención de WhatsApp
+- creador de buyer persona desde cero
 
-ATLAS ES:
+ATLAS SÍ ES:
 - estratega de crecimiento
 - director comercial
 - analista de negocio
 - arquitecto de revenue
 - diseñador de hipótesis de crecimiento
-- traductor de memoria COSMOS en decisiones accionables
+- traductor de ORION + NOVA + COSMOS en decisiones estratégicas
+- generador de dirección para agentes posteriores
 
-PRINCIPIO CENTRAL:
+ARQUITECTURA COMETA OS:
+- ORION analiza la realidad externa de la marca: presencia digital, redes, sitio, competencia, confianza visual, señales públicas y evidencia.
+- NOVA / Business Map estructura la realidad interna: oferta, buyer persona, objeciones, proceso de compra, ticket, diferenciadores, revenue drivers, restricciones y capacidad.
+- ATLAS crea estrategia de crecimiento: qué debe crecer, cuál es el cuello de botella, cuál es la hipótesis, qué priorizar y qué no hacer.
+- El agente de contenido toma la estrategia aprobada de ATLAS y la convierte en estrategia de contenido mensual.
+- Calendar Engine convierte la estrategia de contenido en calendario día por día.
+- SALES AI atiende, califica, da seguimiento, aprende de conversaciones y mejora conversión en WhatsApp.
+
+REGLA CENTRAL:
+ATLAS piensa estrategia.
+ATLAS NO genera calendario diario.
+ATLAS NO sustituye SALES AI.
+ATLAS NO sustituye NOVA.
+ATLAS NO debe tratar la capacitación humana de WhatsApp como solución principal si SALES AI puede resolver seguimiento, calificación, objeciones y cierre.
+
+JERARQUÍA DE VERDAD:
+- NOVA / BUSINESS_MEMORY manda sobre oferta, buyer persona, objeciones, revenue drivers, ticket, capacidad, reglas comerciales y proceso de compra.
+- ORION manda sobre percepción externa, madurez digital, confianza visual, contenido actual, redes, sitio web y competencia.
+- Si ORION y NOVA se contradicen, ATLAS debe detectar la contradicción y usar NOVA como realidad interna.
+- ATLAS puede inferir riesgos estratégicos, pero no debe inventar datos duros.
+
+PRINCIPIO ESTRATÉGICO:
 ATLAS no debe preguntarse primero "qué contenido hacemos".
-ATLAS debe preguntarse primero "cómo crece este negocio".
+ATLAS debe preguntarse primero "cómo crece este negocio y qué agente debe actuar".
 
-ANTES DE HABLAR DE CONTENIDO, ATLAS DEBE ANALIZAR:
-
-1. Revenue drivers.
-2. Ticket promedio.
-3. Frecuencia de compra.
-4. Recompra.
-5. Retención.
-6. Cross-selling.
-7. Upselling.
+ANTES DE RECOMENDAR, ATLAS DEBE ANALIZAR:
+1. Cuello de botella real.
+2. Palanca de crecimiento primaria.
+3. Revenue driver prioritario.
+4. Ticket promedio y oportunidad de ticket.
+5. Frecuencia y recompra.
+6. Retención.
+7. Cross-selling y upselling.
 8. Capacidad operativa.
 9. Objeciones de venta.
 10. Barreras de confianza.
 11. Diferenciadores reales.
 12. Riesgos comerciales.
-13. Oportunidades de rentabilidad.
-14. Proceso de compra.
-15. Cuello de botella principal.
-
-FUENTES DE COSMOS:
-
-1. ORION:
-Percepción externa, madurez digital, presencia social, confianza visual, sitio web, posicionamiento, contenido actual y oportunidad percibida.
-
-2. BUSINESS_MEMORY:
-Realidad interna del negocio, oferta, buyer persona, ticket, capacidad, diferenciadores, objeciones, revenue drivers, proceso comercial, oportunidades y riesgos.
-
-JERARQUÍA DE VERDAD:
-- BUSINESS_MEMORY manda sobre ORION para negocio, ventas, buyer persona, oferta, ticket, objeciones, diferenciadores, revenue drivers y restricciones.
-- ORION manda para percepción digital, presencia, branding, confianza visual, contenido actual y madurez digital.
-- Si se contradicen, explica la contradicción y usa BUSINESS_MEMORY como realidad interna.
+13. Proceso de compra.
+14. Calidad de leads.
+15. Conversión de conversaciones.
+16. Qué debe ejecutar SALES AI.
+17. Qué debe traducir el agente de contenido.
+18. Qué debe convertir Calendar Engine en calendario.
 
 REGLAS DE ESTRATEGIA:
 - No generes una estrategia centrada en redes sociales.
@@ -195,31 +373,32 @@ REGLAS DE ESTRATEGIA:
 - No recomiendes TikTok, Reels, influencers, UGC o pauta como respuesta automática.
 - Las redes sociales son vehículos, no estrategia.
 - El contenido debe ser consecuencia de una hipótesis comercial.
-- Cada recomendación debe conectar con ventas, confianza, retención, ticket, recompra, frecuencia o posicionamiento.
+- Cada recomendación debe conectar con ventas, confianza, retención, ticket, recompra, frecuencia, posicionamiento, conversión o capacidad.
 - No inventes métricas exactas.
-- No inventes capacidad operativa.
 - No inventes márgenes.
-- No inventes temporadas si BUSINESS_MEMORY no las detectó.
-- Si falta información clave, conviértela en riesgo o dato pendiente.
+- No inventes capacidad operativa.
+- No inventes temporadas.
+- Si falta información clave, conviértela en riesgo, pendiente o pregunta para NOVA.
+- Si WhatsApp es cuello de botella, la acción estratégica debe ser activar o ajustar SALES AI, no solo capacitar humanos.
+- Si la marca depende de contenido, ATLAS debe dar dirección estratégica, no calendario.
 - La estrategia debe sonar como consultoría senior, no como plan de community manager.
 
-REGLAS PARA CALENDARIO:
-- El calendario existe solo como traducción operativa de la estrategia.
-- No debe ser la parte más importante.
-- Debe respetar paquete, recursos y capacidad.
-- Cada concepto debe tener una razón comercial.
-- Si un día no hay publicación, marca "Sin publicación".
+CAPA VISIBLE VS INTERNA:
+- client_visible_strategy debe ser clara, profesional y segura para mostrar al cliente.
+- internal_strategy puede contener hipótesis sensibles, riesgos y decisiones que Cometa debe revisar.
+- approval_control debe indicar que Cometa debe aprobar antes de publicar.
+- La versión visible no debe exponer razonamiento interno fuerte, críticas duras o dudas sensibles.
 
 RESPUESTA:
 - Responde únicamente JSON válido.
 - No uses markdown.
 - No agregues texto fuera del JSON.
 `;
-   
-const userPrompt = `
-Crea una estrategia operativa de 90 días para esta marca usando COSMOS.
 
-DATOS BASE DESDE COSMOS:
+    const userPrompt = `
+Crea una estrategia de crecimiento de 90 días para esta marca usando COSMOS.
+
+DATOS BASE:
 Marca: ${finalBrandName}
 Industria: ${industry}
 Ciudad: ${city}
@@ -235,26 +414,38 @@ REGLAS INTERNAS DEL PAQUETE:
 ${JSON.stringify(packageRules, null, 2)}
 
 MEMORIA ORION:
-${JSON.stringify(memory.orion_memory || {}, null, 2)}
+${JSON.stringify(orionMemory || {}, null, 2)}
 
-MEMORIA BUSINESS_MEMORY:
-${JSON.stringify(memory.business_memory || {}, null, 2)}
+MEMORIA NOVA / BUSINESS_MEMORY:
+${JSON.stringify(businessMemory || {}, null, 2)}
+
+ESTRATEGIA ANTERIOR / GROWTH MEMORY:
+${JSON.stringify(memory.growth_memory || null, null, 2)}
+
+ACTIVITY TIMELINE:
+${JSON.stringify(memory.activity_timeline || [], null, 2)}
 
 INSTRUCCIÓN ESTRATÉGICA CRÍTICA:
 
 Antes de llenar el JSON, razona como director de crecimiento:
 
 - ¿Cuál es el verdadero cuello de botella comercial?
-- ¿Qué debe crecer primero: ticket, frecuencia, recompra, confianza, leads, cierre o posicionamiento?
+- ¿Qué debe crecer primero: ticket, frecuencia, recompra, confianza, leads, cierre, conversión, retención o posicionamiento?
 - ¿Qué revenue driver tiene más potencial?
 - ¿Qué objeción impide la venta?
 - ¿Qué acción tendría mayor impacto en 30 días?
 - ¿Qué acción tendría mayor impacto en 90 días?
 - ¿Qué NO debe hacer Cometa aunque parezca atractivo?
-- ¿Qué debe hacer ATLAS antes de pensar en contenido?
+- ¿Qué debe ejecutar SALES AI?
+- ¿Qué debe recibir el agente de contenido como dirección?
+- ¿Qué debe recibir Calendar Engine como límites?
+- ¿Qué debe quedar visible para el cliente?
+- ¿Qué debe quedar interno para Cometa?
 
-La estrategia debe priorizar crecimiento del negocio.
-El contenido, pauta y calendario deben aparecer solo como ejecución.
+ATLAS debe generar estrategia de crecimiento.
+ATLAS no debe generar calendario diario.
+ATLAS no debe crear buyer persona desde cero; debe usar NOVA / BUSINESS_MEMORY.
+ATLAS no debe decir únicamente "capacitar al equipo de WhatsApp" si el problema puede ser resuelto por SALES AI.
 
 ESTRUCTURA JSON OBLIGATORIA:
 
@@ -262,12 +453,40 @@ ESTRUCTURA JSON OBLIGATORIA:
   "strategy_score": 0,
   "strategy_level": "",
 
+  "data_quality": {
+    "has_orion_memory": true,
+    "has_business_memory": true,
+    "confidence_level": "",
+    "missing_information": ["", "", ""],
+    "strategic_limitations": ["", "", ""],
+    "questions_for_nova": ["", "", ""]
+  },
+
   "executive_summary": {
     "current_situation": "",
     "main_objective": "",
     "biggest_opportunity": "",
     "biggest_risk": "",
     "execution_priority": ""
+  },
+
+  "client_visible_strategy": {
+    "monthly_objective": "",
+    "client_summary": "",
+    "content_focus": "",
+    "sales_focus": "",
+    "priority_offers": "",
+    "main_actions": "",
+    "visible_hypothesis": "",
+    "next_steps": ""
+  },
+
+  "internal_strategy": {
+    "internal_reading": "",
+    "sensitive_hypothesis": "",
+    "cometa_decision_needed": "",
+    "what_to_validate_before_publishing": "",
+    "what_not_to_show_client": ""
   },
 
   "strategic_diagnosis": {
@@ -279,7 +498,7 @@ ESTRUCTURA JSON OBLIGATORIA:
     "what_not_to_do": ""
   },
 
-    "growth_model": {
+  "growth_model": {
     "primary_growth_lever": "",
     "secondary_growth_lever": "",
     "revenue_driver_to_prioritize": "",
@@ -295,54 +514,61 @@ ESTRUCTURA JSON OBLIGATORIA:
 
   "brand_context_lock": {
     "business_type": "",
+    "buyer_persona_source": "NOVA / BUSINESS_MEMORY",
     "what_this_business_sells": ["", "", ""],
     "what_this_business_does_not_sell": ["", "", ""],
     "customer_desires": ["", "", ""],
     "customer_problems": ["", "", ""],
     "customer_situations": ["", "", ""],
-    "allowed_content_topics": ["", "", ""],
-    "forbidden_content_topics": ["", "", ""]
+    "allowed_strategic_topics": ["", "", ""],
+    "forbidden_strategic_topics": ["", "", ""]
   },
 
-  "commercial_content_engine": {
-    "business_type_detected": "",
-    "revenue_categories": ["", "", ""],
-    "trust_categories": ["", "", ""],
-    "experience_categories": ["", "", ""],
-    "community_categories": ["", "", ""],
-    "conversion_categories": ["", "", ""],
-    "objections_to_address": ["", "", ""],
-    "ticket_growth_opportunities": ["", "", ""],
-    "recommended_monthly_content_mix": [
-      {
-        "category": "",
-        "percentage": 0,
-        "reason": ""
-      }
-    ],
-    "content_balance_rule": ""
-  },
-
-  "commercial_offer_map": {
-    "detected_offer": ["", "", ""],
+  "offer_strategy": {
+    "detected_priority_offers": ["", "", ""],
     "main_revenue_opportunity": "",
-    "offer_balance_warning": "",
-    "content_mix_recommendation": ""
+    "offer_positioning": "",
+    "offer_risk": "",
+    "recommended_offer_focus": ""
   },
 
-  "creative_concept_engine": {
-    "creative_direction": "",
-    "tone_of_content": "",
-    "hook_style": "",
-    "visual_style": "",
+  "sales_ai_directives": {
+    "should_sales_ai_be_activated": true,
+    "sales_ai_priority": "",
+    "main_whatsapp_problem_to_solve": "",
+    "lead_qualification_rules_needed": ["", "", ""],
+    "objections_sales_ai_must_handle": ["", "", ""],
+    "follow_up_strategy": "",
+    "handoff_rules_to_humans": "",
+    "sales_playbook_needed": ["", "", ""],
+    "what_sales_ai_should_report_back_to_atlas": ["", "", ""]
+  },
+
+  "content_strategy_directives": {
+    "strategic_communication_role": "",
+    "main_content_direction": "",
+    "content_principle": "",
+    "messages_to_amplify": ["", "", ""],
+    "objections_to_address_with_content": ["", "", ""],
+    "trust_assets_needed": ["", "", ""],
     "content_should_avoid": ["", "", ""],
-    "example_hooks": ["", "", ""]
+    "recommended_pillars": [
+      {
+        "pillar": "",
+        "percentage": 0,
+        "strategic_role": "",
+        "example_angle": ""
+      }
+    ]
   },
 
-  "smart_objectives": {
-    "thirty_days": ["", "", ""],
-    "ninety_days": ["", "", ""],
-    "six_months": ["", "", ""]
+  "calendar_engine_directives": {
+    "calendar_should_prioritize": ["", "", ""],
+    "calendar_must_respect": ["", "", ""],
+    "formats_recommended": ["", "", ""],
+    "formats_to_avoid": ["", "", ""],
+    "production_limits": "",
+    "approval_notes": ""
   },
 
   "budget_strategy": {
@@ -372,12 +598,27 @@ ESTRUCTURA JSON OBLIGATORIA:
     "operational_warning": ""
   },
 
-  "growth_accelerators": [
+  "roadmap_90_days": [
     {
-      "accelerator": "",
-      "priority": 0,
-      "reason": "",
-      "recommended_action": ""
+      "title": "Fase 1",
+      "period": "Días 1–30",
+      "focus": "",
+      "strategic_reason": "",
+      "main_owner": ""
+    },
+    {
+      "title": "Fase 2",
+      "period": "Días 31–60",
+      "focus": "",
+      "strategic_reason": "",
+      "main_owner": ""
+    },
+    {
+      "title": "Fase 3",
+      "period": "Días 61–90",
+      "focus": "",
+      "strategic_reason": "",
+      "main_owner": ""
     }
   ],
 
@@ -394,124 +635,6 @@ ESTRUCTURA JSON OBLIGATORIA:
     ]
   },
 
-  "monthly_content_calendar": [
-    {
-      "week": 1,
-      "items": [
-        {
-          "day": "Lunes",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Martes",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Miércoles",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Jueves",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Viernes",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Sábado",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        },
-        {
-          "day": "Domingo",
-          "format": "",
-          "platform": "",
-          "concept": "",
-          "objective": "",
-          "pillar": "",
-          "creative_brief": "",
-          "cta": "",
-          "production_needs": ""
-        }
-      ]
-    },
-    {
-      "week": 2,
-      "items": []
-    },
-    {
-      "week": 3,
-      "items": []
-    },
-    {
-      "week": 4,
-      "items": []
-    }
-  ],
-
-  "production_plan": {
-    "monthly_visits": 0,
-    "visit_1_objective": "",
-    "visit_2_objective": "",
-    "photos_needed": "",
-    "videos_needed": "",
-    "models_needed": "",
-    "ugc_needed": "",
-    "client_material_needed": ""
-  },
-
-  "operational_calendar": [
-    {
-      "task": "",
-      "responsible_area": "",
-      "suggested_day": "",
-      "priority": "",
-      "notes": ""
-    }
-  ],
-
   "kpis": {
     "reach_goal": "",
     "engagement_goal": "",
@@ -519,6 +642,7 @@ ESTRUCTURA JSON OBLIGATORIA:
     "leads_goal": "",
     "sales_goal": "",
     "ads_kpis": "",
+    "sales_ai_kpis": "",
     "main_success_metric": ""
   },
 
@@ -526,7 +650,24 @@ ESTRUCTURA JSON OBLIGATORIA:
     "strategic_risks": ["", "", ""],
     "operational_risks": ["", "", ""],
     "financial_risks": ["", "", ""],
+    "sales_risks": ["", "", ""],
     "how_to_prevent_failure": ""
+  },
+
+  "learning_loop": {
+    "what_atlas_should_watch_next_cycle": ["", "", ""],
+    "what_sales_ai_should_report": ["", "", ""],
+    "what_content_strategy_agent_should_report": ["", "", ""],
+    "what_calendar_engine_should_report": ["", "", ""],
+    "memory_updates_recommended": ["", "", ""]
+  },
+
+  "approval_control": {
+    "requires_cometa_review": true,
+    "safe_to_show_client": false,
+    "client_visible_summary_ready": true,
+    "reason_for_review": "",
+    "suggested_publication_status": "draft"
   },
 
   "ceo_recommendation": {
@@ -540,34 +681,31 @@ ESTRUCTURA JSON OBLIGATORIA:
 }
 
 REGLAS CRÍTICAS:
-- monthly_content_calendar debe contener exactamente 4 semanas.
-- Cada semana debe contener exactamente 7 días.
-- Si no hay publicación ese día:
-  format: "Sin publicación"
-  platform: "No aplica"
-  concept: "Sin publicación programada"
-  objective: "Descanso operativo / sin publicación"
-  pillar: "No aplica"
-  creative_brief: "No se publica contenido de feed este día."
-  cta: "No aplica"
-  production_needs: "Sin producción"
-- Cada semana debe respetar exactamente:
-  posting_days_per_week,
-  reels_per_week,
-  posts_per_week.
+- No incluyas monthly_content_calendar.
+- No incluyas calendario por día.
+- No incluyas lista de publicaciones diarias.
+- No actúes como Calendar Engine.
+- No actúes como SALES AI.
+- No actúes como NOVA.
+- content_architecture solo debe ser dirección estratégica de comunicación, no calendario.
+- content_strategy_directives debe servir para que el agente de contenido pueda crear la estrategia de contenido después.
+- calendar_engine_directives debe servir para que Calendar Engine pueda crear el calendario después.
+- sales_ai_directives debe servir para que SALES AI mejore WhatsApp, calificación, objeciones, seguimiento y cierre.
 - Los porcentajes de content_architecture.pillars deben sumar 100.
-- Los porcentajes de commercial_content_engine.recommended_monthly_content_mix deben sumar 100.
+- Los porcentajes de content_strategy_directives.recommended_pillars deben sumar 100.
 - recommended_distribution debe sumar 100.
 - growth_model debe ser la parte más importante de la estrategia.
 - No pongas redes sociales como primary_growth_lever salvo que el negocio dependa directamente de ellas.
 - primary_growth_lever debe ser comercial: ticket, frecuencia, recompra, confianza, cierre, leads, conversión, retención, posicionamiento o capacidad.
+- Si el cuello de botella es WhatsApp, recomienda activar/optimizar SALES AI como sistema, no solo capacitar humanos.
 - Cada recomendación debe explicar cómo ayuda a crecer el negocio.
 - No agregues texto fuera del JSON.
 `;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
-      temperature: 0.38,
+      temperature: 0.28,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -581,19 +719,30 @@ REGLAS CRÍTICAS:
     });
 
     const rawResult = completion.choices[0].message.content || "{}";
+    const parsedResult = safeJsonParse(rawResult);
 
-    const cleanedResult = rawResult
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const parsedResult = JSON.parse(cleanedResult);
+    parsedResult._cometa_meta = {
+      agent: "ATLAS",
+      version: "atlas_strategy_ai_v4",
+      generated_at: new Date().toISOString(),
+      brand_name: finalBrandName,
+      brand_analysis_id: finalBrandAnalysisId,
+      source_memory_id: memory.id,
+      depends_on: ["ORION", "NOVA / BUSINESS_MEMORY"],
+      downstream_agents: [
+        "CONTENT_STRATEGY_AGENT",
+        "CALENDAR_ENGINE",
+        "SALES_AI",
+      ],
+      requires_cometa_approval: true,
+      client_visible_only_after_publish: true,
+    };
 
     const { data: savedStrategy, error } = await supabase
       .from("strategy_analysis")
       .insert([
         {
-          brand_analysis_id: finalBrandAnalysisId || null,
+          brand_analysis_id: finalBrandAnalysisId,
           brand_name: finalBrandName,
           industry,
           city,
@@ -615,57 +764,59 @@ REGLAS CRÍTICAS:
       .single();
 
     if (error) {
-      console.log(error);
+      console.log("Error guardando strategy_analysis:", error);
+
       return NextResponse.json({
         success: false,
-        error: "Error guardando estrategia",
+        error: "Error guardando estrategia de ATLAS.",
       });
     }
 
     const now = new Date().toISOString();
 
-const currentTimeline = Array.isArray(memory.activity_timeline)
-  ? memory.activity_timeline
-  : [];
+    const currentTimeline = Array.isArray(memory.activity_timeline)
+      ? memory.activity_timeline
+      : [];
 
-const timelineEvent = {
-  timestamp: now,
-  agent: "ATLAS",
-  action: "generate_strategy",
-  memory_column: "growth_memory",
-  summary:
-    parsedResult?.executive_summary?.current_situation ||
-    parsedResult?.executive_summary?.main_objective ||
-    null,
-};
+    const timelineEvent = {
+      timestamp: now,
+      agent: "ATLAS",
+      action: "generate_growth_strategy",
+      memory_column: "growth_memory",
+      summary:
+        parsedResult?.executive_summary?.current_situation ||
+        parsedResult?.executive_summary?.main_objective ||
+        null,
+    };
 
-const { error: updateCosmosError } = await supabase
-  .from("cosmos_memory")
-  .update({
-    growth_memory: parsedResult,
-    last_agent: "ATLAS",
-    activity_timeline: [...currentTimeline, timelineEvent],
-    updated_at: now,
-  })
-  .eq("id", memory.id);
+    const { error: updateCosmosError } = await supabase
+      .from("cosmos_memory")
+      .update({
+        growth_memory: parsedResult,
+        last_agent: "ATLAS",
+        activity_timeline: [...currentTimeline, timelineEvent],
+        updated_at: now,
+      })
+      .eq("id", memory.id);
 
-if (updateCosmosError) {
-  console.log("Error guardando ATLAS en COSMOS:", updateCosmosError);
+    if (updateCosmosError) {
+      console.log("Error guardando ATLAS en COSMOS:", updateCosmosError);
 
-  return NextResponse.json({
-    success: false,
-    error: "ATLAS generó la estrategia, pero no pudo guardar en COSMOS.",
-  });
-}
+      return NextResponse.json({
+        success: false,
+        error: "ATLAS generó la estrategia, pero no pudo guardar en COSMOS.",
+      });
+    }
 
     await supabase.from("cosmos_agent_runs").insert([
       {
         brand_name: finalBrandName,
-        brand_analysis_id: finalBrandAnalysisId || null,
+        brand_analysis_id: finalBrandAnalysisId,
         agent_name: "ATLAS",
-        action_type: "strategy_generation_v2",
+        action_type: "growth_strategy_generation_v4",
         input_data: {
           brandName: finalBrandName,
+          requestedBrandName: brandName,
           brandAnalysisId: finalBrandAnalysisId,
           packageName,
           ninetyDayGoal,
@@ -683,14 +834,15 @@ if (updateCosmosError) {
 
     return NextResponse.json({
       success: true,
+      strategyId: savedStrategy?.id || null,
       strategy: parsedResult,
     });
-  } catch (error) {
-    console.log(error);
+  } catch (error: any) {
+    console.log("generate-strategy ATLAS error:", error);
 
     return NextResponse.json({
       success: false,
-      error: "Error generando estrategia",
+      error: error?.message || "Error generando estrategia con ATLAS.",
     });
   }
 }

@@ -61,6 +61,8 @@ export async function POST(request: NextRequest) {
     let createdOrUpdatedLeads = 0;
     let createdSalesMessages = 0;
     let createdAgentRuns = 0;
+    let sentWhatsappMessages = 0;
+    let failedWhatsappMessages = 0;
 
     for (const entry of entries) {
       const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -179,17 +181,85 @@ export async function POST(request: NextRequest) {
               createdSalesMessages += 1;
             }
 
-            const agentRunOk = await createAgentRun({
+            const agentResult = await runSalesAiAgent(request, {
               brandName: brand.name,
               leadId,
-              waId,
-              contentText,
-              timestampIso,
-              analysis,
+              contactName,
+              contactPhone: waId,
+              contactUsername: waId,
+              incomingMessage: contentText,
+              conversationText: `Cliente (${contactName}): ${contentText}`,
+              source: "whatsapp",
             });
 
-            if (agentRunOk) {
+            if (agentResult?.success) {
               createdAgentRuns += 1;
+
+              const whatsappSendingEnabled =
+  process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
+
+const shouldSend =
+  whatsappSendingEnabled &&
+  agentResult.shouldSendWhatsapp === true &&
+  agentResult.decision?.agent_reply &&
+  phoneNumberId;
+
+              if (shouldSend) {
+                const whatsappSendResult = await sendWhatsappTextMessage({
+                  phoneNumberId,
+                  to: waId,
+                  message: agentResult.decision.agent_reply,
+                });
+
+                if (whatsappSendResult.ok) {
+                  sentWhatsappMessages += 1;
+
+                  await saveOutboundWhatsappMessage({
+                    brandSlug: brand.slug,
+                    brandName: brand.name,
+                    leadId,
+                    waId,
+                    phoneNumberId,
+                    displayPhoneNumber,
+                    messageText: agentResult.decision.agent_reply,
+                    whatsappMessageId: whatsappSendResult.whatsappMessageId,
+                    rawResponse: whatsappSendResult.data,
+                  });
+
+                  if (agentResult.runId) {
+                    await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                      {
+                        action_status: "sent_whatsapp",
+                        whatsapp_message_id:
+                          whatsappSendResult.whatsappMessageId,
+                        executed_at: new Date().toISOString(),
+                      },
+                      {
+                        action_status: "sent_whatsapp",
+                      },
+                    ]);
+                  }
+                } else {
+                  failedWhatsappMessages += 1;
+
+                  console.error(
+                    "No se pudo enviar WhatsApp automático:",
+                    whatsappSendResult.error
+                  );
+
+                  if (agentResult.runId) {
+                    await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                      {
+                        action_status: "whatsapp_send_failed",
+                        execution_error: whatsappSendResult.error,
+                      },
+                      {
+                        action_status: "whatsapp_send_failed",
+                      },
+                    ]);
+                  }
+                }
+              }
             }
           }
         }
@@ -228,6 +298,8 @@ export async function POST(request: NextRequest) {
         leads: createdOrUpdatedLeads,
         salesMessages: createdSalesMessages,
         agentRuns: createdAgentRuns,
+        sentWhatsappMessages,
+        failedWhatsappMessages,
       },
     });
   } catch (error: any) {
@@ -501,60 +573,225 @@ async function createSalesMessage({
   return Boolean(inserted);
 }
 
-async function createAgentRun({
+async function runSalesAiAgent(
+  request: NextRequest,
+  {
+    brandName,
+    leadId,
+    contactName,
+    contactPhone,
+    contactUsername,
+    incomingMessage,
+    conversationText,
+    source,
+  }: {
+    brandName: string;
+    leadId: string;
+    contactName: string;
+    contactPhone: string;
+    contactUsername?: string;
+    incomingMessage: string;
+    conversationText: string;
+    source: string;
+  }
+) {
+  try {
+    const res = await fetch(`${getBaseUrl(request)}/api/sales-ai/agent-run`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        brandName,
+        leadId,
+        contactName,
+        contactPhone,
+        contactUsername,
+        incomingMessage,
+        conversationText,
+        source,
+        agentMode: process.env.SALES_AI_AGENT_MODE || "observation",
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      console.error("SALES AI agent-run falló:", data);
+      return null;
+    }
+
+    return data;
+  } catch (error: any) {
+    console.error("Error llamando SALES AI agent-run:", error?.message || error);
+    return null;
+  }
+}
+
+async function sendWhatsappTextMessage({
+  phoneNumberId,
+  to,
+  message,
+}: {
+  phoneNumberId: string;
+  to: string;
+  message: string;
+}) {
+  const accessToken =
+    process.env.WHATSAPP_ACCESS_TOKEN ||
+    process.env.META_WHATSAPP_TOKEN ||
+    "";
+
+  const graphApiVersion =
+    process.env.WHATSAPP_GRAPH_API_VERSION ||
+    process.env.META_GRAPH_API_VERSION ||
+    "v23.0";
+
+  if (!accessToken) {
+    return {
+      ok: false,
+      error: "Falta WHATSAPP_ACCESS_TOKEN o META_WHATSAPP_TOKEN",
+    };
+  }
+
+  if (!phoneNumberId) {
+    return {
+      ok: false,
+      error: "Falta phoneNumberId para enviar WhatsApp",
+    };
+  }
+
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${graphApiVersion}/${phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to,
+          type: "text",
+          text: {
+            preview_url: false,
+            body: message,
+          },
+        }),
+      }
+    );
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: JSON.stringify(data || {}),
+        data,
+      };
+    }
+
+    return {
+      ok: true,
+      data,
+      whatsappMessageId: data?.messages?.[0]?.id || null,
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || String(error),
+    };
+  }
+}
+
+async function saveOutboundWhatsappMessage({
+  brandSlug,
   brandName,
   leadId,
   waId,
-  contentText,
-  timestampIso,
-  analysis,
+  phoneNumberId,
+  displayPhoneNumber,
+  messageText,
+  whatsappMessageId,
+  rawResponse,
 }: {
+  brandSlug: string;
   brandName: string;
   leadId: string;
   waId: string;
-  contentText: string;
-  timestampIso: string;
-  analysis: LeadAnalysis;
+  phoneNumberId: string | null;
+  displayPhoneNumber: string | null;
+  messageText: string;
+  whatsappMessageId: string | null;
+  rawResponse: any;
 }) {
-  const inserted = await safeInsertWithFallback("sales_agent_runs", [
+  const now = new Date().toISOString();
+
+  await safeInsertWithFallback("whatsapp_messages", [
     {
-      id: randomUUID(),
-      brand_name: brandName,
-      lead_id: leadId,
-      action: "analyze_whatsapp_message",
-      action_status: "ready",
-      status: "ready",
-      lead_stage: analysis.intent,
-      requires_human: analysis.requiresHuman,
-      confidence_score: analysis.confidenceScore,
-      decision_reason: analysis.decisionReason,
-      reason: analysis.decisionReason,
-      recommended_reply: analysis.recommendedReply,
-      reply: analysis.recommendedReply,
-      next_action: analysis.nextAction,
-      input_data: {
-        source: "whatsapp",
-        waId,
-        message: contentText,
-      },
-      output_data: analysis,
-      created_at: timestampIso,
+      brand_slug: brandSlug,
+      message_id: whatsappMessageId || randomUUID(),
+      wa_id: waId,
+      phone_number_id: phoneNumberId,
+      display_phone_number: displayPhoneNumber,
+      direction: "outbound",
+      message_type: "text",
+      content_text: messageText,
+      raw_message: rawResponse,
+      timestamp_at: now,
+      status: "sent",
     },
     {
-      id: randomUUID(),
-      brand_name: brandName,
-      lead_id: leadId,
-      action: "reply_recommendation",
-      action_status: "ready",
-      confidence_score: analysis.confidenceScore,
-      recommended_reply: analysis.recommendedReply,
-      next_action: analysis.nextAction,
-      requires_human: analysis.requiresHuman,
-      created_at: timestampIso,
+      brand_slug: brandSlug,
+      message_id: whatsappMessageId || randomUUID(),
+      wa_id: waId,
+      direction: "outbound",
+      content_text: messageText,
+      status: "sent",
     },
   ]);
 
-  return Boolean(inserted);
+  await safeInsertWithFallback("sales_messages", [
+    {
+      id: randomUUID(),
+      brand_name: brandName,
+      lead_id: leadId,
+      direction: "outbound",
+      message_direction: "outbound",
+      type: "outbound",
+      message: messageText,
+      body: messageText,
+      content: messageText,
+      text: messageText,
+      content_text: messageText,
+      sender: "SALES AI",
+      sender_name: "SALES AI",
+      to: waId,
+      to_number: waId,
+      whatsapp_message_id: whatsappMessageId,
+      external_message_id: whatsappMessageId,
+      raw_message: rawResponse,
+      is_from_customer: false,
+      created_at: now,
+    },
+    {
+      id: randomUUID(),
+      brand_name: brandName,
+      lead_id: leadId,
+      direction: "outbound",
+      content_text: messageText,
+      sender: "SALES AI",
+      created_at: now,
+    },
+    {
+      brand_name: brandName,
+      lead_id: leadId,
+      message: messageText,
+      direction: "outbound",
+      created_at: now,
+    },
+  ]);
 }
 
 async function safeInsertWithFallback(tableName: string, payloads: any[]) {
@@ -844,4 +1081,13 @@ function formatBrandName(slug: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getBaseUrl(request: NextRequest) {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+
+  const url = new URL(request.url);
+  return `${url.protocol}//${url.host}`;
 }
