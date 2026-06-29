@@ -11,7 +11,11 @@ const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
 
-const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || "";
+const verifyToken =
+  process.env.WHATSAPP_VERIFY_TOKEN?.trim() ||
+  process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
+  process.env.META_WHATSAPP_VERIFY_TOKEN?.trim() ||
+  "";
 const defaultBrandSlug =
   process.env.WHATSAPP_DEFAULT_BRAND_SLUG || "cometa-mkt";
 
@@ -20,9 +24,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
 
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
+  const mode = searchParams.get("hub.mode")?.trim();
+const token = searchParams.get("hub.verify_token")?.trim();
+const challenge = searchParams.get("hub.challenge") || "";
 
   if (mode === "subscribe" && token === verifyToken && challenge) {
     return new Response(challenge, {
@@ -33,6 +37,21 @@ export async function GET(request: NextRequest) {
     });
   }
 
+if (!verifyToken) {
+  console.error("WHATSAPP WEBHOOK ERROR: Missing verify token env variable.");
+
+  return Response.json(
+    {
+      ok: false,
+      error:
+        "Webhook sin token configurado. Falta WHATSAPP_VERIFY_TOKEN en Vercel.",
+    },
+    { status: 500 }
+  );
+}
+if (mode === "subscribe" && token === verifyToken) {
+  return new Response(challenge, { status: 200 });
+}
   return NextResponse.json(
     {
       ok: false,
