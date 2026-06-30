@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { slugifyBrand } from "@/lib/brand-resolver";
 import {
   buildSalesPlaybookContext,
   getSalesPlaybook,
@@ -9,6 +12,13 @@ import {
   buildSalesKnowledgeContext,
   getSalesKnowledgeBase,
 } from "@/lib/sales-ai/knowledge";
+import {
+  canCreateSalesAiFollowups,
+  canSendRealWhatsapp,
+  explainWhatsappSendLock,
+  getSalesAiRuntimeSettings,
+  resolveSalesAiAgentMode,
+} from "@/lib/sales-ai-runtime-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,11 +28,22 @@ const openai = new OpenAI({
 });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+type UserRole = "admin" | "client";
+
+type UserContext = {
+  userId: string | null;
+  email: string | null;
+  role: UserRole;
+  allowedBrandSlugs: string[];
+  isInternalRequest: boolean;
+};
 
 function safeJsonParse(text: string) {
   try {
@@ -39,12 +60,255 @@ function safeJsonParse(text: string) {
   }
 }
 
+function parseCsv(value?: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isCometaAdmin(user: { id?: string; email?: string | null } | null) {
+  if (!user) return false;
+
+  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
+  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
+
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  const userId = String(user.id || "").trim().toLowerCase();
+
+  if (!adminEmails.length && !adminUserIds.length) {
+    return false;
+  }
+
+  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
+}
+
+function isInternalRequest(req: Request) {
+  const expectedSecret = String(process.env.SALES_AI_INTERNAL_SECRET || "").trim();
+
+  if (!expectedSecret) return false;
+
+  const receivedSecret =
+    req.headers.get("x-cometa-internal-secret") ||
+    req.headers.get("x-sales-ai-internal-secret") ||
+    "";
+
+  return receivedSecret === expectedSecret;
+}
+
+async function getUserContext(req: Request): Promise<UserContext> {
+  if (isInternalRequest(req)) {
+    return {
+      userId: "internal-sales-ai",
+      email: "internal@cometaos.local",
+      role: "admin",
+      allowedBrandSlugs: [],
+      isInternalRequest: true,
+    };
+  }
+
+  const cookieStore = await cookies();
+
+  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {}
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAuth.auth.getUser();
+
+  if (error || !user) {
+    return {
+      userId: null,
+      email: null,
+      role: "client",
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  if (isCometaAdmin(user)) {
+    return {
+      userId: user.id,
+      email: user.email || null,
+      role: "admin",
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,role,status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn("agent-run profile error:", profileError.message);
+  }
+
+  const role: UserRole =
+    profile?.role === "admin" && profile?.status === "active"
+      ? "admin"
+      : "client";
+
+  if (role === "admin") {
+    return {
+      userId: user.id,
+      email: user.email || profile?.email || null,
+      role,
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  const { data: accessRows, error: accessError } = await supabase
+    .from("user_brand_access")
+    .select("brand_slug,status")
+    .eq("user_id", user.id)
+    .eq("status", "active");
+
+  if (accessError) {
+    console.warn("agent-run access error:", accessError.message);
+  }
+
+  const allowedBrandSlugs = Array.from(
+    new Set(
+      (accessRows || [])
+        .map((row: any) => slugifyBrand(row.brand_slug || ""))
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    userId: user.id,
+    email: user.email || profile?.email || null,
+    role,
+    allowedBrandSlugs,
+    isInternalRequest: false,
+  };
+}
+
+function validateBrandAccess({
+  userContext,
+  brandName,
+  brandSlug,
+}: {
+  userContext: UserContext;
+  brandName: string;
+  brandSlug?: string | null;
+}) {
+  const normalizedBrandSlug = slugifyBrand(brandSlug || brandName);
+
+  if (userContext.role === "admin") {
+    return {
+      ok: true,
+      error: null,
+      brandSlug: normalizedBrandSlug,
+    };
+  }
+
+  if (userContext.allowedBrandSlugs.includes(normalizedBrandSlug)) {
+    return {
+      ok: true,
+      error: null,
+      brandSlug: normalizedBrandSlug,
+    };
+  }
+
+  return {
+    ok: false,
+    error:
+      "No tienes permiso para ejecutar SALES AI sobre esta marca. Esta marca no está asignada a tu usuario.",
+    brandSlug: normalizedBrandSlug,
+  };
+}
+
+function safeText(value: unknown, maxLength = 4000) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function normalizePhone(value: unknown) {
+  return String(value || "")
+    .trim()
+    .replace(/[^\d+]/g, "")
+    .slice(0, 40);
+}
+
+function buildForwardHeaders(req: Request) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  const cookieHeader = req.headers.get("cookie");
+
+  if (cookieHeader) {
+    headers.Cookie = cookieHeader;
+  }
+
+  if (process.env.SALES_AI_INTERNAL_SECRET) {
+    headers["x-cometa-internal-secret"] = process.env.SALES_AI_INTERNAL_SECRET;
+  }
+
+  return headers;
+}
+
+function getSafeRuntimeSnapshot(runtimeSettings: any) {
+  return {
+    brand_name: runtimeSettings.brand_name,
+    agent_mode: runtimeSettings.agent_mode,
+    whatsapp_status: runtimeSettings.whatsapp_status,
+    auto_reply_enabled: runtimeSettings.auto_reply_enabled,
+    send_whatsapp_enabled: runtimeSettings.send_whatsapp_enabled,
+    followups_enabled: runtimeSettings.followups_enabled,
+    human_escalation_enabled: runtimeSettings.human_escalation_enabled,
+    max_followups: runtimeSettings.max_followups,
+    first_followup_delay_minutes:
+      runtimeSettings.first_followup_delay_minutes,
+  };
+}
+
+async function validateLeadBelongsToBrand(leadId: string, brandName: string) {
+  try {
+    const { data, error } = await supabase
+      .from("sales_leads")
+      .select("id,brand_name")
+      .eq("id", leadId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("validateLeadBelongsToBrand error:", error.message);
+      return true;
+    }
+
+    if (!data) return true;
+
+    return String(data.brand_name || "").trim() === String(brandName || "").trim();
+  } catch (error: any) {
+    console.warn("validateLeadBelongsToBrand exception:", error?.message);
+    return true;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
     const {
       brandName,
+      brandSlug,
       leadId,
       contactName,
       contactPhone,
@@ -54,15 +318,25 @@ export async function POST(req: Request) {
       source = "whatsapp",
       campaignName,
       adName,
-      agentMode = process.env.SALES_AI_AGENT_MODE || "observation",
+      agentMode,
     } = body;
 
-    const finalBrandName = String(brandName || "").trim();
-    const finalAgentMode = normalizeAgentMode(agentMode);
+    const finalBrandName = safeText(brandName, 180);
+    const finalBrandSlug = safeText(brandSlug, 180);
+    const finalContactName = safeText(contactName || "Prospecto", 180);
+    const finalContactPhone = normalizePhone(contactPhone || "");
+    const finalContactUsername = safeText(contactUsername || "", 180);
+    const finalIncomingMessage = safeText(incomingMessage || "", 6000);
+    const finalSource = safeText(source || "whatsapp", 80) || "whatsapp";
+    const requestedAgentMode = safeText(
+      agentMode || process.env.SALES_AI_AGENT_MODE || "observation",
+      40
+    );
 
-    if (!finalBrandName || (!incomingMessage && !conversationText)) {
+    if (!finalBrandName || (!finalIncomingMessage && !conversationText)) {
       return NextResponse.json(
         {
+          ok: false,
           error:
             "Faltan campos obligatorios: brandName y incomingMessage o conversationText",
         },
@@ -70,8 +344,67 @@ export async function POST(req: Request) {
       );
     }
 
-    const finalConversationText =
-      conversationText || `Cliente: ${incomingMessage}`;
+    const userContext = await getUserContext(req);
+
+    if (!userContext.userId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "No autorizado. Inicia sesión para ejecutar SALES AI.",
+        },
+        { status: 401 }
+      );
+    }
+
+    const accessValidation = validateBrandAccess({
+      userContext,
+      brandName: finalBrandName,
+      brandSlug: finalBrandSlug,
+    });
+
+    if (!accessValidation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: accessValidation.error,
+          user: {
+            id: userContext.userId,
+            email: userContext.email,
+            role: userContext.role,
+            isAdmin: userContext.role === "admin",
+          },
+          requestedBrand: {
+            name: finalBrandName,
+            slug: accessValidation.brandSlug,
+          },
+        },
+        { status: 403 }
+      );
+    }
+
+    const runtimeSettings = await getSalesAiRuntimeSettings(finalBrandName);
+
+    const realWhatsappAllowedBySettings = canSendRealWhatsapp(runtimeSettings);
+    const realWhatsappLockReasons = explainWhatsappSendLock(runtimeSettings);
+
+    /**
+     * Seguridad:
+     * No aceptamos agentMode desde el body para activar automático.
+     * El modo real sale de sales_ai_settings.
+     * Además, las simulaciones siempre quedan en observation.
+     */
+    const finalAgentMode =
+      finalSource === "whatsapp_simulation"
+        ? "observation"
+        : resolveSalesAiAgentMode(runtimeSettings, "observation");
+
+    const followupsAllowedBySettings =
+      canCreateSalesAiFollowups(runtimeSettings);
+
+    const finalConversationText = safeText(
+      conversationText || `Cliente: ${finalIncomingMessage}`,
+      12000
+    );
 
     const salesPlaybook = await getSalesPlaybook(finalBrandName);
     const salesPlaybookContext = buildSalesPlaybookContext(salesPlaybook);
@@ -99,21 +432,37 @@ export async function POST(req: Request) {
       suggestions: knowledgeBase.suggestions.length,
     });
 
+    console.log("SALES AI runtime settings:", {
+      brandName: finalBrandName,
+      brandSlug: accessValidation.brandSlug,
+      requestedAgentMode,
+      finalAgentMode,
+      followupsAllowedBySettings,
+      realWhatsappAllowedBySettings,
+      realWhatsappLockReasons,
+      requestedBy: {
+        userId: userContext.userId,
+        email: userContext.email,
+        role: userContext.role,
+        isInternalRequest: userContext.isInternalRequest,
+      },
+      runtimeSettings: getSafeRuntimeSnapshot(runtimeSettings),
+    });
+
     const analysisRes = await fetch(
       `${getBaseUrl(req)}/api/sales-ai/analyze-lead`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: buildForwardHeaders(req),
         body: JSON.stringify({
           brandName: finalBrandName,
+          brandSlug: accessValidation.brandSlug,
           leadId,
-          contactName,
-          contactPhone,
-          contactUsername,
+          contactName: finalContactName,
+          contactPhone: finalContactPhone,
+          contactUsername: finalContactUsername,
           conversationText: finalConversationText,
-          source,
+          source: finalSource,
           campaignName,
           adName,
         }),
@@ -125,6 +474,7 @@ export async function POST(req: Request) {
     if (!analysisRes.ok) {
       return NextResponse.json(
         {
+          ok: false,
           error: "Error en analyze-lead",
           details: analysisData,
         },
@@ -134,6 +484,24 @@ export async function POST(req: Request) {
 
     const finalLeadId = analysisData.leadId;
     const analysis = analysisData.analysis;
+
+    if (finalLeadId) {
+      const leadBelongsToBrand = await validateLeadBelongsToBrand(
+        finalLeadId,
+        finalBrandName
+      );
+
+      if (!leadBelongsToBrand) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "El lead generado o solicitado no pertenece a la marca indicada.",
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     const recentContext = await getRecentContext(finalLeadId);
 
@@ -202,6 +570,20 @@ REGLAS DE AUTONOMÍA:
 MODO DEL AGENTE:
 - Si agentMode = "observation", decide qué harías, pero solo registra.
 - Si agentMode = "automatic", puedes marcar should_send_now=true si la respuesta es segura, no requiere humano y la acción es send_reply.
+- Si agentMode = "paused", solo registra la decisión. No programes acciones automáticas ni envíos.
+
+CONFIGURACIÓN ACTUAL DEL SISTEMA:
+- agent_mode: ${runtimeSettings.agent_mode}
+- resolved_agent_mode: ${finalAgentMode}
+- whatsapp_status: ${runtimeSettings.whatsapp_status}
+- auto_reply_enabled: ${runtimeSettings.auto_reply_enabled}
+- send_whatsapp_enabled: ${runtimeSettings.send_whatsapp_enabled}
+- followups_enabled: ${runtimeSettings.followups_enabled}
+- human_escalation_enabled: ${runtimeSettings.human_escalation_enabled}
+- max_followups: ${runtimeSettings.max_followups}
+- first_followup_delay_minutes: ${runtimeSettings.first_followup_delay_minutes}
+- real_whatsapp_allowed_by_settings: ${realWhatsappAllowedBySettings}
+- real_whatsapp_lock_reasons: ${realWhatsappLockReasons.join(", ") || "none"}
 
 CRITERIOS:
 - confidence_score debe ir de 0 a 100.
@@ -282,6 +664,7 @@ Devuelve únicamente JSON válido.
     if (!decision) {
       return NextResponse.json(
         {
+          ok: false,
           error: "No se pudo convertir la decisión del agente a JSON",
           raw: rawDecision,
         },
@@ -290,17 +673,36 @@ Devuelve únicamente JSON válido.
     }
 
     const normalizedDecision = normalizeDecision(decision, finalAgentMode);
-    const nextFollowUpAt = getNextFollowUpAt(
-      normalizedDecision.follow_up_delay_minutes
-    );
 
-    const actionStatus =
+    const effectiveFollowUpDelayMinutes =
+      normalizedDecision.follow_up_message &&
+      Number(normalizedDecision.follow_up_delay_minutes || 0) > 0
+        ? Number(normalizedDecision.follow_up_delay_minutes)
+        : normalizedDecision.follow_up_message
+        ? Number(runtimeSettings.first_followup_delay_minutes || 1440)
+        : 0;
+
+    normalizedDecision.follow_up_delay_minutes = effectiveFollowUpDelayMinutes;
+
+    const nextFollowUpAt = followupsAllowedBySettings
+      ? getNextFollowUpAt(effectiveFollowUpDelayMinutes)
+      : null;
+
+    const canPrepareRealSend =
       finalAgentMode === "automatic" &&
+      realWhatsappAllowedBySettings &&
       normalizedDecision.should_send_now &&
       normalizedDecision.action === "send_reply" &&
-      normalizedDecision.requires_human !== true
+      normalizedDecision.requires_human !== true;
+
+    const actionStatus =
+      finalAgentMode === "paused"
+        ? "paused_logged"
+        : canPrepareRealSend
         ? "ready_to_execute"
-        : normalizedDecision.action === "schedule_followup"
+        : followupsAllowedBySettings &&
+          normalizedDecision.action === "schedule_followup" &&
+          Boolean(nextFollowUpAt)
         ? "followup_scheduled"
         : finalAgentMode === "automatic"
         ? "automatic_logged"
@@ -314,7 +716,7 @@ Devuelve únicamente JSON válido.
         agent_mode: finalAgentMode,
         action: normalizedDecision.action,
         action_status: actionStatus,
-        incoming_message: incomingMessage || finalConversationText,
+        incoming_message: finalIncomingMessage || finalConversationText,
         agent_reply: normalizedDecision.agent_reply || null,
         decision_reason: normalizedDecision.decision_reason || null,
         lead_stage: normalizedDecision.lead_stage || null,
@@ -323,7 +725,22 @@ Devuelve únicamente JSON válido.
         confidence_score: normalizedDecision.confidence_score || 0,
         analysis_snapshot: analysis || {},
         raw_data: {
+          requested_by: {
+            user_id: userContext.userId,
+            email: userContext.email,
+            role: userContext.role,
+            is_internal_request: userContext.isInternalRequest,
+          },
+          brand_access: {
+            brand_name: finalBrandName,
+            brand_slug: accessValidation.brandSlug,
+          },
           agent_decision: normalizedDecision,
+          real_whatsapp: {
+            allowed_by_settings: realWhatsappAllowedBySettings,
+            lock_reasons: realWhatsappLockReasons,
+          },
+          runtime_settings: getSafeRuntimeSnapshot(runtimeSettings),
           playbook: {
             id: salesPlaybook.id,
             brandName: salesPlaybook.brandName,
@@ -370,6 +787,7 @@ Devuelve únicamente JSON válido.
     if (runError) {
       return NextResponse.json(
         {
+          ok: false,
           error: "Error guardando sales_agent_runs",
           details: runError.message,
         },
@@ -392,7 +810,29 @@ Devuelve únicamente JSON válido.
         next_follow_up_at: nextFollowUpAt,
         raw_data: {
           ...(analysis || {}),
+          requested_by: {
+            user_id: userContext.userId,
+            email: userContext.email,
+            role: userContext.role,
+            is_internal_request: userContext.isInternalRequest,
+          },
+          brand_access: {
+            brand_name: finalBrandName,
+            brand_slug: accessValidation.brandSlug,
+          },
           agent_decision: normalizedDecision,
+          real_whatsapp: {
+            allowed_by_settings: realWhatsappAllowedBySettings,
+            lock_reasons: realWhatsappLockReasons,
+          },
+          runtime_settings: {
+            agent_mode: runtimeSettings.agent_mode,
+            whatsapp_status: runtimeSettings.whatsapp_status,
+            auto_reply_enabled: runtimeSettings.auto_reply_enabled,
+            send_whatsapp_enabled: runtimeSettings.send_whatsapp_enabled,
+            followups_enabled: runtimeSettings.followups_enabled,
+            max_followups: runtimeSettings.max_followups,
+          },
           playbook_id: salesPlaybook.id || null,
           knowledge_base_counts: {
             knowledgeSources: knowledgeBase.knowledgeSources.length,
@@ -408,6 +848,7 @@ Devuelve únicamente JSON válido.
     if (leadUpdateError) {
       return NextResponse.json(
         {
+          ok: false,
           error: "Error actualizando sales_leads",
           details: leadUpdateError.message,
         },
@@ -415,45 +856,82 @@ Devuelve únicamente JSON válido.
       );
     }
 
+    const existingFollowupsCount = await getExistingFollowupCount(finalLeadId);
+    const maxFollowups = Number(runtimeSettings.max_followups || 3);
+
     const shouldCreateFollowUp =
-  Boolean(normalizedDecision.follow_up_message) &&
-  Boolean(nextFollowUpAt) &&
-  normalizedDecision.requires_human !== true &&
-  !["mark_lost", "mark_unqualified", "closed", "human_required"].includes(
-    normalizedDecision.lead_stage
-  );
+      followupsAllowedBySettings &&
+      finalAgentMode !== "paused" &&
+      existingFollowupsCount < maxFollowups &&
+      Boolean(normalizedDecision.follow_up_message) &&
+      Boolean(nextFollowUpAt) &&
+      normalizedDecision.requires_human !== true &&
+      !["mark_lost", "mark_unqualified", "closed", "human_required"].includes(
+        normalizedDecision.lead_stage
+      );
 
-if (shouldCreateFollowUp) {
-  const { error: followupError } = await supabase.from("sales_followups").insert({
-    lead_id: finalLeadId,
-    followup_number: 1,
-    scheduled_at: nextFollowUpAt,
-    status: "pending",
-    message_text: normalizedDecision.follow_up_message,
-  });
+    if (shouldCreateFollowUp) {
+      const { error: followupError } = await supabase
+        .from("sales_followups")
+        .insert({
+          lead_id: finalLeadId,
+          followup_number: existingFollowupsCount + 1,
+          scheduled_at: nextFollowUpAt,
+          status: "pending",
+          message_text: normalizedDecision.follow_up_message,
+        });
 
-  if (followupError) {
-    console.error("Error creando sales_followups:", followupError.message);
-  }
-}
+      if (followupError) {
+        console.error("Error creando sales_followups:", followupError.message);
+      }
+    } else if (normalizedDecision.follow_up_message) {
+      console.log("SALES AI follow-up bloqueado o no creado:", {
+        brandName: finalBrandName,
+        followupsAllowedBySettings,
+        finalAgentMode,
+        existingFollowupsCount,
+        maxFollowups,
+        nextFollowUpAt,
+        requiresHuman: normalizedDecision.requires_human,
+        leadStage: normalizedDecision.lead_stage,
+      });
+    }
 
     await triggerLearningEngine(req, {
-  brandName: finalBrandName,
-  leadId: finalLeadId,
-  agentRunId: run.id,
-});
+      brandName: finalBrandName,
+      leadId: finalLeadId,
+      agentRunId: run.id,
+    });
 
     return NextResponse.json({
       success: true,
+      ok: true,
+      user: {
+        id: userContext.userId,
+        email: userContext.email,
+        role: userContext.role,
+        isAdmin: userContext.role === "admin",
+        isInternalRequest: userContext.isInternalRequest,
+      },
+      brand: {
+        name: finalBrandName,
+        slug: accessValidation.brandSlug,
+      },
       leadId: finalLeadId,
       runId: run.id,
       agentMode: finalAgentMode,
+      requestedAgentMode,
       actionStatus,
-      shouldSendWhatsapp:
-        finalAgentMode === "automatic" &&
-        normalizedDecision.action === "send_reply" &&
-        normalizedDecision.should_send_now === true &&
-        normalizedDecision.requires_human !== true,
+      shouldSendWhatsapp: canPrepareRealSend,
+      realWhatsappAllowedBySettings,
+      realWhatsappLockReasons,
+      followups: {
+        allowed: followupsAllowedBySettings,
+        created: shouldCreateFollowUp,
+        existingFollowupsCount,
+        maxFollowups,
+        nextFollowUpAt,
+      },
       playbook: {
         id: salesPlaybook.id,
         brandName: salesPlaybook.brandName,
@@ -468,6 +946,7 @@ if (shouldCreateFollowUp) {
           suggestions: knowledgeBase.suggestions.length,
         },
       },
+      runtimeSettings: getSafeRuntimeSnapshot(runtimeSettings),
       decision: normalizedDecision,
       analysis,
     });
@@ -476,6 +955,7 @@ if (shouldCreateFollowUp) {
 
     return NextResponse.json(
       {
+        ok: false,
         error: "Error interno en SALES AI Agent Runner",
         details: error?.message || String(error),
       },
@@ -519,6 +999,27 @@ async function getRecentContext(leadId?: string | null) {
   };
 }
 
+async function getExistingFollowupCount(leadId?: string | null) {
+  if (!leadId) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from("sales_followups")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", leadId);
+
+    if (error) {
+      console.error("Error contando followups existentes:", error.message);
+      return 0;
+    }
+
+    return Number(count || 0);
+  } catch (error: any) {
+    console.error("getExistingFollowupCount error:", error?.message || error);
+    return 0;
+  }
+}
+
 function normalizeDecision(decision: any, agentMode: string) {
   const allowedActions = [
     "send_reply",
@@ -550,6 +1051,12 @@ function normalizeDecision(decision: any, agentMode: string) {
     : "qualifying";
 
   let requiresHuman = Boolean(decision.requires_human);
+
+  if (agentMode === "paused") {
+    action = "wait";
+    leadStage = "waiting_response";
+    requiresHuman = false;
+  }
 
   if (action === "escalate_to_human") {
     requiresHuman = true;
@@ -628,19 +1135,11 @@ function normalizeRiskLevel(value: any) {
   return "low";
 }
 
-function normalizeAgentMode(value: any) {
-  const mode = String(value || "observation").toLowerCase();
-
-  if (mode === "automatic") return "automatic";
-  if (mode === "observation") return "observation";
-
-  return "observation";
-}
-
 function clampNumber(value: any, min: number, max: number) {
   const num = Number(value || 0);
 
   if (Number.isNaN(num)) return min;
+
   return Math.max(min, Math.min(max, num));
 }
 
@@ -663,8 +1162,7 @@ async function triggerLearningEngine(
   }
 ) {
   try {
-    const autoLearningEnabled =
-      process.env.SALES_AI_AUTO_LEARNING !== "false";
+    const autoLearningEnabled = process.env.SALES_AI_AUTO_LEARNING !== "false";
 
     if (!autoLearningEnabled) {
       return;
@@ -674,9 +1172,7 @@ async function triggerLearningEngine(
       `${getBaseUrl(req)}/api/sales-ai/learning/run`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: buildForwardHeaders(req),
         body: JSON.stringify({
           brandName,
           leadId,
@@ -718,5 +1214,6 @@ function getBaseUrl(req: Request) {
   }
 
   const url = new URL(req.url);
+
   return `${url.protocol}//${url.host}`;
 }

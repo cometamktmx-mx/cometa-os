@@ -1,7 +1,13 @@
-import { randomUUID } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveBrandFromSupabase } from "@/lib/brand-resolver";
+import {
+  canSendRealWhatsapp,
+  explainWhatsappSendLock,
+  getSalesAiRuntimeSettings,
+  resolveSalesAiAgentMode,
+} from "@/lib/sales-ai-runtime-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +22,16 @@ const verifyToken =
   process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim() ||
   process.env.META_WHATSAPP_VERIFY_TOKEN?.trim() ||
   "";
+
+const webhookAppSecret =
+  process.env.WHATSAPP_APP_SECRET?.trim() ||
+  process.env.META_APP_SECRET?.trim() ||
+  process.env.FACEBOOK_APP_SECRET?.trim() ||
+  "";
+
+const enforceWebhookSignature =
+  process.env.WHATSAPP_ENFORCE_SIGNATURE === "true";
+
 const defaultBrandSlug =
   process.env.WHATSAPP_DEFAULT_BRAND_SLUG || "cometa-mkt";
 
@@ -25,10 +41,23 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
 
   const mode = searchParams.get("hub.mode")?.trim();
-const token = searchParams.get("hub.verify_token")?.trim();
-const challenge = searchParams.get("hub.challenge") || "";
+  const token = searchParams.get("hub.verify_token")?.trim();
+  const challenge = searchParams.get("hub.challenge") || "";
 
-  if (mode === "subscribe" && token === verifyToken && challenge) {
+  if (!verifyToken) {
+    console.error("WHATSAPP WEBHOOK ERROR: Missing verify token env variable.");
+
+    return Response.json(
+      {
+        ok: false,
+        error:
+          "Webhook sin token configurado. Falta WHATSAPP_VERIFY_TOKEN en Vercel.",
+      },
+      { status: 500 }
+    );
+  }
+
+  if (mode === "subscribe" && token === verifyToken) {
     return new Response(challenge, {
       status: 200,
       headers: {
@@ -37,21 +66,6 @@ const challenge = searchParams.get("hub.challenge") || "";
     });
   }
 
-if (!verifyToken) {
-  console.error("WHATSAPP WEBHOOK ERROR: Missing verify token env variable.");
-
-  return Response.json(
-    {
-      ok: false,
-      error:
-        "Webhook sin token configurado. Falta WHATSAPP_VERIFY_TOKEN en Vercel.",
-    },
-    { status: 500 }
-  );
-}
-if (mode === "subscribe" && token === verifyToken) {
-  return new Response(challenge, { status: 200 });
-}
   return NextResponse.json(
     {
       ok: false,
@@ -63,18 +77,34 @@ if (mode === "subscribe" && token === verifyToken) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const brand = await resolveWebhookBrand();
+    const rawBody = await request.text();
 
-    await supabase.from("whatsapp_webhook_events").insert({
-      id: randomUUID(),
-      brand_slug: brand.slug,
-      event_type: "whatsapp_webhook",
-      payload: body,
-    });
+    const signatureValidation = validateWebhookSignature(request, rawBody);
+
+    if (!signatureValidation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: signatureValidation.error,
+        },
+        { status: signatureValidation.status }
+      );
+    }
+
+    const body = safeJsonParse(rawBody);
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Payload inválido de WhatsApp webhook.",
+        },
+        { status: 400 }
+      );
+    }
 
     const entries = Array.isArray(body?.entry) ? body.entry : [];
-
+    let responseBrand = await resolveWebhookBrand();
     let processedMessages = 0;
     let processedStatuses = 0;
     let createdOrUpdatedLeads = 0;
@@ -92,6 +122,17 @@ export async function POST(request: NextRequest) {
 
         const phoneNumberId = metadata?.phone_number_id || null;
         const displayPhoneNumber = metadata?.display_phone_number || null;
+        const brand = await resolveWebhookBrand({
+  phoneNumberId,
+  displayPhoneNumber,
+});
+responseBrand = brand;
+await supabase.from("whatsapp_webhook_events").insert({
+  id: randomUUID(),
+  brand_slug: brand.slug,
+  event_type: "whatsapp_webhook",
+  payload: body,
+});
 
         const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
         const messages = Array.isArray(value?.messages) ? value.messages : [];
@@ -200,6 +241,13 @@ export async function POST(request: NextRequest) {
               createdSalesMessages += 1;
             }
 
+            const runtimeSettings = await getSalesAiRuntimeSettings(brand.name);
+
+            const runtimeAgentMode = resolveSalesAiAgentMode(
+              runtimeSettings,
+              process.env.SALES_AI_AGENT_MODE || "observation"
+            );
+
             const agentResult = await runSalesAiAgent(request, {
               brandName: brand.name,
               leadId,
@@ -209,25 +257,63 @@ export async function POST(request: NextRequest) {
               incomingMessage: contentText,
               conversationText: `Cliente (${contactName}): ${contentText}`,
               source: "whatsapp",
+              agentMode: runtimeAgentMode,
             });
 
             if (agentResult?.success) {
               createdAgentRuns += 1;
 
-              const whatsappSendingEnabled =
-  process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
+              const envAllowsWhatsappSend =
+                process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
 
-const shouldSend =
-  whatsappSendingEnabled &&
-  agentResult.shouldSendWhatsapp === true &&
-  agentResult.decision?.agent_reply &&
-  phoneNumberId;
+              const settingsAllowWhatsappSend =
+                canSendRealWhatsapp(runtimeSettings);
 
-              if (shouldSend) {
+              const agentReply =
+                typeof agentResult.decision?.agent_reply === "string"
+                  ? agentResult.decision.agent_reply.trim()
+                  : "";
+
+              const shouldSendRealWhatsapp =
+                agentResult.shouldSendWhatsapp === true &&
+                Boolean(agentReply) &&
+                Boolean(phoneNumberId) &&
+                envAllowsWhatsappSend &&
+                settingsAllowWhatsappSend;
+
+              if (
+                !shouldSendRealWhatsapp &&
+                agentResult.shouldSendWhatsapp === true
+              ) {
+                console.log("SALES AI WhatsApp real bloqueado:", {
+                  brandName: brand.name,
+                  envAllowsWhatsappSend,
+                  settingsAllowWhatsappSend,
+                  hasAgentReply: Boolean(agentReply),
+                  hasPhoneNumberId: Boolean(phoneNumberId),
+                  lockReasons: explainWhatsappSendLock(runtimeSettings),
+                });
+
+                if (agentResult.runId) {
+                  await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                    {
+                      action_status: "whatsapp_send_blocked",
+                      execution_error: `Bloqueado por configuración: ${explainWhatsappSendLock(
+                        runtimeSettings
+                      ).join(", ")}`,
+                    },
+                    {
+                      action_status: "whatsapp_send_blocked",
+                    },
+                  ]);
+                }
+              }
+
+              if (shouldSendRealWhatsapp) {
                 const whatsappSendResult = await sendWhatsappTextMessage({
                   phoneNumberId,
                   to: waId,
-                  message: agentResult.decision.agent_reply,
+                  message: agentReply,
                 });
 
                 if (whatsappSendResult.ok) {
@@ -240,7 +326,7 @@ const shouldSend =
                     waId,
                     phoneNumberId,
                     displayPhoneNumber,
-                    messageText: agentResult.decision.agent_reply,
+                    messageText: agentReply,
                     whatsappMessageId: whatsappSendResult.whatsappMessageId,
                     rawResponse: whatsappSendResult.data,
                   });
@@ -308,9 +394,9 @@ const shouldSend =
       ok: true,
       message: "Webhook recibido correctamente.",
       brand: {
-        slug: brand.slug,
-        name: brand.name,
-      },
+  slug: responseBrand.slug,
+  name: responseBrand.name,
+},
       processed: {
         messages: processedMessages,
         statuses: processedStatuses,
@@ -334,8 +420,55 @@ const shouldSend =
   }
 }
 
-async function resolveWebhookBrand() {
+async function resolveWebhookBrand({
+  phoneNumberId,
+  displayPhoneNumber,
+}: {
+  phoneNumberId?: string | null;
+  displayPhoneNumber?: string | null;
+} = {}) {
   try {
+    const normalizedPhoneNumberId = cleanText(phoneNumberId);
+    const normalizedDisplayPhoneNumber = cleanText(displayPhoneNumber);
+
+    if (normalizedPhoneNumberId) {
+      const { data: settingsByPhoneId, error } = await supabase
+        .from("sales_ai_settings")
+        .select("brand_name, whatsapp_phone_number_id")
+        .eq("whatsapp_phone_number_id", normalizedPhoneNumberId)
+        .maybeSingle();
+
+      if (!error && settingsByPhoneId?.brand_name) {
+        const brand = await resolveBrandFromSupabase(supabase, {
+          brandName: settingsByPhoneId.brand_name,
+        });
+
+        return {
+          slug: brand.slug || formatBrandSlug(settingsByPhoneId.brand_name),
+          name: brand.name || settingsByPhoneId.brand_name,
+        };
+      }
+    }
+
+    if (normalizedDisplayPhoneNumber) {
+      const { data: settingsByDisplayPhone, error } = await supabase
+        .from("sales_ai_settings")
+        .select("brand_name, whatsapp_phone_number")
+        .eq("whatsapp_phone_number", normalizedDisplayPhoneNumber)
+        .maybeSingle();
+
+      if (!error && settingsByDisplayPhone?.brand_name) {
+        const brand = await resolveBrandFromSupabase(supabase, {
+          brandName: settingsByDisplayPhone.brand_name,
+        });
+
+        return {
+          slug: brand.slug || formatBrandSlug(settingsByDisplayPhone.brand_name),
+          name: brand.name || settingsByDisplayPhone.brand_name,
+        };
+      }
+    }
+
     const brand = await resolveBrandFromSupabase(supabase, {
       brandSlug: defaultBrandSlug,
     });
@@ -603,6 +736,7 @@ async function runSalesAiAgent(
     incomingMessage,
     conversationText,
     source,
+    agentMode,
   }: {
     brandName: string;
     leadId: string;
@@ -612,13 +746,23 @@ async function runSalesAiAgent(
     incomingMessage: string;
     conversationText: string;
     source: string;
+    agentMode: string;
   }
 ) {
   try {
+    const internalSecret = String(
+      process.env.SALES_AI_INTERNAL_SECRET || ""
+    ).trim();
+
     const res = await fetch(`${getBaseUrl(request)}/api/sales-ai/agent-run`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(internalSecret
+          ? {
+              "x-cometa-internal-secret": internalSecret,
+            }
+          : {}),
       },
       body: JSON.stringify({
         brandName,
@@ -629,7 +773,7 @@ async function runSalesAiAgent(
         incomingMessage,
         conversationText,
         source,
-        agentMode: process.env.SALES_AI_AGENT_MODE || "observation",
+        agentMode,
       }),
     });
 
@@ -637,12 +781,14 @@ async function runSalesAiAgent(
 
     if (!res.ok) {
       console.error("SALES AI agent-run falló:", data);
+
       return null;
     }
 
     return data;
   } catch (error: any) {
     console.error("Error llamando SALES AI agent-run:", error?.message || error);
+
     return null;
   }
 }
@@ -852,6 +998,94 @@ async function safeUpdateById(tableName: string, id: string, payloads: any[]) {
   }
 
   return false;
+}
+function safeJsonParse(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function validateWebhookSignature(request: NextRequest, rawBody: string) {
+  if (!webhookAppSecret) {
+    if (enforceWebhookSignature) {
+      console.error(
+        "WHATSAPP WEBHOOK ERROR: WHATSAPP_ENFORCE_SIGNATURE=true pero falta META_APP_SECRET o WHATSAPP_APP_SECRET."
+      );
+
+      return {
+        ok: false,
+        status: 500,
+        error:
+          "Webhook sin app secret configurado. Falta META_APP_SECRET o WHATSAPP_APP_SECRET.",
+      };
+    }
+
+    console.warn(
+      "WHATSAPP WEBHOOK WARNING: firma de Meta no validada porque no hay META_APP_SECRET/WHATSAPP_APP_SECRET configurado."
+    );
+
+    return {
+      ok: true,
+      status: 200,
+      error: null,
+    };
+  }
+
+  const signature =
+    request.headers.get("x-hub-signature-256") ||
+    request.headers.get("X-Hub-Signature-256") ||
+    "";
+
+  if (!signature || !signature.startsWith("sha256=")) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Firma de Meta faltante o inválida.",
+    };
+  }
+
+  const expectedSignature = `sha256=${createHmac("sha256", webhookAppSecret)
+    .update(rawBody, "utf8")
+    .digest("hex")}`;
+
+  const receivedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (receivedBuffer.length !== expectedBuffer.length) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Firma de Meta inválida.",
+    };
+  }
+
+  const isValid = timingSafeEqual(receivedBuffer, expectedBuffer);
+
+  if (!isValid) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Firma de Meta inválida.",
+    };
+  }
+
+  return {
+    ok: true,
+    status: 200,
+    error: null,
+  };
+}
+
+function formatBrandSlug(value: string) {
+  return String(value || "brand-os")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 type LeadAnalysis = {

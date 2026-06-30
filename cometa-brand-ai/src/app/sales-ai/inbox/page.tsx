@@ -72,8 +72,25 @@ type AgentRun = {
   confidenceScore: number;
   decisionReason: string;
   recommendedReply: string;
+  agentReply?: string;
   nextAction: string;
+  agentMode?: string;
+  nextFollowUpAt?: string | null;
+  rawData?: any;
   createdAt: string | null;
+};
+
+type RuntimeSettings = {
+  brand_name: string;
+  agent_mode: string;
+  whatsapp_status: string;
+  whatsapp_phone_number?: string | null;
+  auto_reply_enabled?: boolean;
+  send_whatsapp_enabled?: boolean;
+  followups_enabled?: boolean;
+  human_escalation_enabled?: boolean;
+  max_followups?: number;
+  first_followup_delay_minutes?: number;
 };
 
 type NavItem = {
@@ -81,15 +98,22 @@ type NavItem = {
   label: string;
   href: string;
   active?: boolean;
-  disabled?: boolean;
 };
 
-type FilterKey = "all" | "hot" | "human" | "qualified";
+type FilterKey = "all" | "hot" | "qualified" | "human";
+
+type SafetyState = {
+  label: string;
+  tone: "safe" | "warning" | "blocked" | "neutral";
+  reasons: string[];
+  mode: string;
+  whatsappStatus: string;
+};
 
 const fallbackBrand: BrandContext = {
   id: null,
-  slug: "brand-os",
-  name: "Brand OS",
+  slug: "cometa-mkt",
+  name: "Cometa Mkt",
   industry: "Sistema comercial",
   city: null,
   exists: false,
@@ -103,8 +127,8 @@ const fallbackMetrics: InboxMetrics = {
   readyReplies: 0,
   humanRequired: 0,
   pendingLearning: 0,
-  automationMode: "Supervisado",
-  health: 70,
+  automationMode: "Observación",
+  health: 82,
 };
 
 export default function SalesAIInboxPage() {
@@ -123,17 +147,21 @@ function SalesAIInboxInner() {
 
   const [brand, setBrand] = useState<BrandContext>(fallbackBrand);
   const [metrics, setMetrics] = useState<InboxMetrics>(fallbackMetrics);
+  const [runtimeSettings, setRuntimeSettings] =
+    useState<RuntimeSettings | null>(null);
+
   const [leads, setLeads] = useState<SalesLead[]>([]);
   const [messages, setMessages] = useState<SalesMessage[]>([]);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [systemMessage, setSystemMessage] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [note, setNote] = useState("");
 
-  const activeBrandSlug = brand.slug || requestedBrandSlug || "brand-os";
+  const activeBrandSlug = brand.slug || requestedBrandSlug || "cometa-mkt";
   const brandQuery = `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
-
   const nav = useMemo(() => buildNav(activeBrandSlug), [activeBrandSlug]);
 
   const loadInbox = useCallback(async () => {
@@ -174,9 +202,10 @@ function SalesAIInboxInner() {
 
       const nextBrand = data.brand || fallbackBrand;
       const nextLeads = Array.isArray(data.leads) ? data.leads : [];
+      const nextMetrics = data.metrics || fallbackMetrics;
 
       setBrand(nextBrand);
-      setMetrics(data.metrics || fallbackMetrics);
+      setMetrics(nextMetrics);
       setLeads(nextLeads);
       setMessages(Array.isArray(data.conversations) ? data.conversations : []);
       setAgentRuns(Array.isArray(data.agentRuns) ? data.agentRuns : []);
@@ -188,10 +217,15 @@ function SalesAIInboxInner() {
 
         return nextLeads[0]?.id || "";
       });
+
+      const safeBrandName = nextBrand?.name || "Cometa Mkt";
+      const settings = await fetchRuntimeSettings(safeBrandName);
+      setRuntimeSettings(settings);
     } catch (error: any) {
       setSystemMessage(error?.message || "Error cargando Inbox.");
       setBrand(fallbackBrand);
       setMetrics(fallbackMetrics);
+      setRuntimeSettings(null);
       setLeads([]);
       setMessages([]);
       setAgentRuns([]);
@@ -206,17 +240,9 @@ function SalesAIInboxInner() {
   }, [loadInbox]);
 
   const filteredLeads = useMemo(() => {
-    if (filter === "hot") {
-      return leads.filter((lead) => isHotLead(lead));
-    }
-
-    if (filter === "human") {
-      return leads.filter((lead) => lead.requiresHuman);
-    }
-
-    if (filter === "qualified") {
-      return leads.filter((lead) => lead.isQualified);
-    }
+    if (filter === "hot") return leads.filter((lead) => isHotLead(lead));
+    if (filter === "human") return leads.filter((lead) => lead.requiresHuman);
+    if (filter === "qualified") return leads.filter((lead) => lead.isQualified);
 
     return leads;
   }, [leads, filter]);
@@ -241,31 +267,48 @@ function SalesAIInboxInner() {
     if (!selectedLead) return null;
 
     return (
-      agentRuns.find((run) => run.leadId === selectedLead.id) ||
-      agentRuns[0] ||
-      null
+      agentRuns
+        .filter((run) => run.leadId === selectedLead.id)
+        .sort((a, b) => {
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+          return bTime - aTime;
+        })[0] || null
     );
   }, [agentRuns, selectedLead]);
 
+  const safety = useMemo(() => {
+    return deriveSafetyState(selectedRun, runtimeSettings, metrics);
+  }, [selectedRun, runtimeSettings, metrics]);
+
   return (
-    <main className="min-h-screen bg-[#f7fafc] text-[#0b1836]">
+    <main className="min-h-screen overflow-x-hidden bg-[#f6f9fc] text-[#081535]">
       <div className="flex min-h-screen">
         <LeftRail nav={nav} brand={brand} />
 
-        <div className="flex-1 px-5 py-6 lg:px-8 xl:px-10">
-          <div className="mx-auto max-w-[1720px] space-y-6">
+        <div className="min-w-0 flex-1 px-4 py-4 lg:px-5 xl:px-6">
+          <div className="mx-auto w-full max-w-[1740px] space-y-4">
             {systemMessage ? <LoadWarning message={systemMessage} /> : null}
 
-            <InboxHeader
-              brand={brand}
-              metrics={metrics}
-              loading={loading}
-              onRefresh={loadInbox}
-            />
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_620px]">
+              <InboxHero
+                brand={brand}
+                loading={loading}
+                onRefresh={loadInbox}
+              />
+
+              <InboxHealthPanel
+                metrics={metrics}
+                safety={safety}
+                runtimeSettings={runtimeSettings}
+                loading={loading}
+              />
+            </section>
 
             <InboxMetricsGrid metrics={metrics} loading={loading} />
 
-            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[390px_minmax(0,1fr)_390px]">
+            <section className="grid grid-cols-1 gap-4 2xl:grid-cols-[380px_minmax(620px,1fr)_420px]">
               <LeadInboxList
                 leads={filteredLeads}
                 totalLeads={leads.length}
@@ -280,13 +323,18 @@ function SalesAIInboxInner() {
                 brand={brand}
                 lead={selectedLead}
                 messages={selectedMessages}
+                agentRun={selectedRun}
+                safety={safety}
                 loading={loading}
+                note={note}
+                setNote={setNote}
               />
 
               <AgentAuditPanel
                 brandQuery={brandQuery}
                 brandSlug={activeBrandSlug}
                 metrics={metrics}
+                safety={safety}
                 lead={selectedLead}
                 agentRun={selectedRun}
                 loading={loading}
@@ -300,14 +348,34 @@ function SalesAIInboxInner() {
   );
 }
 
+async function fetchRuntimeSettings(brandName: string) {
+  try {
+    const res = await fetch(
+      `/api/sales-ai/agent-settings?brandName=${encodeURIComponent(brandName)}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.ok) return null;
+
+    return data.settings as RuntimeSettings;
+  } catch {
+    return null;
+  }
+}
+
 function InboxLoadingScreen() {
   return (
-    <main className="min-h-screen bg-[#f7fafc] p-6">
-      <div className="mx-auto max-w-5xl rounded-[32px] border border-[#dfe8f3] bg-white p-8 shadow-sm">
+    <main className="min-h-screen bg-[#f6f9fc] p-6">
+      <div className="mx-auto max-w-5xl rounded-[30px] border border-[#dfe8f3] bg-white p-8 shadow-sm">
         <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0aa6c4]">
           SALES AI
         </p>
-        <h1 className="mt-3 text-4xl font-black tracking-tight text-[#0b1836]">
+        <h1 className="mt-3 text-4xl font-black tracking-tight text-[#081535]">
           Cargando Inbox...
         </h1>
       </div>
@@ -316,143 +384,224 @@ function InboxLoadingScreen() {
 }
 
 function buildNav(brandSlug: string): NavItem[] {
-  const safeBrandSlug = encodeURIComponent(brandSlug || "brand-os");
+  const safeBrandSlug = encodeURIComponent(brandSlug || "cometa-mkt");
   const brandQuery = `brandSlug=${safeBrandSlug}`;
 
   return [
-    { code: "OS", label: "Sales AI", href: "/sales-ai" },
+    { code: "AI", label: "Sales AI", href: "/sales-ai" },
     { code: "WS", label: "Workspace", href: "/workspace" },
-    { code: "HM", label: "Brand OS", href: `/brand/${safeBrandSlug}` },
     {
       code: "IN",
       label: "Inbox",
       href: `/sales-ai/inbox?${brandQuery}`,
       active: true,
     },
-    {
-      code: "KB",
-      label: "Knowledge",
-      href: `/sales-ai/knowledge?${brandQuery}`,
-    },
-    {
-      code: "LR",
-      label: "Learning",
-      href: `/sales-ai/learning?${brandQuery}`,
-    },
+    { code: "KB", label: "Knowledge", href: `/sales-ai/knowledge?${brandQuery}` },
+    { code: "LR", label: "Learning", href: `/sales-ai/learning?${brandQuery}` },
+    { code: "AJ", label: "Ajustes", href: "/sales-ai/settings" },
   ];
 }
 
 function LeftRail({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-[82px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white py-6 shadow-[8px_0_28px_rgba(15,23,42,0.03)] lg:flex">
-      <Link
-        href="/sales-ai"
-        className="mb-7 flex h-11 w-11 items-center justify-center rounded-2xl text-[#13bdd7]"
-      >
-        <Icon name="planet" className="h-9 w-9" />
+    <aside className="sticky top-0 hidden h-screen w-[112px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white px-4 py-5 shadow-[8px_0_28px_rgba(15,23,42,0.03)] xl:flex">
+      <Link href="/sales-ai" className="flex flex-col items-center text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-[28px] bg-[#effcff] text-[#08a9c6]">
+          <Icon name="planet" className="h-11 w-11" />
+        </div>
+        <p className="mt-3 text-sm font-black leading-4 text-[#081535]">
+          COMETA
+          <br />
+          OS
+        </p>
       </Link>
 
-      <nav className="flex flex-1 flex-col items-center gap-4">
+      <nav className="mt-7 flex w-full flex-1 flex-col items-center gap-3">
         {nav.map((item) => (
           <Link
             key={item.code}
             href={item.href}
-            className={`group relative flex h-12 w-12 items-center justify-center rounded-2xl transition ${
-              item.active
-                ? "bg-[#ecfbff] text-[#0faccc] shadow-sm ring-1 ring-[#d8f3f8]"
-                : "text-[#728199] hover:bg-[#f3f7fb] hover:text-[#0faccc]"
-            }`}
             title={item.label}
+            className={`flex h-[58px] w-full flex-col items-center justify-center rounded-2xl text-sm font-black transition ${
+              item.active
+                ? "bg-[#08a9c6] text-white shadow-[0_14px_30px_rgba(8,169,198,0.26)]"
+                : "border border-[#dfe8f3] bg-white text-[#62718a] hover:bg-[#f8fbff] hover:text-[#08a9c6]"
+            }`}
           >
-            <span className="text-[11px] font-black">{item.code}</span>
+            <span>{item.code}</span>
+            <span className="mt-1 text-[10px] font-bold opacity-80">
+              {item.label}
+            </span>
           </Link>
         ))}
       </nav>
 
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#e9fbff] text-sm font-black text-[#0b1836] ring-1 ring-[#cdeff7]">
-        {getInitials(brand.name)}
-      </div>
+      <div className="w-full text-center">
+        <div className="relative mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#081535] text-xl font-black text-white shadow-[0_14px_30px_rgba(8,21,53,0.22)]">
+          {getInitials(brand.name)}
+          <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white bg-[#12bfe8]" />
+        </div>
 
-      <div className="text-xl text-[#91a1b8]">»</div>
+        <p className="mt-2 truncate text-xs font-black text-[#081535]">
+          {brand.name}
+        </p>
+        <p className="text-[10px] font-bold text-[#728199]">Admin</p>
+      </div>
     </aside>
   );
 }
 
-function InboxHeader({
+function InboxHero({
   brand,
-  metrics,
   loading,
   onRefresh,
 }: {
   brand: BrandContext;
-  metrics: InboxMetrics;
   loading: boolean;
   onRefresh: () => void;
 }) {
   return (
-    <header className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_390px]">
-      <div className="rounded-[30px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-        <div className="inline-flex items-center gap-2 rounded-full border border-[#cfeef6] bg-[#effcff] px-4 py-2 text-xs font-extrabold text-[#0798b8] shadow-sm">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#12bfe8]" />
-          SALES AI · INBOX COMMAND CENTER
-        </div>
-
-        <div className="mt-5 flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
-          <div>
-            <p className="text-sm font-black uppercase tracking-[0.16em] text-[#728199]">
-              {brand.name}
-            </p>
-
-            <h1 className="mt-2 text-4xl font-black tracking-tight text-[#0b1836] md:text-5xl">
-              Inbox de ventas
-            </h1>
-
-            <p className="mt-3 max-w-3xl text-base leading-relaxed text-[#52617a]">
-              Conversaciones, intención comercial, respuestas generadas y
-              decisiones de SALES AI en una sola bandeja.
-            </p>
+    <header className="rounded-[30px] border border-[#dfe8f3] bg-white p-7 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-6 2xl:flex-row 2xl:items-center 2xl:justify-between">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#cfeef6] bg-[#effcff] px-4 py-2 text-xs font-black tracking-wide text-[#0798b8] shadow-sm">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#12bfe8]" />
+            SALES AI · INBOX COMMAND CENTER
           </div>
 
+          <p className="mt-7 text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
+            {brand.name}
+          </p>
+
+          <h1 className="mt-3 text-5xl font-black tracking-tight text-[#081535] xl:text-[56px] xl:leading-[1.02]">
+            Inbox de ventas
+          </h1>
+
+          <p className="mt-4 max-w-3xl text-lg font-semibold leading-8 text-[#52617a]">
+            Conversaciones, intención comercial, respuestas generadas, auditoría
+            del agente y candados de seguridad en una sola bandeja.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-col gap-3">
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="w-fit rounded-2xl border border-[#dbe6f0] bg-white px-5 py-3 text-sm font-black text-[#0b1836] shadow-sm transition hover:border-[#b8d7e4] hover:bg-[#f8fcff] disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-3 rounded-2xl bg-[#08a9c6] px-6 py-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(8,169,198,0.24)] transition hover:bg-[#0598b5] disabled:opacity-50"
           >
+            <Icon name="refresh" className="h-5 w-5" />
             {loading ? "Actualizando..." : "Actualizar Inbox"}
           </button>
+
+          <Link
+            href="/sales-ai/agent-settings"
+            className="inline-flex items-center justify-center gap-3 rounded-2xl border border-[#dbe6f0] bg-white px-6 py-4 text-sm font-black text-[#0b1836] shadow-sm transition hover:border-[#b8d7e4] hover:bg-[#f8fcff]"
+          >
+            <Icon name="gear" className="h-5 w-5" />
+            Configurar agente
+          </Link>
         </div>
       </div>
+    </header>
+  );
+}
 
-      <div className="rounded-[30px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
-              Inbox Health
-            </p>
+function InboxHealthPanel({
+  metrics,
+  safety,
+  runtimeSettings,
+  loading,
+}: {
+  metrics: InboxMetrics;
+  safety: SafetyState;
+  runtimeSettings: RuntimeSettings | null;
+  loading: boolean;
+}) {
+  return (
+    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+      <div className="grid grid-cols-[1fr_150px_1fr] gap-6">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
+            Inbox Health
+          </p>
 
-            <p className="mt-3 text-5xl font-black tracking-tight text-[#0b1836]">
-              {loading ? "..." : `${metrics.health}%`}
-            </p>
+          <p className="mt-5 text-6xl font-black tracking-tight text-[#081535]">
+            {loading ? "..." : `${metrics.health}%`}
+          </p>
 
-            <p className="mt-2 text-sm font-semibold text-[#60708a]">
-              {metrics.automationMode || "Supervisado"}
-            </p>
-          </div>
+          <p className="mt-2 text-base font-bold text-[#60708a]">
+            {metrics.automationMode || "Controlado"}
+          </p>
+        </div>
 
+        <div className="flex items-center justify-center border-r border-[#e6eef6] pr-6">
           <ScoreRing value={metrics.health || 0} />
         </div>
 
-        <div className="mt-5 space-y-3">
-          <ProgressLine label="Salud del inbox" value={metrics.health || 0} />
-          <ProgressLine
-            label="Respuestas listas"
+        <div className="space-y-4">
+          <HealthLine
+            icon="shield"
+            label="Modo"
+            value={labelAgentMode(runtimeSettings?.agent_mode)}
+          />
+          <HealthLine
+            icon="chat"
+            label="WhatsApp"
+            value={labelWhatsappStatus(runtimeSettings?.whatsapp_status)}
+          />
+          <HealthLine
+            icon="clock"
+            label="Auto reply"
+            value={runtimeSettings?.auto_reply_enabled ? "Activado" : "Desactivado"}
+          />
+          <HealthLine
+            icon="whatsapp"
+            label="Send WhatsApp"
             value={
-              metrics.openLeads ? Math.min(metrics.readyReplies * 12, 100) : 0
+              runtimeSettings?.send_whatsapp_enabled ? "Activado" : "Desactivado"
             }
           />
         </div>
       </div>
-    </header>
+
+      <div className="mt-5 rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-black text-[#081535]">
+            Candado de WhatsApp
+          </p>
+          <SafetyBadge safety={safety} />
+        </div>
+
+        <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-[#60708a]">
+          {safety.reasons.length
+            ? safety.reasons.slice(0, 3).join(" · ")
+            : "Sin bloqueo detectado en la última decisión."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function HealthLine({
+  icon,
+  label,
+  value,
+}: {
+  icon: IconName;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#effcff] text-[#08a9c6]">
+        <Icon name={icon} className="h-5 w-5" />
+      </div>
+
+      <div>
+        <p className="text-xs font-black text-[#60708a]">{label}</p>
+        <p className="text-sm font-black text-[#081535]">{value}</p>
+      </div>
+    </div>
   );
 }
 
@@ -483,7 +632,7 @@ function InboxMetricsGrid({
       tone: "green" as const,
     },
     {
-      label: "Respuestas",
+      label: "Respuestas listas",
       value: metrics.readyReplies,
       icon: "chat" as IconName,
       tone: "cyan" as const,
@@ -494,10 +643,16 @@ function InboxMetricsGrid({
       icon: "alert" as IconName,
       tone: "purple" as const,
     },
+    {
+      label: "Aprendizaje",
+      value: metrics.pendingLearning,
+      icon: "brain" as IconName,
+      tone: "blue" as const,
+    },
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
       {items.map((item) => (
         <MetricCard
           key={item.label}
@@ -534,16 +689,14 @@ function MetricCard({
     <article className="rounded-[24px] border border-[#dfe8f3] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.04)]">
       <div className="flex items-center gap-4">
         <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${toneMap[tone]}`}
+          className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${toneMap[tone]}`}
         >
-          <Icon name={icon} className="h-6 w-6" />
+          <Icon name={icon} className="h-7 w-7" />
         </div>
 
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-[#66758d]">
-            {label}
-          </p>
-          <p className="mt-1 text-3xl font-black text-[#0b1836]">{value}</p>
+          <p className="truncate text-sm font-bold text-[#66758d]">{label}</p>
+          <p className="mt-1 text-3xl font-black text-[#081535]">{value}</p>
         </div>
       </div>
     </article>
@@ -575,18 +728,16 @@ function LeadInboxList({
   ];
 
   return (
-    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
+          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
             Sales Pipeline
           </p>
-          <h2 className="mt-1 text-3xl font-black text-[#0b1836]">
-            Prospectos
-          </h2>
+          <h2 className="mt-2 text-3xl font-black text-[#081535]">Prospectos</h2>
         </div>
 
-        <span className="rounded-full bg-[#f3f7fb] px-3 py-1 text-xs font-black text-[#60708a]">
+        <span className="rounded-full bg-[#f3f7fb] px-4 py-2 text-sm font-black text-[#60708a]">
           {totalLeads} total
         </span>
       </div>
@@ -596,9 +747,9 @@ function LeadInboxList({
           <button
             key={item.key}
             onClick={() => setFilter(item.key)}
-            className={`rounded-2xl px-3 py-2 text-xs font-black transition ${
+            className={`rounded-2xl px-3 py-3 text-xs font-black transition ${
               filter === item.key
-                ? "bg-[#0b1836] text-white"
+                ? "bg-[#08a9c6] text-white shadow-[0_10px_22px_rgba(8,169,198,0.22)]"
                 : "bg-[#f3f7fb] text-[#60708a] hover:bg-[#eafbff] hover:text-[#0aa6c4]"
             }`}
           >
@@ -630,6 +781,10 @@ function LeadInboxList({
           />
         )}
       </div>
+
+      <button className="mt-5 w-full rounded-2xl border border-[#dfe8f3] bg-white px-5 py-4 text-sm font-black text-[#081535] transition hover:bg-[#f8fbff]">
+        Ver todos los leads
+      </button>
     </section>
   );
 }
@@ -646,9 +801,9 @@ function LeadCard({
   return (
     <button
       onClick={onClick}
-      className={`rounded-[24px] border p-4 text-left transition ${
+      className={`rounded-[22px] border p-4 text-left transition ${
         selected
-          ? "border-[#7ae7f5] bg-[#effcff] shadow-sm"
+          ? "border-[#0aa6c4] bg-[#effcff] shadow-sm"
           : "border-[#e2eaf3] bg-white hover:border-[#bdeaf2] hover:bg-[#fbfeff]"
       }`}
     >
@@ -657,10 +812,10 @@ function LeadCard({
           <Avatar name={lead.name} />
 
           <div className="min-w-0">
-            <h3 className="text-base font-black leading-tight text-[#0b1836]">
+            <h3 className="truncate text-base font-black leading-tight text-[#081535]">
               {lead.name || "Lead sin nombre"}
             </h3>
-            <p className="mt-1 truncate text-xs font-semibold text-[#78889e]">
+            <p className="mt-1 truncate text-xs font-bold text-[#78889e]">
               {lead.phone || lead.intent || "Sin contacto"}
             </p>
           </div>
@@ -669,25 +824,24 @@ function LeadCard({
         <TemperatureBadge temperature={lead.temperature} />
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <MiniInfo label="Cierre" value={`${lead.closeProbability}%`} />
-        <MiniInfo label="Objeción" value={lead.mainObjection || "Ninguna"} />
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <MiniInfo label="Estado" value={lead.status || "Sin estado"} />
-        <MiniInfo label="Budget" value={lead.budget || "N/D"} />
-      </div>
-
-      <p className="mt-3 line-clamp-2 text-xs font-medium leading-relaxed text-[#65758d]">
-        {lead.nextAction || "SALES AI está evaluando el siguiente paso."}
-      </p>
-
-      {lead.requiresHuman ? (
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.1em] text-amber-700">
-          Requiere humano
+      <div className="mt-4 grid grid-cols-[1fr_auto] items-center gap-3">
+        <div>
+          <p className="text-xs font-bold text-[#60708a]">
+            <span className="inline-flex h-2 w-2 rounded-full bg-[#00a86b]" />{" "}
+            {lead.status || "new"}
+          </p>
+          <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-[#65758d]">
+            {lead.nextAction || "SALES AI está evaluando el siguiente paso."}
+          </p>
         </div>
-      ) : null}
+
+        <div className="text-right">
+          <p className="text-xs font-bold text-[#60708a]">Cierre</p>
+          <p className="text-2xl font-black text-[#081535]">
+            {lead.closeProbability}%
+          </p>
+        </div>
+      </div>
     </button>
   );
 }
@@ -696,70 +850,63 @@ function ConversationPanel({
   brand,
   lead,
   messages,
+  agentRun,
+  safety,
   loading,
+  note,
+  setNote,
 }: {
   brand: BrandContext;
   lead: SalesLead | null;
   messages: SalesMessage[];
+  agentRun: AgentRun | null;
+  safety: SafetyState;
   loading: boolean;
+  note: string;
+  setNote: (value: string) => void;
 }) {
+  const agentReply = getAgentReply(agentRun, lead);
+  const displayMessages = buildDisplayMessages(lead, messages, agentReply);
+
   return (
-    <section className="overflow-hidden rounded-[30px] border border-[#dfe8f3] bg-white shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+    <section className="overflow-hidden rounded-[28px] border border-[#dfe8f3] bg-white shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
       <div className="border-b border-[#e8eef5] px-6 py-5">
         <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
+            <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
               Conversación comercial
             </p>
 
-            <h2 className="mt-2 max-w-[680px] break-words text-3xl font-black leading-tight text-[#0b1836]">
+            <h2 className="mt-3 max-w-[680px] break-words text-3xl font-black leading-tight text-[#081535] 2xl:text-4xl">
               {lead ? lead.name : brand.name}
             </h2>
 
             {lead ? (
-              <p className="mt-2 text-sm font-semibold text-[#728199]">
-                {lead.phone || "Sin teléfono registrado"}
+              <p className="mt-2 text-sm font-bold text-[#728199]">
+                {formatPhone(lead.phone) || "Sin teléfono registrado"}
               </p>
             ) : null}
           </div>
 
           {lead ? (
-            <span
-              className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.12em] ${
-                lead.requiresHuman
-                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-              }`}
-            >
-              {lead.requiresHuman ? "Requiere humano" : "Controlado"}
-            </span>
+            <div className="flex flex-wrap gap-2">
+              <StatusPill value={agentRun?.actionStatus || "sin_run"} />
+              <SafetyBadge safety={safety} />
+            </div>
           ) : null}
         </div>
       </div>
 
-      <div className="min-h-[760px] bg-[#f8fbff] p-5">
+      <div className="min-h-[720px] bg-[#f8fbff] p-5">
         {loading ? (
           <EmptyBox title="Cargando conversación..." text="Sincronizando datos." />
         ) : lead ? (
           <>
-            <LeadSummary lead={lead} />
-
-            <div className="mt-5 grid gap-3">
-              {messages.length ? (
-                messages.map((message) => (
+            <div className="grid gap-4">
+              {displayMessages.length ? (
+                displayMessages.map((message) => (
                   <MessageBubble key={message.id} message={message} />
                 ))
-              ) : lead.lastMessage ? (
-                <MessageBubble
-                  message={{
-                    id: "last-message",
-                    leadId: lead.id,
-                    direction: "inbound",
-                    content: lead.lastMessage,
-                    sender: lead.name,
-                    createdAt: lead.lastMessageAt,
-                  }}
-                />
               ) : (
                 <EmptyBox
                   title="Sin mensajes cargados"
@@ -768,45 +915,32 @@ function ConversationPanel({
               )}
             </div>
 
-            {lead.recommendedReply ? (
-              <RecommendedReply reply={lead.recommendedReply} />
-            ) : null}
+            {agentReply ? <RecommendedReply reply={agentReply} /> : null}
+
+            <div className="mt-5 grid grid-cols-[minmax(0,1fr)_150px] gap-3">
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Escribe una nota interna..."
+                className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-4 text-sm font-bold text-[#081535] outline-none transition focus:border-[#20c6df] focus:ring-4 focus:ring-[#dff8ff]"
+              />
+
+              <button
+                type="button"
+                className="rounded-2xl bg-[#08a9c6] px-5 py-4 text-sm font-black text-white shadow-[0_12px_28px_rgba(8,169,198,0.22)] transition hover:bg-[#0598b5]"
+              >
+                Guardar nota
+              </button>
+            </div>
           </>
         ) : (
           <EmptyBox
             title="Selecciona un prospecto"
-            text="Aquí aparecerá la conversación y la recomendación de SALES AI."
+            text="Aquí aparecerá la conversación, respuesta sugerida y decisión de SALES AI."
           />
         )}
       </div>
     </section>
-  );
-}
-
-function LeadSummary({ lead }: { lead: SalesLead }) {
-  return (
-    <div className="rounded-[28px] border border-[#dfe8f3] bg-white p-5">
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px] md:items-center">
-        <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
-            AI Summary
-          </p>
-
-          <p className="mt-2 text-sm font-semibold leading-6 text-[#52617a]">
-            {lead.aiSummary || "Sin resumen todavía."}
-          </p>
-        </div>
-
-        <div className="rounded-[24px] bg-[#effcff] p-4 text-center">
-          <p className="text-4xl font-black tracking-tight text-[#0b1836]">
-            {lead.closeProbability}%
-          </p>
-          <p className="mt-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#0aa6c4]">
-            prob. cierre
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -817,36 +951,47 @@ function MessageBubble({ message }: { message: SalesMessage }) {
     message.sender?.toLowerCase().includes("sales");
 
   return (
-    <div className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}>
+    <div className={`flex items-start gap-3 ${isOutbound ? "justify-end" : ""}`}>
+      {!isOutbound ? <Avatar name={message.sender || "Cliente"} /> : null}
+
       <div
-        className={`max-w-[82%] rounded-[24px] px-5 py-4 text-sm font-semibold leading-6 ${
+        className={`max-w-[82%] rounded-[22px] px-5 py-4 text-sm font-semibold leading-6 ${
           isOutbound
-            ? "bg-[#0b1836] text-white"
+            ? "bg-[#dff7ff] text-[#081535]"
             : "border border-[#dfe8f3] bg-white text-[#52617a]"
         }`}
       >
-        <p>{message.content || "Mensaje sin contenido."}</p>
-
         <p
-          className={`mt-2 text-[10px] font-black uppercase tracking-[0.14em] ${
-            isOutbound ? "text-[#70e7ff]" : "text-[#8a98ad]"
+          className={`mb-1 text-[11px] font-black uppercase tracking-[0.14em] ${
+            isOutbound ? "text-[#0798b8]" : "text-[#728199]"
           }`}
         >
           {isOutbound ? "SALES AI" : message.sender || "Cliente"}
+          {message.createdAt ? ` · ${formatDateTime(message.createdAt)}` : ""}
+        </p>
+
+        <p className="whitespace-pre-wrap">
+          {message.content || "Mensaje sin contenido."}
         </p>
       </div>
+
+      {isOutbound ? (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1677ff] text-white">
+          <Icon name="bot" className="h-5 w-5" />
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function RecommendedReply({ reply }: { reply: string }) {
   return (
-    <div className="mt-5 rounded-[28px] border border-[#bdeef7] bg-[#effcff] p-5">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0b9fbd]">
+    <div className="mt-5 rounded-[26px] border border-[#bdeef7] bg-[#effcff] p-5">
+      <p className="text-xs font-black uppercase tracking-[0.28em] text-[#0b9fbd]">
         Respuesta generada por SALES AI
       </p>
 
-      <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-7 text-[#26354d]">
+      <p className="mt-4 whitespace-pre-wrap text-sm font-bold leading-7 text-[#26354d]">
         {reply}
       </p>
 
@@ -865,6 +1010,13 @@ function RecommendedReply({ reply }: { reply: string }) {
         >
           Marcar para revisión
         </button>
+
+        <button
+          type="button"
+          className="rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-xs font-black text-[#324159] transition hover:bg-[#f8fbff]"
+        >
+          👍
+        </button>
       </div>
     </div>
   );
@@ -874,6 +1026,7 @@ function AgentAuditPanel({
   brandQuery,
   brandSlug,
   metrics,
+  safety,
   lead,
   agentRun,
   loading,
@@ -882,20 +1035,29 @@ function AgentAuditPanel({
   brandQuery: string;
   brandSlug: string;
   metrics: InboxMetrics;
+  safety: SafetyState;
   lead: SalesLead | null;
   agentRun: AgentRun | null;
   loading: boolean;
   onRefresh: () => void;
 }) {
   return (
-    <aside className="space-y-6 xl:sticky xl:top-6 xl:h-fit">
-      <AgentLeadCard lead={lead} agentRun={agentRun} />
+    <aside className="space-y-4 xl:sticky xl:top-4 xl:h-fit">
+      <AgentLeadCard lead={lead} agentRun={agentRun} safety={safety} />
 
       <AgentNextAction lead={lead} agentRun={agentRun} />
 
-      <AgentSystemCard metrics={metrics} loading={loading} onRefresh={onRefresh} />
+      <RuntimeSafetyCard safety={safety} agentRun={agentRun} />
 
       <QuickLinks brandQuery={brandQuery} brandSlug={brandSlug} />
+
+      <button
+        onClick={onRefresh}
+        disabled={loading}
+        className="w-full rounded-2xl bg-[#081535] px-5 py-4 text-sm font-black text-white transition hover:bg-[#16284f] disabled:opacity-50"
+      >
+        {loading ? "Actualizando..." : "Actualizar agente"}
+      </button>
     </aside>
   );
 }
@@ -903,32 +1065,37 @@ function AgentAuditPanel({
 function AgentLeadCard({
   lead,
   agentRun,
+  safety,
 }: {
   lead: SalesLead | null;
   agentRun: AgentRun | null;
+  safety: SafetyState;
 }) {
   return (
-    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0aa6c4]">
-        Auditoría de SALES AI
-      </p>
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm font-black uppercase tracking-[0.28em] text-[#0aa6c4]">
+          Auditoría de SALES AI
+        </p>
+        <SafetyBadge safety={safety} />
+      </div>
 
       {lead ? (
         <>
-          <div className="mt-5 flex items-start gap-3">
+          <div className="mt-6 flex items-start gap-4">
             <Avatar name={lead.name} />
 
             <div className="min-w-0">
-              <h3 className="break-words text-2xl font-black leading-tight text-[#0b1836]">
+              <h3 className="break-words text-2xl font-black leading-tight text-[#081535]">
                 {lead.name}
               </h3>
-              <p className="mt-1 text-sm font-semibold text-[#728199]">
-                {lead.phone || "Sin teléfono"}
+              <p className="mt-1 text-sm font-bold text-[#728199]">
+                {formatPhone(lead.phone) || "Sin teléfono"}
               </p>
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-3">
             <DecisionItem label="Intención" value={lead.intent} />
             <DecisionItem label="Objeción" value={lead.mainObjection} />
             <DecisionItem
@@ -937,7 +1104,7 @@ function AgentLeadCard({
             />
             <DecisionItem
               label="Confianza IA"
-              value={agentRun ? `${agentRun.confidenceScore}%` : "Sin dato"}
+              value={agentRun ? `${agentRun.confidenceScore || 0}%` : "Sin dato"}
             />
           </div>
         </>
@@ -957,36 +1124,38 @@ function AgentNextAction({
   lead: SalesLead | null;
   agentRun: AgentRun | null;
 }) {
+  const reply = getAgentReply(agentRun, lead);
+
   return (
-    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+      <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
         Siguiente acción
       </p>
 
-      <h3 className="mt-3 text-2xl font-black leading-tight text-[#0b1836]">
-        {lead?.nextAction || "Sin prospecto seleccionado"}
+      <h3 className="mt-3 text-2xl font-black leading-tight text-[#081535]">
+        {lead?.nextAction || agentRun?.nextAction || "Sin prospecto seleccionado"}
       </h3>
 
-      <div className="mt-4 rounded-2xl border border-[#bdeef7] bg-[#effcff] p-4">
-        <p className="text-xs font-black uppercase tracking-[0.14em] text-[#0b9fbd]">
+      <div className="mt-5 rounded-2xl border border-[#bdeef7] bg-[#effcff] p-4">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0b9fbd]">
           Razón del agente
         </p>
 
-        <p className="mt-2 text-sm font-semibold leading-6 text-[#26354d]">
+        <p className="mt-3 text-sm font-bold leading-7 text-[#26354d]">
           {agentRun?.decisionReason ||
             lead?.aiSummary ||
             "SALES AI todavía no tiene una razón registrada para este prospecto."}
         </p>
       </div>
 
-      {lead?.recommendedReply ? (
+      {reply ? (
         <div className="mt-4 rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-[#728199]">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#728199]">
             Respuesta sugerida
           </p>
 
-          <p className="mt-2 line-clamp-5 text-sm font-semibold leading-6 text-[#26354d]">
-            {lead.recommendedReply}
+          <p className="mt-3 line-clamp-6 text-sm font-bold leading-7 text-[#26354d]">
+            {reply}
           </p>
         </div>
       ) : null}
@@ -994,52 +1163,67 @@ function AgentNextAction({
   );
 }
 
-function AgentSystemCard({
-  metrics,
-  loading,
-  onRefresh,
+function RuntimeSafetyCard({
+  safety,
+  agentRun,
 }: {
-  metrics: InboxMetrics;
-  loading: boolean;
-  onRefresh: () => void;
+  safety: SafetyState;
+  agentRun: AgentRun | null;
 }) {
   return (
-    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#728199]">
-            Estado del agente
+          <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
+            Seguridad de ejecución
           </p>
 
-          <h3 className="mt-2 text-2xl font-black text-[#0b1836]">
-            {metrics.automationMode || "Supervisado"}
+          <h3 className="mt-3 text-2xl font-black leading-tight text-[#081535]">
+            {safety.label}
           </h3>
-
-          <p className="mt-2 text-sm font-semibold leading-6 text-[#60708a]">
-            SALES AI mantiene seguimiento, respuesta sugerida y auditoría de cada
-            conversación.
-          </p>
         </div>
 
-        <div className="rounded-full bg-[#ecfff7] px-3 py-1 text-xs font-black text-[#00a86b]">
-          {loading ? "..." : "Activo"}
-        </div>
+        <SafetyBadge safety={safety} />
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <DarkMini label="Leads" value={String(metrics.openLeads)} />
-        <DarkMini label="Hot" value={String(metrics.hotLeads)} />
-        <DarkMini label="Humano" value={String(metrics.humanRequired)} />
-        <DarkMini label="Learning" value={String(metrics.pendingLearning)} />
+        <DarkMini label="Modo" value={labelAgentMode(safety.mode)} />
+        <DarkMini label="WhatsApp" value={labelWhatsappStatus(safety.whatsappStatus)} />
       </div>
 
-      <button
-        onClick={onRefresh}
-        disabled={loading}
-        className="mt-5 w-full rounded-2xl bg-[#0b1836] px-5 py-3 text-sm font-black text-white transition hover:bg-[#16284f] disabled:opacity-50"
-      >
-        {loading ? "Actualizando..." : "Actualizar agente"}
-      </button>
+      <div className="mt-4 rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-[#728199]">
+          Razones del candado
+        </p>
+
+        <div className="mt-3 grid gap-2">
+          {safety.reasons.length ? (
+            safety.reasons.map((reason) => (
+              <div
+                key={reason}
+                className="rounded-xl bg-white px-4 py-3 text-sm font-black text-[#324159]"
+              >
+                {reason}
+              </div>
+            ))
+          ) : (
+            <p className="text-sm font-semibold leading-6 text-[#60708a]">
+              No hay razones de bloqueo registradas en la última ejecución.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {agentRun ? (
+        <div className="mt-4 rounded-2xl border border-[#dfe8f3] bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#728199]">
+            Último action_status
+          </p>
+          <p className="mt-2 text-sm font-black text-[#081535]">
+            {formatActionStatus(agentRun.actionStatus)}
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1053,15 +1237,17 @@ function QuickLinks({
 }) {
   const links = [
     { label: "Dashboard SALES AI", href: "/sales-ai" },
-    { label: "Brand OS", href: `/brand/${brandSlug}` },
+    { label: "Conexión WhatsApp", href: "/sales-ai/connect" },
+    { label: "Configurar agente", href: "/sales-ai/agent-settings" },
     { label: "Knowledge Brain", href: `/sales-ai/knowledge?${brandQuery}` },
     { label: "Learning Hub", href: `/sales-ai/learning?${brandQuery}` },
+    { label: "Brand OS", href: `/brand/${brandSlug}` },
   ];
 
   return (
-    <section className="rounded-[30px] border border-[#cfeef6] bg-[#effcff] p-5 shadow-sm">
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0b9fbd]">
-        Navegación de marca
+    <section className="rounded-[28px] border border-[#cfeef6] bg-[#effcff] p-5 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-[#0b9fbd]">
+        Navegación
       </p>
 
       <div className="mt-4 grid gap-2">
@@ -1079,62 +1265,59 @@ function QuickLinks({
   );
 }
 
-function LoadWarning({ message }: { message: string }) {
-  return (
-    <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-700">
-      No se pudo cargar información real desde Supabase. Detalle: {message}
-    </div>
-  );
-}
-
-function LeadSkeleton() {
-  return (
-    <div className="rounded-[24px] border border-[#dfe8f3] bg-[#f8fbff] p-4">
-      <div className="h-5 w-40 rounded-full bg-[#e3ebf4]" />
-      <div className="mt-3 h-4 w-52 rounded-full bg-[#e3ebf4]" />
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <div className="h-12 rounded-2xl bg-[#e3ebf4]" />
-        <div className="h-12 rounded-2xl bg-[#e3ebf4]" />
-      </div>
-    </div>
-  );
-}
-
-function EmptyBox({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="rounded-[26px] border border-dashed border-[#d7e2ee] bg-[#fbfdff] p-8 text-center">
-      <h3 className="text-2xl font-black text-[#0b1836]">{title}</h3>
-
-      <p className="mx-auto mt-2 max-w-md text-sm font-semibold leading-6 text-[#60708a]">
-        {text}
-      </p>
-    </div>
-  );
-}
-
-function MiniInfo({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-2xl border border-[#dfe8f3] bg-white px-3 py-2">
-      <p className="truncate text-[9px] font-black uppercase tracking-[0.14em] text-[#8a98ad]">
-        {label}
-      </p>
-      <p className="mt-1 truncate text-xs font-black text-[#0b1836]">
-        {value || "N/D"}
-      </p>
-    </div>
-  );
-}
-
 function DecisionItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
-      <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#8a98ad]">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#8a98ad]">
         {label}
       </p>
-      <p className="mt-2 text-sm font-black leading-6 text-[#0b1836]">
+      <p className="mt-2 text-sm font-black leading-6 text-[#081535]">
         {value || "Sin dato"}
       </p>
     </div>
+  );
+}
+
+function StatusPill({ value }: { value: string }) {
+  const tone = getActionStatusTone(value);
+
+  const toneMap = {
+    green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    blue: "border-cyan-200 bg-cyan-50 text-cyan-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    red: "border-red-200 bg-red-50 text-red-700",
+    neutral: "border-[#dfe8f3] bg-white text-[#60708a]",
+  };
+
+  return (
+    <span
+      className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.12em] ${toneMap[tone]}`}
+    >
+      {formatActionStatus(value)}
+    </span>
+  );
+}
+
+function SafetyBadge({ safety }: { safety: SafetyState }) {
+  const toneMap = {
+    safe: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-700",
+    blocked: "border-red-200 bg-red-50 text-red-700",
+    neutral: "border-[#dfe8f3] bg-white text-[#60708a]",
+  };
+
+  return (
+    <span
+      className={`w-fit rounded-full border px-4 py-2 text-xs font-black uppercase tracking-[0.12em] ${toneMap[safety.tone]}`}
+    >
+      {safety.tone === "blocked"
+        ? "Bloqueado"
+        : safety.tone === "safe"
+        ? "Controlado"
+        : safety.tone === "warning"
+        ? "Revisión"
+        : "Sin dato"}
+    </span>
   );
 }
 
@@ -1148,13 +1331,13 @@ function TemperatureBadge({ temperature }: { temperature: string }) {
     ? "border-rose-200 bg-rose-50 text-rose-600"
     : isWarm
     ? "border-amber-200 bg-amber-50 text-amber-600"
-    : "border-[#dfe8f3] bg-white text-[#60708a]";
+    : "border-blue-200 bg-blue-50 text-blue-600";
 
   const label = isHot ? "Caliente" : isWarm ? "Tibio" : "Frío";
 
   return (
     <span
-      className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.08em] ${className}`}
+      className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${className}`}
     >
       {label}
     </span>
@@ -1163,28 +1346,8 @@ function TemperatureBadge({ temperature }: { temperature: string }) {
 
 function Avatar({ name }: { name?: string | null }) {
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#b7f4ef] text-xs font-black text-[#0b5262]">
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#b7f4ef] text-xs font-black text-[#0b5262]">
       {getInitials(name || "AI")}
-    </div>
-  );
-}
-
-function ProgressLine({ label, value }: { label: string; value: number }) {
-  const safeValue = clampNumber(value, 0, 100);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs font-bold text-[#60708a]">
-        <span>{label}</span>
-        <span>{safeValue}%</span>
-      </div>
-
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#edf3f8]">
-        <div
-          className="h-full rounded-full bg-[#22d3ee]"
-          style={{ width: `${safeValue}%` }}
-        />
-      </div>
     </div>
   );
 }
@@ -1194,16 +1357,16 @@ function ScoreRing({ value }: { value: number }) {
 
   return (
     <div
-      className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
+      className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full"
       style={{
         background: `conic-gradient(#22d3ee ${
           safeValue * 3.6
         }deg, #edf3f8 0deg)`,
       }}
     >
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white ring-8 ring-[#eafbff]">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white ring-8 ring-[#eafbff]">
         <div className="text-center">
-          <p className="text-2xl font-black tracking-tight text-[#0b1836]">
+          <p className="text-3xl font-black tracking-tight text-[#081535]">
             {safeValue}
           </p>
           <p className="text-[10px] font-black text-[#8a98ad]">/100</p>
@@ -1216,10 +1379,173 @@ function ScoreRing({ value }: { value: number }) {
 function DarkMini({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
-      <p className="truncate text-[10px] font-bold text-[#8a98ad]">{label}</p>
-      <p className="mt-1 truncate text-lg font-black text-[#0b1836]">{value}</p>
+      <p className="truncate text-xs font-bold text-[#8a98ad]">{label}</p>
+      <p className="mt-2 truncate text-xl font-black text-[#081535]">{value}</p>
     </div>
   );
+}
+
+function LeadSkeleton() {
+  return (
+    <div className="rounded-[22px] border border-[#dfe8f3] bg-[#f8fbff] p-4">
+      <div className="h-5 w-40 rounded-full bg-[#e3ebf4]" />
+      <div className="mt-3 h-4 w-52 rounded-full bg-[#e3ebf4]" />
+      <div className="mt-4 h-14 rounded-2xl bg-[#e3ebf4]" />
+    </div>
+  );
+}
+
+function EmptyBox({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-[26px] border border-dashed border-[#d7e2ee] bg-[#fbfdff] p-8 text-center">
+      <h3 className="text-2xl font-black text-[#081535]">{title}</h3>
+
+      <p className="mx-auto mt-2 max-w-md text-sm font-semibold leading-6 text-[#60708a]">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function LoadWarning({ message }: { message: string }) {
+  return (
+    <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-700">
+      No se pudo cargar información real desde Supabase. Detalle: {message}
+    </div>
+  );
+}
+
+function buildDisplayMessages(
+  lead: SalesLead | null,
+  messages: SalesMessage[],
+  agentReply: string
+): SalesMessage[] {
+  if (!lead) return [];
+
+  if (messages.length) return messages;
+
+  const now = new Date().toISOString();
+
+  const inbound =
+    lead.lastMessage ||
+    "Hola, me gustaría más información sobre sus servicios y precios.";
+
+  const display: SalesMessage[] = [
+    {
+      id: "fallback-inbound",
+      leadId: lead.id,
+      direction: "inbound",
+      content: inbound,
+      sender: lead.name || "Cliente",
+      createdAt: lead.lastMessageAt || now,
+    },
+  ];
+
+  if (agentReply) {
+    display.push({
+      id: "fallback-outbound",
+      leadId: lead.id,
+      direction: "outbound",
+      content: agentReply,
+      sender: "SALES AI",
+      createdAt: now,
+    });
+  }
+
+  return display;
+}
+
+function deriveSafetyState(
+  agentRun: AgentRun | null,
+  runtimeSettings: RuntimeSettings | null,
+  metrics: InboxMetrics
+): SafetyState {
+  const mode =
+    runtimeSettings?.agent_mode ||
+    agentRun?.agentMode ||
+    String(metrics.automationMode || "observation").toLowerCase();
+
+  const whatsappStatus = runtimeSettings?.whatsapp_status || "sin_dato";
+
+  const reasons: string[] = [];
+
+  if (mode !== "automatic") {
+    reasons.push(`agent_mode=${mode}`);
+  }
+
+  if (whatsappStatus !== "connected") {
+    reasons.push(`whatsapp_status=${whatsappStatus}`);
+  }
+
+  if (runtimeSettings?.auto_reply_enabled !== true) {
+    reasons.push("auto_reply_enabled=false");
+  }
+
+  if (runtimeSettings?.send_whatsapp_enabled !== true) {
+    reasons.push("send_whatsapp_enabled=false");
+  }
+
+  const actionStatus = String(agentRun?.actionStatus || "").toLowerCase();
+
+  if (actionStatus.includes("sent_whatsapp")) {
+    return {
+      label: "WhatsApp enviado",
+      tone: "safe",
+      reasons: ["El último mensaje fue ejecutado."],
+      mode,
+      whatsappStatus,
+    };
+  }
+
+  if (actionStatus.includes("ready_to_execute")) {
+    return {
+      label: "Listo para ejecutar",
+      tone: "warning",
+      reasons,
+      mode,
+      whatsappStatus,
+    };
+  }
+
+  if (reasons.length) {
+    return {
+      label: "Protegido por candados",
+      tone: "blocked",
+      reasons,
+      mode,
+      whatsappStatus,
+    };
+  }
+
+  return {
+    label: "Controlado",
+    tone: "safe",
+    reasons: ["Configuración lista para ejecución controlada."],
+    mode,
+    whatsappStatus,
+  };
+}
+
+function getAgentReply(agentRun: AgentRun | null, lead: SalesLead | null) {
+  return (
+    agentRun?.agentReply ||
+    agentRun?.recommendedReply ||
+    lead?.recommendedReply ||
+    ""
+  );
+}
+
+function getActionStatusTone(
+  value: string
+): "green" | "blue" | "amber" | "red" | "neutral" {
+  const status = String(value || "").toLowerCase();
+
+  if (status.includes("sent")) return "green";
+  if (status.includes("ready")) return "blue";
+  if (status.includes("observation") || status.includes("logged")) return "amber";
+  if (status.includes("failed") || status.includes("blocked")) return "red";
+
+  return "neutral";
 }
 
 function isHotLead(lead: SalesLead) {
@@ -1230,6 +1556,61 @@ function isHotLead(lead: SalesLead) {
     temp.includes("caliente") ||
     temp.includes("hot")
   );
+}
+
+function formatActionStatus(value: string) {
+  const normalized = String(value || "Sin status").replaceAll("_", " ");
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Sin fecha";
+
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return "Fecha inválida";
+  }
+}
+
+function formatPhone(value?: string | null) {
+  const clean = String(value || "").replace(/\D/g, "");
+
+  if (clean.length === 10) {
+    return `${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(6)}`;
+  }
+
+  if (clean.length === 12 && clean.startsWith("52")) {
+    return `${clean.slice(0, 2)} ${clean.slice(2, 5)} ${clean.slice(
+      5,
+      8
+    )} ${clean.slice(8)}`;
+  }
+
+  return value || "";
+}
+
+function labelAgentMode(value?: string | null) {
+  const mode = String(value || "observation").toLowerCase();
+
+  if (mode === "automatic") return "Automático";
+  if (mode === "paused") return "Pausado";
+
+  return "Observación";
+}
+
+function labelWhatsappStatus(value?: string | null) {
+  const status = String(value || "sin_dato").toLowerCase();
+
+  if (status === "connected") return "Conectado";
+  if (status === "connection_requested") return "Conexión solicitada";
+  if (status === "pending_verification") return "Pendiente";
+
+  return "Sin dato";
 }
 
 function getInitials(name: string) {
@@ -1252,11 +1633,16 @@ type IconName =
   | "planet"
   | "users"
   | "chat"
-  | "chart"
-  | "pulse"
   | "flame"
   | "user"
-  | "alert";
+  | "alert"
+  | "brain"
+  | "refresh"
+  | "gear"
+  | "clock"
+  | "shield"
+  | "whatsapp"
+  | "bot";
 
 function Icon({
   name,
@@ -1267,17 +1653,17 @@ function Icon({
 }) {
   if (name === "planet") {
     return (
-      <svg viewBox="0 0 48 48" fill="none" className={className}>
+      <svg viewBox="0 0 64 64" fill="none" className={className}>
         <path
-          d="M24 38c8.284 0 15-6.268 15-14S32.284 10 24 10 9 16.268 9 24s6.716 14 15 14Z"
+          d="M49.2 34.4c-2.5 9.2-12 14.6-21.2 12.1-9.2-2.5-14.6-12-12.1-21.2 2.5-9.2 12-14.6 21.2-12.1"
           stroke="currentColor"
-          strokeWidth="3"
+          strokeWidth="7"
+          strokeLinecap="round"
         />
         <path
-          d="M5 28c8.5 4.8 27 6.8 39-9"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
+          d="M39 14l12-6-5 12 12-1-10 8 9 6-13 1 2 12-9-9-10 8 4-13-12-4 13-4-3-12 10 7Z"
+          fill="currentColor"
+          opacity=".9"
         />
       </svg>
     );
@@ -1286,12 +1672,7 @@ function Icon({
   if (name === "users") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path
-          d="M16 11a4 4 0 1 0-8 0"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
+        <path d="M16 11a4 4 0 1 0-8 0" stroke="currentColor" strokeWidth="2" />
         <path
           d="M4 20c.8-4 3.4-6 8-6s7.2 2 8 6"
           stroke="currentColor"
@@ -1302,7 +1683,7 @@ function Icon({
     );
   }
 
-  if (name === "chat") {
+  if (name === "chat" || name === "whatsapp") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
         <path
@@ -1316,34 +1697,6 @@ function Icon({
           stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  if (name === "chart") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path
-          d="M4 19V5M4 19h16M7 15l4-4 3 3 5-7"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
-  }
-
-  if (name === "pulse") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path
-          d="M3 12h4l2-6 4 12 2-6h6"
-          stroke="currentColor"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
         />
       </svg>
     );
@@ -1365,17 +1718,59 @@ function Icon({
   if (name === "user") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path
-          d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
-          stroke="currentColor"
-          strokeWidth="2"
-        />
+        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2" />
         <path
           d="M4.5 20c1-4 3.5-6 7.5-6s6.5 2 7.5 6"
           stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
         />
+      </svg>
+    );
+  }
+
+  if (name === "brain" || name === "bot") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className}>
+        <rect x="5" y="8" width="14" height="10" rx="4" stroke="currentColor" strokeWidth="2" />
+        <path d="M12 8V4M8.5 12h.01M15.5 12h.01M9 16h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (name === "refresh") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className}>
+        <path d="M20 12a8 8 0 0 1-14 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M6 21v-4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M4 12a8 8 0 0 1 14-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M18 3v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (name === "gear") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className}>
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="2" />
+        <path d="M19 13v-2l-2-.5a6 6 0 0 0-.7-1.6l1-1.7-1.5-1.5-1.7 1a6 6 0 0 0-1.6-.7L12 3h-2l-.5 2a6 6 0 0 0-1.6.7l-1.7-1-1.5 1.5 1 1.7a6 6 0 0 0-.7 1.6L3 11v2l2 .5a6 6 0 0 0 .7 1.6l-1 1.7 1.5 1.5 1.7-1a6 6 0 0 0 1.6.7l.5 2h2l.5-2a6 6 0 0 0 1.6-.7l1.7 1 1.5-1.5-1-1.7a6 6 0 0 0 .7-1.6L19 13Z" stroke="currentColor" strokeWidth="2" />
+      </svg>
+    );
+  }
+
+  if (name === "clock") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className}>
+        <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
+      </svg>
+    );
+  }
+
+  if (name === "shield") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className}>
+        <path d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="2" />
       </svg>
     );
   }

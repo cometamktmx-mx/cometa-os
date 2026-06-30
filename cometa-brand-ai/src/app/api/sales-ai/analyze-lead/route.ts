@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { slugifyBrand } from "@/lib/brand-resolver";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,11 +13,22 @@ const openai = new OpenAI({
 });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+type UserRole = "admin" | "client";
+
+type UserContext = {
+  userId: string | null;
+  email: string | null;
+  role: UserRole;
+  allowedBrandSlugs: string[];
+  isInternalRequest: boolean;
+};
 
 function safeJsonParse(text: string) {
   try {
@@ -31,12 +45,296 @@ function safeJsonParse(text: string) {
   }
 }
 
+function parseCsv(value?: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isCometaAdmin(user: { id?: string; email?: string | null } | null) {
+  if (!user) return false;
+
+  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
+  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
+
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  const userId = String(user.id || "").trim().toLowerCase();
+
+  if (!adminEmails.length && !adminUserIds.length) {
+    return false;
+  }
+
+  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
+}
+
+function isInternalRequest(req: Request) {
+  const expectedSecret = String(process.env.SALES_AI_INTERNAL_SECRET || "").trim();
+
+  if (!expectedSecret) return false;
+
+  const receivedSecret =
+    req.headers.get("x-cometa-internal-secret") ||
+    req.headers.get("x-sales-ai-internal-secret") ||
+    "";
+
+  return receivedSecret === expectedSecret;
+}
+
+async function getUserContext(req: Request): Promise<UserContext> {
+  if (isInternalRequest(req)) {
+    return {
+      userId: "internal-sales-ai",
+      email: "internal@cometaos.local",
+      role: "admin",
+      allowedBrandSlugs: [],
+      isInternalRequest: true,
+    };
+  }
+
+  const cookieStore = await cookies();
+
+  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {}
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAuth.auth.getUser();
+
+  if (error || !user) {
+    return {
+      userId: null,
+      email: null,
+      role: "client",
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  if (isCometaAdmin(user)) {
+    return {
+      userId: user.id,
+      email: user.email || null,
+      role: "admin",
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,role,status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn("analyze-lead profile error:", profileError.message);
+  }
+
+  const role: UserRole =
+    profile?.role === "admin" && profile?.status === "active"
+      ? "admin"
+      : "client";
+
+  if (role === "admin") {
+    return {
+      userId: user.id,
+      email: user.email || profile?.email || null,
+      role,
+      allowedBrandSlugs: [],
+      isInternalRequest: false,
+    };
+  }
+
+  const { data: accessRows, error: accessError } = await supabase
+    .from("user_brand_access")
+    .select("brand_slug,status")
+    .eq("user_id", user.id)
+    .eq("status", "active");
+
+  if (accessError) {
+    console.warn("analyze-lead access error:", accessError.message);
+  }
+
+  const allowedBrandSlugs = Array.from(
+    new Set(
+      (accessRows || [])
+        .map((row: any) => slugifyBrand(row.brand_slug || ""))
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    userId: user.id,
+    email: user.email || profile?.email || null,
+    role,
+    allowedBrandSlugs,
+    isInternalRequest: false,
+  };
+}
+
+function validateBrandAccess({
+  userContext,
+  brandName,
+  brandSlug,
+}: {
+  userContext: UserContext;
+  brandName: string;
+  brandSlug?: string | null;
+}) {
+  const normalizedBrandSlug = slugifyBrand(brandSlug || brandName);
+
+  if (userContext.role === "admin") {
+    return {
+      ok: true,
+      error: null,
+      brandSlug: normalizedBrandSlug,
+    };
+  }
+
+  if (userContext.allowedBrandSlugs.includes(normalizedBrandSlug)) {
+    return {
+      ok: true,
+      error: null,
+      brandSlug: normalizedBrandSlug,
+    };
+  }
+
+  return {
+    ok: false,
+    error:
+      "No tienes permiso para analizar leads de esta marca. Esta marca no está asignada a tu usuario.",
+    brandSlug: normalizedBrandSlug,
+  };
+}
+
+function safeText(value: unknown, maxLength = 4000) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function normalizeNullableText(value: unknown, maxLength = 500) {
+  const text = safeText(value, maxLength);
+
+  return text || null;
+}
+
+function normalizeNumber(value: unknown, fallback = 0) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return fallback;
+
+  return numberValue;
+}
+
+function normalizeBoolean(value: unknown) {
+  return value === true;
+}
+
+function normalizeArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => safeText(item, 500)).filter(Boolean);
+  }
+
+  return [];
+}
+
+async function validateLeadBelongsToBrand(leadId: string, brandName: string) {
+  try {
+    const { data, error } = await supabase
+      .from("sales_leads")
+      .select("id,brand_name")
+      .eq("id", leadId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("validateLeadBelongsToBrand error:", error.message);
+      return false;
+    }
+
+    if (!data) return true;
+
+    return String(data.brand_name || "").trim() === String(brandName || "").trim();
+  } catch (error: any) {
+    console.warn("validateLeadBelongsToBrand exception:", error?.message);
+    return false;
+  }
+}
+
+function normalizeAnalysis(analysis: any) {
+  return {
+    lead_status:
+      safeText(analysis?.lead_status, 80) || "new",
+    lead_temperature:
+      safeText(analysis?.lead_temperature, 80) || "unknown",
+    intent:
+      safeText(analysis?.intent, 120) || "otro",
+    business_type:
+      safeText(analysis?.business_type, 120) || "desconocido",
+    budget_level:
+      safeText(analysis?.budget_level, 120) || "desconocido",
+    city:
+      normalizeNullableText(analysis?.city, 180),
+    is_qualified:
+      normalizeBoolean(analysis?.is_qualified),
+    qualification_reason:
+      safeText(analysis?.qualification_reason, 1000),
+    main_objection:
+      safeText(analysis?.main_objection, 180) || "ninguna",
+    lost_reason:
+      normalizeNullableText(analysis?.lost_reason, 1000),
+    close_probability:
+      Math.max(0, Math.min(100, normalizeNumber(analysis?.close_probability, 0))),
+    ai_summary:
+      safeText(analysis?.ai_summary, 2000),
+    next_action:
+      safeText(analysis?.next_action, 1000),
+    recommended_reply:
+      safeText(analysis?.recommended_reply, 2000),
+    follow_up_message:
+      safeText(analysis?.follow_up_message, 2000),
+    sales_diagnosis:
+      safeText(analysis?.sales_diagnosis, 2000),
+    detected_errors:
+      normalizeArray(analysis?.detected_errors),
+    questions_to_ask:
+      normalizeArray(analysis?.questions_to_ask),
+    tags:
+      normalizeArray(analysis?.tags),
+  };
+}
+
 export async function POST(req: Request) {
   try {
+    const userContext = await getUserContext(req);
+
+    if (!userContext.userId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "No autorizado. Inicia sesión para analizar leads.",
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const {
       brandName,
+      brandSlug,
       brandAnalysisId,
       clientId,
       leadId,
@@ -49,19 +347,71 @@ export async function POST(req: Request) {
       adName,
     } = body;
 
-    if (!brandName || !conversationText) {
+    const finalBrandName = safeText(brandName, 180);
+    const finalBrandSlug = safeText(brandSlug, 180);
+    const finalConversationText = safeText(conversationText, 12000);
+
+    if (!finalBrandName || !finalConversationText) {
       return NextResponse.json(
         {
+          ok: false,
           error: "Faltan campos obligatorios: brandName y conversationText",
         },
         { status: 400 }
       );
     }
 
+    const accessValidation = validateBrandAccess({
+      userContext,
+      brandName: finalBrandName,
+      brandSlug: finalBrandSlug,
+    });
+
+    if (!accessValidation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: accessValidation.error,
+          user: {
+            id: userContext.userId,
+            email: userContext.email,
+            role: userContext.role,
+            isAdmin: userContext.role === "admin",
+            isInternalRequest: userContext.isInternalRequest,
+          },
+          requestedBrand: {
+            name: finalBrandName,
+            slug: accessValidation.brandSlug,
+          },
+        },
+        { status: 403 }
+      );
+    }
+
+    const finalLeadIdFromBody = safeText(leadId, 120) || null;
+
+    if (finalLeadIdFromBody) {
+      const leadBelongsToBrand = await validateLeadBelongsToBrand(
+        finalLeadIdFromBody,
+        finalBrandName
+      );
+
+      if (!leadBelongsToBrand) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "No puedes actualizar este lead porque no pertenece a la marca indicada.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const { data: playbook } = await supabase
       .from("sales_playbooks")
       .select("*")
-      .eq("brand_name", brandName)
+      .eq("brand_name", finalBrandName)
       .eq("is_active", true)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -114,7 +464,7 @@ Reglas:
     const businessContext = playbook
       ? `
 Contexto comercial del negocio:
-Marca: ${brandName}
+Marca: ${finalBrandName}
 Modelo de negocio: ${playbook.business_model || "No especificado"}
 Cliente ideal: ${playbook.ideal_customer || "No especificado"}
 Reglas comerciales: ${JSON.stringify(playbook.sales_rules || {})}
@@ -127,7 +477,7 @@ Tono: ${playbook.tone || "friendly_professional"}
 `
       : `
 Contexto comercial del negocio:
-Marca: ${brandName}
+Marca: ${finalBrandName}
 No hay playbook registrado todavía. Analiza con base en la conversación.
 `;
 
@@ -136,7 +486,7 @@ ${businessContext}
 
 Conversación a analizar:
 """
-${conversationText}
+${finalConversationText}
 """
 
 Devuelve únicamente JSON válido.
@@ -153,11 +503,12 @@ Devuelve únicamente JSON válido.
     });
 
     const raw = completion.choices[0]?.message?.content || "{}";
-    const analysis = safeJsonParse(raw);
+    const parsedAnalysis = safeJsonParse(raw);
 
-    if (!analysis) {
+    if (!parsedAnalysis) {
       return NextResponse.json(
         {
+          ok: false,
           error: "No se pudo convertir la respuesta de SALES AI a JSON",
           raw,
         },
@@ -165,9 +516,11 @@ Devuelve únicamente JSON válido.
       );
     }
 
-    let finalLeadId = leadId;
+    const analysis = normalizeAnalysis(parsedAnalysis);
 
-    if (leadId) {
+    let finalLeadId = finalLeadIdFromBody;
+
+    if (finalLeadIdFromBody) {
       const { error: updateError } = await supabase
         .from("sales_leads")
         .update({
@@ -186,13 +539,29 @@ Devuelve únicamente JSON válido.
           next_action: analysis.next_action,
           recommended_reply: analysis.recommended_reply,
           last_message_at: new Date().toISOString(),
-          raw_data: analysis,
+          raw_data: {
+            ...analysis,
+            requested_by: {
+              user_id: userContext.userId,
+              email: userContext.email,
+              role: userContext.role,
+              is_internal_request: userContext.isInternalRequest,
+            },
+            brand_access: {
+              brand_name: finalBrandName,
+              brand_slug: accessValidation.brandSlug,
+            },
+          },
         })
-        .eq("id", leadId);
+        .eq("id", finalLeadIdFromBody)
+        .eq("brand_name", finalBrandName);
 
       if (updateError) {
         return NextResponse.json(
-          { error: updateError.message },
+          {
+            ok: false,
+            error: updateError.message,
+          },
           { status: 500 }
         );
       }
@@ -202,13 +571,13 @@ Devuelve únicamente JSON válido.
         .insert({
           client_id: clientId || null,
           brand_analysis_id: brandAnalysisId || null,
-          brand_name: brandName,
-          contact_name: contactName || null,
-          contact_phone: contactPhone || null,
-          contact_username: contactUsername || null,
-          source,
-          campaign_name: campaignName || null,
-          ad_name: adName || null,
+          brand_name: finalBrandName,
+          contact_name: normalizeNullableText(contactName, 180),
+          contact_phone: normalizeNullableText(contactPhone, 80),
+          contact_username: normalizeNullableText(contactUsername, 180),
+          source: safeText(source, 80) || "whatsapp",
+          campaign_name: normalizeNullableText(campaignName, 180),
+          ad_name: normalizeNullableText(adName, 180),
           lead_status: analysis.lead_status,
           lead_temperature: analysis.lead_temperature,
           intent: analysis.intent,
@@ -224,14 +593,29 @@ Devuelve únicamente JSON válido.
           next_action: analysis.next_action,
           recommended_reply: analysis.recommended_reply,
           last_message_at: new Date().toISOString(),
-          raw_data: analysis,
+          raw_data: {
+            ...analysis,
+            requested_by: {
+              user_id: userContext.userId,
+              email: userContext.email,
+              role: userContext.role,
+              is_internal_request: userContext.isInternalRequest,
+            },
+            brand_access: {
+              brand_name: finalBrandName,
+              brand_slug: accessValidation.brandSlug,
+            },
+          },
         })
         .select("id")
         .single();
 
       if (insertError) {
         return NextResponse.json(
-          { error: insertError.message },
+          {
+            ok: false,
+            error: insertError.message,
+          },
           { status: 500 }
         );
       }
@@ -239,12 +623,24 @@ Devuelve únicamente JSON válido.
       finalLeadId = insertedLead.id;
     }
 
-    
-   // Historial de conversación desactivado aquí.
-// El webhook es el único responsable de guardar sales_messages.
-
+    /**
+     * Historial de conversación desactivado aquí.
+     * El webhook/simulador son responsables de guardar sales_messages.
+     */
     return NextResponse.json({
       success: true,
+      ok: true,
+      user: {
+        id: userContext.userId,
+        email: userContext.email,
+        role: userContext.role,
+        isAdmin: userContext.role === "admin",
+        isInternalRequest: userContext.isInternalRequest,
+      },
+      brand: {
+        name: finalBrandName,
+        slug: accessValidation.brandSlug,
+      },
       leadId: finalLeadId,
       analysis,
     });
@@ -253,6 +649,7 @@ Devuelve únicamente JSON válido.
 
     return NextResponse.json(
       {
+        ok: false,
         error: "Error interno en SALES AI",
         details: error?.message || String(error),
       },

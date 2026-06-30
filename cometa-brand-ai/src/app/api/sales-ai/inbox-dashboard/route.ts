@@ -19,6 +19,28 @@ const supabaseServiceKey =
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 type UserRole = "admin" | "client";
+function parseCsv(value?: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isCometaAdmin(user: { id?: string; email?: string | null } | null) {
+  if (!user) return false;
+
+  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
+  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
+
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  const userId = String(user.id || "").trim().toLowerCase();
+
+  if (!adminEmails.length && !adminUserIds.length) {
+    return false;
+  }
+
+  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
+}
 
 export async function GET(req: Request) {
   try {
@@ -132,13 +154,26 @@ export async function GET(req: Request) {
     ]);
 
     const metrics = calculateInboxMetrics({
-      leads,
-      agentRuns,
-      outboundMessages,
-      pendingLearning,
-    });
+  leads,
+  agentRuns,
+  outboundMessages,
+  pendingLearning,
+});
 
-    return NextResponse.json({
+const includeRawData = userContext.role === "admin";
+
+const responseLeads = includeRawData ? leads : stripRawFromRows(leads);
+const responseConversations = includeRawData
+  ? conversations
+  : stripRawFromRows(conversations);
+const responseOutboundMessages = includeRawData
+  ? outboundMessages
+  : stripRawFromRows(outboundMessages);
+const responseAgentRuns = includeRawData
+  ? agentRuns
+  : stripRawFromRows(agentRuns);
+
+return NextResponse.json({
       ok: true,
       user: {
         id: userContext.userId,
@@ -157,10 +192,10 @@ export async function GET(req: Request) {
         sourceTable: brand.sourceTable,
       },
       metrics,
-      leads,
-      conversations,
-      outboundMessages,
-      agentRuns,
+      leads: responseLeads,
+conversations: responseConversations,
+outboundMessages: responseOutboundMessages,
+agentRuns: responseAgentRuns,
       whatsapp: {
         contacts: rawWhatsAppContacts.length,
         messages: rawWhatsAppMessages.length,
@@ -230,6 +265,20 @@ async function getUserContext(): Promise<{
     };
   }
 
+  /**
+   * Primer candado admin:
+   * Usa COMETA_ADMIN_EMAILS / COMETA_ADMIN_USER_IDS desde .env.local y Vercel.
+   * Esto evita depender únicamente de user_profiles.
+   */
+  if (isCometaAdmin(user)) {
+    return {
+      userId: user.id,
+      email: user.email || null,
+      role: "admin",
+      allowedBrandSlugs: [],
+    };
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("user_id,email,role,status")
@@ -240,6 +289,10 @@ async function getUserContext(): Promise<{
     console.warn("inbox-dashboard profile error:", profileError.message);
   }
 
+  /**
+   * Segundo candado admin:
+   * También permite admin desde tabla user_profiles si existe.
+   */
   const role: UserRole =
     profile?.role === "admin" && profile?.status === "active"
       ? "admin"
@@ -311,6 +364,14 @@ function validateBrandAccess({
     error:
       "No tienes permiso para visualizar este Inbox. Esta marca no está asignada a tu usuario.",
   };
+}
+
+function stripRawFromRows(rows: any[]) {
+  return rows.map((row) => {
+    const { raw, ...safeRow } = row || {};
+
+    return safeRow;
+  });
 }
 
 async function safeRows(tableName: string, brandName: string, limit = 100) {
