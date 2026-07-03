@@ -13,7 +13,23 @@ const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
+
+const MERCURY_ROLES = [
+  "designer",
+  "cm",
+  "copywriter",
+  "video",
+  "manager",
+  "admin",
+];
+
+const NO_MERCURY_ACCESS_ROLES = ["none", "client", "viewer", "owner", ""];
 
 export async function GET() {
   try {
@@ -26,16 +42,22 @@ export async function GET() {
       );
     }
 
-    const [{ data: authUsersData, error: usersError }, profiles, access, brands] =
-      await Promise.all([
-        supabase.auth.admin.listUsers({
-          page: 1,
-          perPage: 500,
-        }),
-        safeSelect("user_profiles"),
-        safeSelect("user_brand_access"),
-        collectBrands(),
-      ]);
+    const [
+      { data: authUsersData, error: usersError },
+      profiles,
+      brandAccess,
+      mercuryAssignments,
+      brands,
+    ] = await Promise.all([
+      supabase.auth.admin.listUsers({
+        page: 1,
+        perPage: 500,
+      }),
+      safeSelect("user_profiles", "updated_at"),
+      safeSelect("user_brand_access", "updated_at"),
+      safeSelect("mercury_team_assignments", null),
+      collectBrands(),
+    ]);
 
     if (usersError) {
       return NextResponse.json(
@@ -51,8 +73,17 @@ export async function GET() {
     const authUsers = authUsersData?.users || [];
 
     const normalizedUsers = authUsers.map((user: any) => {
-      const profile = profiles.find((item: any) => item.user_id === user.id);
-      const userAccess = access.filter((item: any) => item.user_id === user.id);
+      const profile = profiles.find(
+        (item: any) => item.user_id === user.id || item.id === user.id
+      );
+
+      const userBrandAccess = brandAccess.filter(
+        (item: any) => item.user_id === user.id
+      );
+
+      const userMercuryAssignments = mercuryAssignments.filter(
+        (item: any) => item.user_id === user.id
+      );
 
       return {
         id: user.id,
@@ -65,13 +96,21 @@ export async function GET() {
           role: profile?.role || "client",
           status: profile?.status || "inactive",
         },
-        brandAccess: userAccess.map((item: any) => ({
+        brandAccess: userBrandAccess.map((item: any) => ({
           id: item.id,
           brandSlug: item.brand_slug,
           brandName: formatBrandName(item.brand_slug),
           accessRole: item.access_role,
           status: item.status,
           updatedAt: item.updated_at,
+        })),
+        mercuryAssignments: userMercuryAssignments.map((item: any) => ({
+          id: item.id,
+          brandSlug: item.brand_slug,
+          brandName:
+            item.brand_name || formatBrandName(item.brand_slug || ""),
+          role: item.role || "designer",
+          active: item.active !== false,
         })),
       };
     });
@@ -85,11 +124,13 @@ export async function GET() {
       totals: {
         users: normalizedUsers.length,
         brands: brands.length,
-        accessRules: access.length,
+        accessRules: brandAccess.length,
+        mercuryAssignments: mercuryAssignments.length,
       },
       users: normalizedUsers,
       brands,
-      access,
+      access: brandAccess,
+      mercuryAssignments,
     });
   } catch (error: any) {
     console.error("admin access GET error:", error);
@@ -121,19 +162,28 @@ export async function POST(request: NextRequest) {
     const email = String(body.email || "").trim().toLowerCase();
     const userIdFromBody = String(body.userId || body.user_id || "").trim();
     const fullName = String(body.fullName || body.full_name || "").trim();
-    const role = body.role === "admin" ? "admin" : "client";
+
+    const rawProfileRole = String(body.role || body.profileRole || "client")
+      .trim()
+      .toLowerCase();
+
+    const profileRole = rawProfileRole === "admin" ? "admin" : "client";
     const profileStatus = body.profileStatus || body.status || "active";
 
     const brandSlug = slugifyBrand(
       String(body.brandSlug || body.brand_slug || "")
     );
 
-    const accessRole =
-      body.accessRole === "owner" ||
-      body.accessRole === "editor" ||
-      body.accessRole === "viewer"
-        ? body.accessRole
-        : "viewer";
+    const accessRole = normalizeAccessRole(body.accessRole || body.access_role);
+
+    const mercuryRole = normalizeMercuryRole(
+      body.mercuryRole ||
+        body.teamRole ||
+        body.assignmentRole ||
+        body.assignment_role ||
+        body.designerRole ||
+        null
+    );
 
     if (!email && !userIdFromBody) {
       return NextResponse.json(
@@ -161,6 +211,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const now = new Date().toISOString();
+
     const { data: profileData, error: profileError } = await supabase
       .from("user_profiles")
       .upsert(
@@ -168,9 +220,9 @@ export async function POST(request: NextRequest) {
           user_id: targetUser.id,
           email: targetUser.email || email,
           full_name: fullName || null,
-          role,
+          role: profileRole,
           status: profileStatus === "inactive" ? "inactive" : "active",
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         },
         {
           onConflict: "user_id",
@@ -191,6 +243,7 @@ export async function POST(request: NextRequest) {
     }
 
     let accessData = null;
+    let mercuryAssignment = null;
 
     if (brandSlug) {
       const { data, error } = await supabase
@@ -201,7 +254,7 @@ export async function POST(request: NextRequest) {
             brand_slug: brandSlug,
             access_role: accessRole,
             status: "active",
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           },
           {
             onConflict: "user_id,brand_slug",
@@ -222,6 +275,21 @@ export async function POST(request: NextRequest) {
       }
 
       accessData = data;
+
+      if (mercuryRole) {
+        mercuryAssignment = await upsertMercuryTeamAssignment({
+          userId: targetUser.id,
+          brandSlug,
+          role: mercuryRole,
+          active: true,
+        });
+      } else {
+        mercuryAssignment = await setMercuryAssignmentActive({
+          userId: targetUser.id,
+          brandSlug,
+          active: false,
+        });
+      }
     }
 
     return NextResponse.json({
@@ -235,6 +303,7 @@ export async function POST(request: NextRequest) {
       },
       profile: profileData,
       access: accessData,
+      mercuryAssignment,
     });
   } catch (error: any) {
     console.error("admin access POST error:", error);
@@ -269,6 +338,8 @@ export async function PATCH(request: NextRequest) {
     );
 
     const status = body.status === "inactive" ? "inactive" : "active";
+    const active = status === "active";
+    const now = new Date().toISOString();
 
     if (!userId || !brandSlug) {
       return NextResponse.json(
@@ -284,22 +355,32 @@ export async function PATCH(request: NextRequest) {
       .from("user_brand_access")
       .update({
         status,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq("user_id", userId)
       .eq("brand_slug", brandSlug)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       return NextResponse.json(
         {
           ok: false,
-          error: "No se pudo actualizar el acceso.",
+          error: "No se pudo actualizar el acceso general.",
           detail: error.message,
         },
         { status: 500 }
       );
+    }
+
+    let mercuryAssignment = null;
+
+    if (!active) {
+      mercuryAssignment = await setMercuryAssignmentActive({
+        userId,
+        brandSlug,
+        active: false,
+      });
     }
 
     return NextResponse.json({
@@ -309,6 +390,7 @@ export async function PATCH(request: NextRequest) {
           ? "Acceso activado correctamente."
           : "Acceso desactivado correctamente.",
       access: data,
+      mercuryAssignment,
     });
   } catch (error: any) {
     console.error("admin access PATCH error:", error);
@@ -371,7 +453,7 @@ async function requireAdmin(): Promise<
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
     .select("role,status,email")
-    .eq("user_id", user.id)
+    .or(`user_id.eq.${user.id},id.eq.${user.id}`)
     .maybeSingle();
 
   if (profileError) {
@@ -429,20 +511,174 @@ async function findAuthUser({
   );
 }
 
-async function safeSelect(tableName: string) {
-  try {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select("*")
-      .order("updated_at", { ascending: false })
-      .limit(500);
+function normalizeAccessRole(value?: string | null) {
+  const role = String(value || "").trim().toLowerCase();
 
-    if (error) {
-      console.warn(`admin access ${tableName} error:`, error.message);
-      return [];
+  if (role === "owner" || role === "editor" || role === "viewer") {
+    return role;
+  }
+
+  if (
+    role === "designer" ||
+    role === "cm" ||
+    role === "copywriter" ||
+    role === "video" ||
+    role === "manager" ||
+    role === "admin"
+  ) {
+    return "editor";
+  }
+
+  if (role === "client") {
+    return "viewer";
+  }
+
+  return "viewer";
+}
+
+function normalizeMercuryRole(value?: string | null) {
+  const role = String(value || "").trim().toLowerCase();
+
+  if (NO_MERCURY_ACCESS_ROLES.includes(role)) {
+    return null;
+  }
+
+  if (role === "editor") return "designer";
+  if (role === "community_manager") return "cm";
+  if (role === "community-manager") return "cm";
+
+  if (MERCURY_ROLES.includes(role)) {
+    return role;
+  }
+
+  return null;
+}
+
+async function upsertMercuryTeamAssignment({
+  userId,
+  brandSlug,
+  role,
+  active,
+}: {
+  userId: string;
+  brandSlug: string;
+  role: string;
+  active: boolean;
+}) {
+  const brandName = await resolveBrandNameForMercury(brandSlug);
+  const now = new Date().toISOString();
+
+  const { data: existingRows, error: findError } = await supabase
+    .from("mercury_team_assignments")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("brand_slug", brandSlug)
+    .limit(1);
+
+  if (findError) throw findError;
+
+  const existing = existingRows?.[0];
+
+  if (existing?.id) {
+    const { data, error } = await supabase
+      .from("mercury_team_assignments")
+      .update({
+        brand_name: brandName,
+        role,
+        active,
+        updated_at: now,
+      })
+      .eq("id", existing.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("mercury_team_assignments")
+    .insert({
+      user_id: userId,
+      brand_name: brandName,
+      brand_slug: brandSlug,
+      role,
+      active,
+      created_at: now,
+      updated_at: now,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+async function setMercuryAssignmentActive({
+  userId,
+  brandSlug,
+  active,
+}: {
+  userId: string;
+  brandSlug: string;
+  active: boolean;
+}) {
+  const { data: existingRows, error: findError } = await supabase
+    .from("mercury_team_assignments")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("brand_slug", brandSlug)
+    .limit(1);
+
+  if (findError) throw findError;
+
+  const existing = existingRows?.[0];
+
+  if (!existing?.id) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("mercury_team_assignments")
+    .update({
+      active,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+async function safeSelect(tableName: string, orderColumn: string | null = null) {
+  try {
+    let query = supabase.from(tableName).select("*").limit(500);
+
+    if (orderColumn) {
+      query = query.order(orderColumn, { ascending: false });
     }
 
-    return Array.isArray(data) ? data : [];
+    const { data, error } = await query;
+
+    if (!error) {
+      return Array.isArray(data) ? data : [];
+    }
+
+    if (orderColumn) {
+      const retry = await supabase.from(tableName).select("*").limit(500);
+
+      if (!retry.error) {
+        return Array.isArray(retry.data) ? retry.data : [];
+      }
+    }
+
+    console.warn(`admin access ${tableName} error:`, error.message);
+    return [];
   } catch (error: any) {
     console.warn(`admin access ${tableName} exception:`, error?.message);
     return [];
@@ -450,13 +686,27 @@ async function safeSelect(tableName: string) {
 }
 
 async function collectBrands() {
-  const [clients, brandAnalysis, cosmosMemory] = await Promise.all([
-    safeSelect("clients"),
-    safeSelect("brand_analysis"),
-    safeSelect("cosmos_memory"),
+  const [
+    mercurySettings,
+    mercuryCalendars,
+    clients,
+    brandAnalysis,
+    cosmosMemory,
+  ] = await Promise.all([
+    safeSelect("mercury_brand_settings", "updated_at"),
+    safeSelect("mercury_calendars", "created_at"),
+    safeSelect("clients", "updated_at"),
+    safeSelect("brand_analysis", "updated_at"),
+    safeSelect("cosmos_memory", "updated_at"),
   ]);
 
   const rawBrands = [
+    ...mercurySettings.map((row: any) =>
+      normalizeRawBrand(row, "mercury_brand_settings")
+    ),
+    ...mercuryCalendars.map((row: any) =>
+      normalizeRawBrand(row, "mercury_calendars")
+    ),
     ...clients.map((row: any) => normalizeRawBrand(row, "clients")),
     ...brandAnalysis.map((row: any) =>
       normalizeRawBrand(row, "brand_analysis")
@@ -544,10 +794,68 @@ function dedupeBrands(rawBrands: any[]) {
 }
 
 function sourcePriority(sourceTable: string) {
+  if (sourceTable === "mercury_brand_settings") return 5;
+  if (sourceTable === "mercury_calendars") return 4;
   if (sourceTable === "clients") return 3;
   if (sourceTable === "brand_analysis") return 2;
   if (sourceTable === "cosmos_memory") return 1;
   return 0;
+}
+
+async function resolveBrandNameForMercury(brandSlug: string) {
+  const cleanSlug = slugifyBrand(brandSlug);
+
+  if (!cleanSlug) return "Marca sin nombre";
+
+  const sources = [
+    {
+      table: "mercury_brand_settings",
+      slugColumn: "brand_slug",
+      nameColumns: ["brand_name", "name"],
+    },
+    {
+      table: "mercury_calendars",
+      slugColumn: "brand_slug",
+      nameColumns: ["brand_name", "name"],
+    },
+    {
+      table: "clients",
+      slugColumn: "brand_slug",
+      nameColumns: ["brand_name", "name", "client_name", "business_name"],
+    },
+    {
+      table: "brand_analysis",
+      slugColumn: "brand_slug",
+      nameColumns: ["brand_name", "name", "business_name"],
+    },
+    {
+      table: "cosmos_memory",
+      slugColumn: "brand_slug",
+      nameColumns: ["brand_name", "name", "business_name"],
+    },
+  ];
+
+  for (const source of sources) {
+    try {
+      const { data, error } = await supabase
+        .from(source.table)
+        .select("*")
+        .eq(source.slugColumn, cleanSlug)
+        .limit(1);
+
+      if (error) continue;
+
+      const row = data?.[0];
+      if (!row) continue;
+
+      const name = getFirstValue(row, source.nameColumns);
+      if (name) return name;
+    } catch {
+      // Intentamos con la siguiente tabla.
+    }
+  }
+
+  return formatBrandName(cleanSlug);
 }
 
 function getFirstValue(row: any, keys: string[]) {

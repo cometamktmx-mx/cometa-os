@@ -149,6 +149,7 @@ export default function Sidebar() {
   const novaHref = buildQueryHref("/nova", brandSlug);
   const salesHref = buildQueryHref("/sales-ai", brandSlug);
   const mercuryHref = buildQueryHref("/generate-strategy", brandSlug);
+  const catalogAiHref = buildQueryHref("/catalog-ai", brandSlug);
 
   const adminGroups: SidebarGroup[] = [
     {
@@ -188,6 +189,15 @@ export default function Sidebar() {
           href: mercuryHref,
           active: pathname.startsWith("/generate-strategy"),
           accessLabel: "Aprobar",
+          accessType: "internal",
+        },
+        {
+          name: "Catalog AI",
+          subtitle: "Imágenes de catálogo",
+          icon: "CA",
+          href: catalogAiHref,
+          active: pathname.startsWith("/catalog-ai"),
+          accessLabel: "Crear",
           accessType: "internal",
         },
         {

@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 
 type AdminAccessResponse = {
   ok: boolean;
@@ -14,22 +20,42 @@ type AdminAccessResponse = {
     users: number;
     brands: number;
     accessRules: number;
+    mercuryAssignments?: number;
   };
   users?: any[];
   brands?: any[];
   access?: any[];
+  mercuryAssignments?: any[];
 };
+
+const mercuryRoleLabels: Record<string, string> = {
+  none: "Sin acceso operativo",
+  designer: "Diseñador",
+  cm: "Community Manager",
+  copywriter: "Copywriter",
+  video: "Video / Reels",
+  manager: "Manager",
+  admin: "Admin",
+};
+
+function getMercuryRoleLabel(role?: string | null) {
+  return mercuryRoleLabels[role || ""] || role || "Sin rol";
+}
 
 export default function WorkspaceAdminPage() {
   const [data, setData] = useState<AdminAccessResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState("client");
-  const [brandSlug, setBrandSlug] = useState("");
-  const [accessRole, setAccessRole] = useState("owner");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientFullName, setClientFullName] = useState("");
+  const [clientBrandSlug, setClientBrandSlug] = useState("");
+  const [clientAccessRole, setClientAccessRole] = useState("owner");
+
+  const [teamEmail, setTeamEmail] = useState("");
+  const [teamFullName, setTeamFullName] = useState("");
+  const [teamBrandSlug, setTeamBrandSlug] = useState("");
+  const [teamMercuryRole, setTeamMercuryRole] = useState("designer");
 
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -37,12 +63,17 @@ export default function WorkspaceAdminPage() {
   const brands = data?.brands || [];
   const users = data?.users || [];
 
-  const selectedBrand = useMemo(() => {
-    return brands.find((brand: any) => brand.slug === brandSlug);
-  }, [brands, brandSlug]);
+  const selectedClientBrand = useMemo(() => {
+    return brands.find((brand: any) => brand.slug === clientBrandSlug);
+  }, [brands, clientBrandSlug]);
+
+  const selectedTeamBrand = useMemo(() => {
+    return brands.find((brand: any) => brand.slug === teamBrandSlug);
+  }, [brands, teamBrandSlug]);
 
   useEffect(() => {
     loadAccessCenter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadAccessCenter() {
@@ -63,8 +94,14 @@ export default function WorkspaceAdminPage() {
 
       setData(json);
 
-      if (!brandSlug && json.brands?.[0]?.slug) {
-        setBrandSlug(json.brands[0].slug);
+      const firstBrandSlug = json.brands?.[0]?.slug || "";
+
+      if (!clientBrandSlug && firstBrandSlug) {
+        setClientBrandSlug(firstBrandSlug);
+      }
+
+      if (!teamBrandSlug && firstBrandSlug) {
+        setTeamBrandSlug(firstBrandSlug);
       }
     } catch (error: any) {
       setErrorMessage(error?.message || "Error cargando accesos.");
@@ -73,7 +110,7 @@ export default function WorkspaceAdminPage() {
     }
   }
 
-  async function handleAssignAccess(e: React.FormEvent) {
+  async function handleAssignClientAccess(e: FormEvent) {
     e.preventDefault();
 
     try {
@@ -87,11 +124,13 @@ export default function WorkspaceAdminPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
-          fullName,
-          role,
-          brandSlug,
-          accessRole,
+          accessType: "client_owner",
+          email: clientEmail,
+          fullName: clientFullName,
+          role: "client",
+          brandSlug: clientBrandSlug,
+          accessRole: clientAccessRole,
+          mercuryRole: "none",
           status: "active",
         }),
       });
@@ -99,18 +138,69 @@ export default function WorkspaceAdminPage() {
       const json = await res.json();
 
       if (!res.ok || json.ok === false) {
-        throw new Error(json.error || "No se pudo asignar el acceso.");
+        throw new Error(json.error || "No se pudo asignar el acceso del cliente.");
       }
 
-      setMessage(json.message || "Acceso guardado correctamente.");
-      setEmail("");
-      setFullName("");
-      setRole("client");
-      setAccessRole("owner");
+      setMessage(
+        json.message ||
+          "Dueño de negocio conectado correctamente. No tendrá acceso operativo a Designer Hub."
+      );
+
+      setClientEmail("");
+      setClientFullName("");
+      setClientAccessRole("owner");
 
       await loadAccessCenter();
     } catch (error: any) {
-      setErrorMessage(error?.message || "Error asignando acceso.");
+      setErrorMessage(error?.message || "Error asignando acceso del cliente.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAssignTeamAccess(e: FormEvent) {
+    e.preventDefault();
+
+    try {
+      setSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      const res = await fetch("/api/admin/access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          accessType: "team_member",
+          email: teamEmail,
+          fullName: teamFullName,
+          role: "client",
+          brandSlug: teamBrandSlug,
+          accessRole: "editor",
+          mercuryRole: teamMercuryRole,
+          status: "active",
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || "No se pudo asignar el acceso operativo.");
+      }
+
+      setMessage(
+        json.message ||
+          "Equipo Cometa conectado correctamente. Ahora puede entrar a Designer Hub."
+      );
+
+      setTeamEmail("");
+      setTeamFullName("");
+      setTeamMercuryRole("designer");
+
+      await loadAccessCenter();
+    } catch (error: any) {
+      setErrorMessage(error?.message || "Error asignando acceso operativo.");
     } finally {
       setSaving(false);
     }
@@ -182,109 +272,185 @@ export default function WorkspaceAdminPage() {
             </div>
           ) : null}
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
-            <section className="rounded-[34px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
-                Conectar usuario
-              </p>
-
-              <h2 className="mt-3 text-3xl font-black tracking-[-0.06em]">
-                Usuario ↔ Marca
-              </h2>
-
-              <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-                Asigna una marca a un usuario existente de Supabase Auth. El
-                cliente solo verá las marcas conectadas aquí.
-              </p>
-
-              <form onSubmit={handleAssignAccess} className="mt-7 space-y-4">
-                <Field label="Correo del usuario">
-                  <input
-                    type="email"
-                    placeholder="cliente@empresa.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="input"
-                    required
-                  />
-                </Field>
-
-                <Field label="Nombre visible">
-                  <input
-                    type="text"
-                    placeholder="Cliente / Empresa"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="input"
-                  />
-                </Field>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Tipo de usuario">
-                    <select
-                      value={role}
-                      onChange={(e) => setRole(e.target.value)}
-                      className="input"
-                    >
-                      <option value="client">Cliente</option>
-                      <option value="admin">Admin Cometa</option>
-                    </select>
-                  </Field>
-
-                  <Field label="Permiso de marca">
-                    <select
-                      value={accessRole}
-                      onChange={(e) => setAccessRole(e.target.value)}
-                      className="input"
-                    >
-                      <option value="owner">Owner</option>
-                      <option value="editor">Editor</option>
-                      <option value="viewer">Viewer</option>
-                    </select>
-                  </Field>
-                </div>
-
-                <Field label="Marca">
-                  <select
-                    value={brandSlug}
-                    onChange={(e) => setBrandSlug(e.target.value)}
-                    className="input"
-                    required
-                  >
-                    {brands.length === 0 ? (
-                      <option value="">No hay marcas disponibles</option>
-                    ) : (
-                      brands.map((brand: any) => (
-                        <option key={brand.slug} value={brand.slug}>
-                          {brand.name} · {brand.slug}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </Field>
-
-                {selectedBrand ? (
-                  <div className="rounded-[24px] border border-cyan-100 bg-cyan-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
-                      Marca seleccionada
-                    </p>
-                    <p className="mt-2 text-xl font-black tracking-[-0.04em]">
-                      {selectedBrand.name}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">
-                      {selectedBrand.industry || "Sistema comercial"}
-                    </p>
-                  </div>
-                ) : null}
-
-                <button
-                  type="submit"
-                  disabled={saving || loading}
-                  className="flex h-14 w-full items-center justify-center rounded-2xl bg-slate-950 px-6 text-sm font-black text-white shadow-xl shadow-slate-950/10 transition hover:bg-cyan-700 disabled:opacity-50"
+          <div className="grid gap-5 2xl:grid-cols-[minmax(0,700px)_minmax(0,1fr)]">
+            <section className="grid gap-5">
+              <AccessFormCard
+                tone="client"
+                eyebrow="Dueño de negocio"
+                title="Acceso para cliente"
+                description="Conecta al dueño del negocio con su marca. Este acceso será para revisar calendario, aprobaciones y cambios cuando tengamos Approval Hub. No entra a Designer Hub."
+              >
+                <form
+                  onSubmit={handleAssignClientAccess}
+                  className="mt-7 space-y-4"
                 >
-                  {saving ? "Guardando..." : "Conectar usuario con marca →"}
-                </button>
-              </form>
+                  <Field label="Correo del dueño / cliente">
+                    <input
+                      type="email"
+                      placeholder="cliente@empresa.com"
+                      value={clientEmail}
+                      onChange={(e) => setClientEmail(e.target.value)}
+                      className="input"
+                      required
+                    />
+                  </Field>
+
+                  <Field label="Nombre visible">
+                    <input
+                      type="text"
+                      placeholder="Dueño / Empresa"
+                      value={clientFullName}
+                      onChange={(e) => setClientFullName(e.target.value)}
+                      className="input"
+                    />
+                  </Field>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Permiso del cliente">
+                      <select
+                        value={clientAccessRole}
+                        onChange={(e) => setClientAccessRole(e.target.value)}
+                        className="input"
+                      >
+                        <option value="owner">Owner / Dueño</option>
+                        <option value="viewer">Viewer / Solo revisión</option>
+                      </select>
+                    </Field>
+
+                    <Field label="Acceso operativo">
+                      <input
+                        value="Sin acceso a Designer Hub"
+                        className="input cursor-not-allowed text-slate-500"
+                        disabled
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Marca">
+                    <select
+                      value={clientBrandSlug}
+                      onChange={(e) => setClientBrandSlug(e.target.value)}
+                      className="input"
+                      required
+                    >
+                      {brands.length === 0 ? (
+                        <option value="">No hay marcas disponibles</option>
+                      ) : (
+                        brands.map((brand: any) => (
+                          <option key={brand.slug} value={brand.slug}>
+                            {brand.name} · {brand.slug}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </Field>
+
+                  <BrandPreview
+                    brand={selectedClientBrand}
+                    footer={`Acceso cliente: ${clientAccessRole}`}
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={saving || loading}
+                    className="flex h-14 w-full items-center justify-center rounded-2xl bg-slate-950 px-6 text-sm font-black text-white shadow-xl shadow-slate-950/10 transition hover:bg-cyan-700 disabled:opacity-50"
+                  >
+                    {saving ? "Guardando..." : "Conectar dueño de negocio →"}
+                  </button>
+                </form>
+              </AccessFormCard>
+
+              <AccessFormCard
+                tone="team"
+                eyebrow="Equipo Cometa"
+                title="Acceso operativo"
+                description="Asigna diseñadores, CM, copywriters, video o managers a una marca. Estos usuarios sí entran a Designer Hub / Production Hub."
+              >
+                <form
+                  onSubmit={handleAssignTeamAccess}
+                  className="mt-7 space-y-4"
+                >
+                  <Field label="Correo del equipo">
+                    <input
+                      type="email"
+                      placeholder="diseñador@cometa.com"
+                      value={teamEmail}
+                      onChange={(e) => setTeamEmail(e.target.value)}
+                      className="input"
+                      required
+                    />
+                  </Field>
+
+                  <Field label="Nombre visible">
+                    <input
+                      type="text"
+                      placeholder="Nombre del diseñador / CM"
+                      value={teamFullName}
+                      onChange={(e) => setTeamFullName(e.target.value)}
+                      className="input"
+                    />
+                  </Field>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Permiso general">
+                      <input
+                        value="Editor"
+                        className="input cursor-not-allowed text-slate-500"
+                        disabled
+                      />
+                    </Field>
+
+                    <Field label="Rol operativo">
+                      <select
+                        value={teamMercuryRole}
+                        onChange={(e) => setTeamMercuryRole(e.target.value)}
+                        className="input"
+                      >
+                        <option value="designer">Diseñador</option>
+                        <option value="cm">Community Manager</option>
+                        <option value="copywriter">Copywriter</option>
+                        <option value="video">Video / Reels</option>
+                        <option value="manager">Manager</option>
+                        <option value="admin">Admin operativo</option>
+                      </select>
+                    </Field>
+                  </div>
+
+                  <Field label="Marca">
+                    <select
+                      value={teamBrandSlug}
+                      onChange={(e) => setTeamBrandSlug(e.target.value)}
+                      className="input"
+                      required
+                    >
+                      {brands.length === 0 ? (
+                        <option value="">No hay marcas disponibles</option>
+                      ) : (
+                        brands.map((brand: any) => (
+                          <option key={brand.slug} value={brand.slug}>
+                            {brand.name} · {brand.slug}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </Field>
+
+                  <BrandPreview
+                    brand={selectedTeamBrand}
+                    footer={`Rol operativo: ${getMercuryRoleLabel(
+                      teamMercuryRole
+                    )}`}
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={saving || loading}
+                    className="flex h-14 w-full items-center justify-center rounded-2xl bg-cyan-300 px-6 text-sm font-black text-slate-950 shadow-xl shadow-cyan-400/20 transition hover:bg-cyan-200 disabled:opacity-50"
+                  >
+                    {saving ? "Guardando..." : "Conectar equipo Cometa →"}
+                  </button>
+                </form>
+              </AccessFormCard>
             </section>
 
             <section className="rounded-[34px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]">
@@ -400,11 +566,78 @@ export default function WorkspaceAdminPage() {
   );
 }
 
+function AccessFormCard({
+  eyebrow,
+  title,
+  description,
+  tone,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  tone: "client" | "team";
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-[34px] border border-white bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]">
+      <div
+        className={`mb-5 rounded-[26px] border p-5 ${
+          tone === "client"
+            ? "border-blue-100 bg-blue-50"
+            : "border-cyan-100 bg-cyan-50"
+        }`}
+      >
+        <p
+          className={`text-[10px] font-black uppercase tracking-[0.24em] ${
+            tone === "client" ? "text-blue-700" : "text-cyan-700"
+          }`}
+        >
+          {eyebrow}
+        </p>
+
+        <h2 className="mt-3 text-3xl font-black tracking-[-0.06em]">
+          {title}
+        </h2>
+
+        <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+          {description}
+        </p>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+function BrandPreview({ brand, footer }: { brand: any; footer: string }) {
+  if (!brand) return null;
+
+  return (
+    <div className="rounded-[24px] border border-cyan-100 bg-cyan-50 p-4">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
+        Marca seleccionada
+      </p>
+      <p className="mt-2 text-xl font-black tracking-[-0.04em]">
+        {brand.name}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-600">
+        {brand.industry || "Sistema comercial"}
+      </p>
+      <p className="mt-3 text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+        {footer}
+      </p>
+    </div>
+  );
+}
+
 function AdminDock() {
   const items = [
     { label: "Workspace", href: "/workspace", code: "WS" },
-    { label: "Accesos", href: "/workspace/admin", code: "AD", active: true },
+    { label: "Accesos", href: "/mercury/admin", code: "AD", active: true },
     { label: "Nueva marca", href: "/new-analysis", code: "OR" },
+    { label: "Mercury Hub", href: "/mercury-hub", code: "MH" },
+    { label: "Designer Hub", href: "/designer-hub", code: "DH" },
     { label: "Sales AI", href: "/sales-ai/inbox", code: "SA" },
   ];
 
@@ -476,9 +709,8 @@ function Hero({
           </h1>
 
           <p className="mt-5 max-w-3xl text-sm font-semibold leading-7 text-slate-300">
-            Conecta usuarios con sus marcas para evitar contaminación de datos.
-            El admin de Cometa puede ver todo; cada cliente solo ve lo que tiene
-            asignado.
+            Separa dueños de negocio y equipo operativo. Los clientes tendrán
+            portal de aprobación; el equipo Cometa entra a Designer Hub.
           </p>
 
           {adminEmail ? (
@@ -488,18 +720,13 @@ function Hero({
           ) : null}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+        <div className="grid gap-3 sm:grid-cols-4 lg:grid-cols-1">
+          <HeroMetric value={loading ? "..." : totals?.users || 0} label="Usuarios" />
+          <HeroMetric value={loading ? "..." : totals?.brands || 0} label="Marcas" />
+          <HeroMetric value={loading ? "..." : totals?.accessRules || 0} label="Accesos" />
           <HeroMetric
-            value={loading ? "..." : totals?.users || 0}
-            label="Usuarios"
-          />
-          <HeroMetric
-            value={loading ? "..." : totals?.brands || 0}
-            label="Marcas"
-          />
-          <HeroMetric
-            value={loading ? "..." : totals?.accessRules || 0}
-            label="Accesos"
+            value={loading ? "..." : totals?.mercuryAssignments || 0}
+            label="Mercury"
           />
         </div>
       </div>
@@ -520,13 +747,7 @@ function HeroMetric({ value, label }: { value: any; label: string }) {
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-2 block text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
@@ -551,6 +772,32 @@ function UserCard({
   }) => void;
 }) {
   const isAdmin = user.profile?.role === "admin";
+const brandAccess = user.brandAccess || [];
+const mercuryAssignments = user.mercuryAssignments || [];
+
+const hasActiveMercuryAccess = mercuryAssignments.some(
+  (assignment: any) => assignment.active
+);
+
+const hasOwnerAccess = brandAccess.some(
+  (access: any) => access.status === "active" && access.accessRole === "owner"
+);
+
+const userTypeLabel = isAdmin
+  ? "Admin Cometa"
+  : hasActiveMercuryAccess
+    ? "Equipo Cometa"
+    : hasOwnerAccess
+      ? "Dueño / Cliente"
+      : "Cliente";
+
+const userTypeClass = isAdmin
+  ? "bg-cyan-100 text-cyan-700"
+  : hasActiveMercuryAccess
+    ? "bg-violet-100 text-violet-700"
+    : hasOwnerAccess
+      ? "bg-blue-100 text-blue-700"
+      : "bg-slate-200 text-slate-600";
 
   return (
     <article className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -562,14 +809,10 @@ function UserCard({
             </p>
 
             <span
-              className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${
-                isAdmin
-                  ? "bg-cyan-100 text-cyan-700"
-                  : "bg-slate-200 text-slate-600"
-              }`}
-            >
-              {user.profile?.role || "client"}
-            </span>
+  className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${userTypeClass}`}
+>
+  {userTypeLabel}
+</span>
 
             <span
               className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${
@@ -588,56 +831,105 @@ function UserCard({
         </div>
       </div>
 
-      <div className="mt-5">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
-          Marcas asignadas
-        </p>
+      <div className="mt-5 grid gap-5">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Accesos generales
+          </p>
 
-        {user.brandAccess?.length ? (
-          <div className="mt-3 grid gap-3">
-            {user.brandAccess.map((access: any) => {
-              const isActive = access.status === "active";
+          {brandAccess.length ? (
+            <div className="mt-3 grid gap-3">
+              {brandAccess.map((access: any) => {
+                const isActive = access.status === "active";
 
-              return (
-                <div
-                  key={access.id}
-                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <p className="font-black text-slate-950">
-                      {access.brandName}
-                    </p>
-                    <p className="text-xs font-semibold text-slate-500">
-                      {access.brandSlug} · {access.accessRole}
-                    </p>
-                  </div>
-
-                  <button
-                    disabled={saving}
-                    onClick={() =>
-                      onToggleAccess({
-                        userId: user.id,
-                        brandSlug: access.brandSlug,
-                        nextStatus: isActive ? "inactive" : "active",
-                      })
-                    }
-                    className={`rounded-2xl px-4 py-2 text-xs font-black transition disabled:opacity-50 ${
-                      isActive
-                        ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
-                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    }`}
+                return (
+                  <div
+                    key={access.id}
+                    className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"
                   >
-                    {isActive ? "Desactivar" : "Activar"}
-                  </button>
+                    <div>
+                      <p className="font-black text-slate-950">
+                        {access.brandName}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-500">
+                        {access.brandSlug} · {access.accessRole}
+                      </p>
+                    </div>
+
+                    <button
+                      disabled={saving}
+                      onClick={() =>
+                        onToggleAccess({
+                          userId: user.id,
+                          brandSlug: access.brandSlug,
+                          nextStatus: isActive ? "inactive" : "active",
+                        })
+                      }
+                      className={`rounded-2xl px-4 py-2 text-xs font-black transition disabled:opacity-50 ${
+                        isActive
+                          ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {isActive ? "Desactivar" : "Activar"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
+              Este usuario no tiene accesos generales.
+            </div>
+          )}
+        </div>
+
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">
+            Mercury / Designer Hub
+          </p>
+
+          {mercuryAssignments.length ? (
+            <div className="mt-3 grid gap-3">
+              {mercuryAssignments.map((assignment: any) => (
+                <div
+                  key={assignment.id}
+                  className={`rounded-2xl border p-4 ${
+                    assignment.active
+                      ? "border-cyan-100 bg-cyan-50"
+                      : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-black text-slate-950">
+                        {assignment.brandName}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-600">
+                        {assignment.brandSlug} ·{" "}
+                        {getMercuryRoleLabel(assignment.role)}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${
+                        assignment.active
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      {assignment.active ? "Activo" : "Inactivo"}
+                    </span>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
-            Este usuario no tiene marcas asignadas.
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
+              Este usuario todavía no tiene acceso a Mercury / Designer Hub.
+            </div>
+          )}
+        </div>
       </div>
     </article>
   );

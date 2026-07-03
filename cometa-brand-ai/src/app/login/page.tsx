@@ -1,17 +1,96 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-function getSafeRedirect() {
-  if (typeof window === "undefined") return "/workspace";
+const TEAM_ROLES = ["designer", "cm", "copywriter", "video", "manager", "admin"];
+
+function getExplicitSafeNext() {
+  if (typeof window === "undefined") return null;
 
   const params = new URLSearchParams(window.location.search);
   const next = params.get("next");
 
   if (next && next.startsWith("/") && !next.startsWith("//")) {
     return next;
+  }
+
+  return null;
+}
+
+async function resolvePostLoginRedirect(supabase: any, userId?: string | null) {
+  let currentUserId = userId || null;
+
+  if (!currentUserId) {
+    const { data } = await supabase.auth.getUser();
+    currentUserId = data?.user?.id || null;
+  }
+
+  if (!currentUserId) return "/workspace";
+
+  try {
+    const { data: profileByUserId, error: profileByUserIdError } =
+      await supabase
+        .from("user_profiles")
+        .select("role,status")
+        .eq("user_id", currentUserId)
+        .maybeSingle();
+
+    if (
+      !profileByUserIdError &&
+      profileByUserId?.role === "admin" &&
+      profileByUserId?.status === "active"
+    ) {
+      return "/workspace";
+    }
+
+    if (profileByUserIdError) {
+      const { data: profileById } = await supabase
+        .from("user_profiles")
+        .select("role,status")
+        .eq("id", currentUserId)
+        .maybeSingle();
+
+      if (profileById?.role === "admin" && profileById?.status === "active") {
+        return "/workspace";
+      }
+    }
+  } catch {
+    // Si falla la lectura del perfil, seguimos resolviendo por accesos.
+  }
+
+  try {
+    const { data: teamAssignments, error: teamError } = await supabase
+      .from("mercury_team_assignments")
+      .select("brand_slug,role,active")
+      .eq("user_id", currentUserId)
+      .eq("active", true)
+      .in("role", TEAM_ROLES)
+      .limit(1);
+
+    if (!teamError && teamAssignments?.length) {
+      return "/designer-hub";
+    }
+  } catch {
+    // Si falla Mercury, intentamos acceso de cliente.
+  }
+
+  try {
+    const { data: brandAccess, error: brandAccessError } = await supabase
+      .from("user_brand_access")
+      .select("brand_slug,status,access_role")
+      .eq("user_id", currentUserId)
+      .eq("status", "active")
+      .limit(1);
+
+    const firstBrand = brandAccess?.[0];
+
+    if (!brandAccessError && firstBrand?.brand_slug) {
+      return `/brand/${firstBrand.brand_slug}`;
+    }
+  } catch {
+    // Fallback final.
   }
 
   return "/workspace";
@@ -28,22 +107,38 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
 
-    setLoading(true);
-    setErrorMessage("");
+    try {
+      setLoading(true);
+      setErrorMessage("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    setLoading(false);
+      if (error) {
+        setErrorMessage("Correo o contraseña incorrectos.");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setErrorMessage("Correo o contraseña incorrectos.");
-      return;
+      const explicitNext = getExplicitSafeNext();
+
+      if (explicitNext) {
+        window.location.href = explicitNext;
+        return;
+      }
+
+      const redirectTo = await resolvePostLoginRedirect(
+        supabase,
+        data?.user?.id || null
+      );
+
+      window.location.href = redirectTo;
+    } catch {
+      setErrorMessage("No se pudo iniciar sesión. Intenta de nuevo.");
+      setLoading(false);
     }
-
-    window.location.href = getSafeRedirect();
   }
 
   return (
@@ -82,9 +177,18 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-12 grid max-w-xl gap-3">
-            <LoginFeature title="Workspace" text="Marcas, agentes y prioridades." />
-            <LoginFeature title="Brand OS" text="Sistema individual por cliente." />
-            <LoginFeature title="Sales AI" text="Ventas, leads y seguimiento." />
+            <LoginFeature
+              title="Workspace"
+              text="Marcas, agentes y prioridades."
+            />
+            <LoginFeature
+              title="Brand OS"
+              text="Sistema individual por cliente."
+            />
+            <LoginFeature
+              title="Sales AI"
+              text="Ventas, leads y seguimiento."
+            />
           </div>
         </div>
 
@@ -146,11 +250,11 @@ export default function LoginPage() {
               />
             </label>
 
-            {errorMessage && (
+            {errorMessage ? (
               <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">
                 {errorMessage}
               </div>
-            )}
+            ) : null}
 
             <button
               type="submit"
@@ -162,7 +266,10 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 flex items-center justify-between gap-4 text-sm">
-            <Link href="/" className="font-black text-slate-500 hover:text-slate-950">
+            <Link
+              href="/"
+              className="font-black text-slate-500 hover:text-slate-950"
+            >
               ← Volver al sitio
             </Link>
 
