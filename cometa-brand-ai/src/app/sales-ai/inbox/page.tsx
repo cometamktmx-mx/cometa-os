@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type BrandContext = {
   id: string | null;
@@ -60,6 +60,9 @@ type SalesMessage = {
   content: string;
   sender: string;
   createdAt: string | null;
+  waId?: string;
+  phone?: string;
+  messageId?: string;
 };
 
 type AgentRun = {
@@ -96,8 +99,11 @@ type RuntimeSettings = {
 type NavItem = {
   code: string;
   label: string;
+  description: string;
   href: string;
   active?: boolean;
+  icon: IconName;
+  group: "main" | "tools";
 };
 
 type FilterKey = "all" | "hot" | "qualified" | "human";
@@ -141,6 +147,7 @@ export default function SalesAIInboxPage() {
 
 function SalesAIInboxInner() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const requestedBrandSlug = searchParams.get("brandSlug") || "";
@@ -162,7 +169,11 @@ function SalesAIInboxInner() {
 
   const activeBrandSlug = brand.slug || requestedBrandSlug || "cometa-mkt";
   const brandQuery = `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
-  const nav = useMemo(() => buildNav(activeBrandSlug), [activeBrandSlug]);
+
+  const nav = useMemo(
+    () => buildNav(activeBrandSlug, pathname),
+    [activeBrandSlug, pathname]
+  );
 
   const loadInbox = useCallback(async () => {
     try {
@@ -207,7 +218,21 @@ function SalesAIInboxInner() {
       setBrand(nextBrand);
       setMetrics(nextMetrics);
       setLeads(nextLeads);
-      setMessages(Array.isArray(data.conversations) ? data.conversations : []);
+
+      setMessages(
+        normalizeInboxMessages(
+          Array.isArray(data.conversations)
+            ? data.conversations
+            : Array.isArray(data.messages)
+            ? data.messages
+            : Array.isArray(data.salesMessages)
+            ? data.salesMessages
+            : Array.isArray(data.whatsappMessages)
+            ? data.whatsappMessages
+            : []
+        )
+      );
+
       setAgentRuns(Array.isArray(data.agentRuns) ? data.agentRuns : []);
 
       setSelectedLeadId((current) => {
@@ -260,7 +285,24 @@ function SalesAIInboxInner() {
   const selectedMessages = useMemo(() => {
     if (!selectedLead) return [];
 
-    return messages.filter((message) => message.leadId === selectedLead.id);
+    const selectedPhone = cleanPhone(selectedLead.phone);
+
+    return messages
+      .filter((message) => {
+        if (message.leadId && message.leadId === selectedLead.id) return true;
+
+        const messagePhone = cleanPhone(
+          message.waId || message.phone || message.sender || ""
+        );
+
+        return Boolean(selectedPhone && messagePhone === selectedPhone);
+      })
+      .sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+
+        return aTime - bTime;
+      });
   }, [messages, selectedLead]);
 
   const selectedRun = useMemo(() => {
@@ -288,6 +330,8 @@ function SalesAIInboxInner() {
         <LeftRail nav={nav} brand={brand} />
 
         <div className="min-w-0 flex-1 px-4 py-4 lg:px-5 xl:px-6">
+          <MobileSalesNav nav={nav} brand={brand} />
+
           <div className="mx-auto w-full max-w-[1740px] space-y-4">
             {systemMessage ? <LoadWarning message={systemMessage} /> : null}
 
@@ -383,71 +427,249 @@ function InboxLoadingScreen() {
   );
 }
 
-function buildNav(brandSlug: string): NavItem[] {
+function buildNav(brandSlug: string, pathname: string): NavItem[] {
   const safeBrandSlug = encodeURIComponent(brandSlug || "cometa-mkt");
-  const brandQuery = `brandSlug=${safeBrandSlug}`;
 
-  return [
-    { code: "AI", label: "Sales AI", href: "/sales-ai" },
-    { code: "WS", label: "Workspace", href: "/workspace" },
+  const withBrand = (href: string) => {
+    if (href === "/workspace") return href;
+    return `${href}?brandSlug=${safeBrandSlug}`;
+  };
+
+  const items: NavItem[] = [
+    {
+      code: "AI",
+      label: "Dashboard",
+      description: "Resumen comercial",
+      href: withBrand("/sales-ai"),
+      icon: "planet",
+      group: "main",
+    },
     {
       code: "IN",
       label: "Inbox",
-      href: `/sales-ai/inbox?${brandQuery}`,
-      active: true,
+      description: "Conversaciones WhatsApp",
+      href: withBrand("/sales-ai/inbox"),
+      icon: "chat",
+      group: "main",
     },
-    { code: "KB", label: "Knowledge", href: `/sales-ai/knowledge?${brandQuery}` },
-    { code: "LR", label: "Learning", href: `/sales-ai/learning?${brandQuery}` },
-    { code: "AJ", label: "Ajustes", href: "/sales-ai/settings" },
+    {
+      code: "WA",
+      label: "WhatsApp",
+      description: "Conexión y estado",
+      href: withBrand("/sales-ai/connect"),
+      icon: "whatsapp",
+      group: "main",
+    },
+    {
+      code: "KB",
+      label: "Knowledge",
+      description: "Base de conocimiento",
+      href: withBrand("/sales-ai/knowledge"),
+      icon: "brain",
+      group: "tools",
+    },
+    {
+      code: "LR",
+      label: "Learning",
+      description: "Aprendizaje del agente",
+      href: withBrand("/sales-ai/learning"),
+      icon: "brain",
+      group: "tools",
+    },
+    {
+      code: "SET",
+      label: "Ajustes",
+      description: "Reglas y permisos",
+      href: withBrand("/sales-ai/agent-settings"),
+      icon: "gear",
+      group: "tools",
+    },
+    {
+      code: "WS",
+      label: "Workspace",
+      description: "Volver al panel",
+      href: "/workspace",
+      icon: "shield",
+      group: "tools",
+    },
   ];
+
+  return items.map((item) => ({
+    ...item,
+    active: isNavActive(pathname, item.href),
+  }));
+}
+
+function isNavActive(pathname: string, href: string) {
+  const cleanHref = href.split("?")[0];
+
+  if (cleanHref === "/sales-ai") {
+    return pathname === "/sales-ai";
+  }
+
+  return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
 }
 
 function LeftRail({ nav, brand }: { nav: NavItem[]; brand: BrandContext }) {
+  const mainNav = nav.filter((item) => item.group === "main");
+  const toolsNav = nav.filter((item) => item.group === "tools");
+  const homeHref = nav.find((item) => item.code === "AI")?.href || "/sales-ai";
+
   return (
-    <aside className="sticky top-0 hidden h-screen w-[112px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white px-4 py-5 shadow-[8px_0_28px_rgba(15,23,42,0.03)] xl:flex">
-      <Link href="/sales-ai" className="flex flex-col items-center text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-[28px] bg-[#effcff] text-[#08a9c6]">
+    <aside className="sticky top-0 hidden h-screen w-[132px] shrink-0 border-r border-[#dce9f3] bg-white/95 px-4 py-5 shadow-[12px_0_38px_rgba(15,23,42,0.045)] backdrop-blur xl:flex xl:flex-col">
+      <Link
+        href={homeHref}
+        className="group flex flex-col items-center rounded-[30px] border border-[#d8f3f8] bg-[#effcff] px-3 py-4 text-center transition hover:scale-[1.02] hover:shadow-[0_16px_34px_rgba(8,169,198,0.16)]"
+      >
+        <div className="flex h-16 w-16 items-center justify-center rounded-[26px] bg-white text-[#08a9c6] shadow-sm ring-1 ring-[#d6f5fb]">
           <Icon name="planet" className="h-11 w-11" />
         </div>
-        <p className="mt-3 text-sm font-black leading-4 text-[#081535]">
+
+        <p className="mt-3 text-[13px] font-black leading-4 tracking-tight text-[#081535]">
           COMETA
           <br />
           OS
         </p>
+
+        <span className="mt-2 rounded-full bg-[#12bfe8]/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-[#0798b8]">
+          Sales AI
+        </span>
       </Link>
 
-      <nav className="mt-7 flex w-full flex-1 flex-col items-center gap-3">
-        {nav.map((item) => (
-          <Link
-            key={item.code}
-            href={item.href}
-            title={item.label}
-            className={`flex h-[58px] w-full flex-col items-center justify-center rounded-2xl text-sm font-black transition ${
-              item.active
-                ? "bg-[#08a9c6] text-white shadow-[0_14px_30px_rgba(8,169,198,0.26)]"
-                : "border border-[#dfe8f3] bg-white text-[#62718a] hover:bg-[#f8fbff] hover:text-[#08a9c6]"
-            }`}
-          >
-            <span>{item.code}</span>
-            <span className="mt-1 text-[10px] font-bold opacity-80">
-              {item.label}
-            </span>
-          </Link>
-        ))}
-      </nav>
+      <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
+        <div>
+          <p className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#9aa8ba]">
+            Operación
+          </p>
 
-      <div className="w-full text-center">
-        <div className="relative mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#081535] text-xl font-black text-white shadow-[0_14px_30px_rgba(8,21,53,0.22)]">
-          {getInitials(brand.name)}
-          <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white bg-[#12bfe8]" />
+          <div className="grid gap-2">
+            {mainNav.map((item) => (
+              <SidebarNavItem key={item.href} item={item} />
+            ))}
+          </div>
         </div>
 
-        <p className="mt-2 truncate text-xs font-black text-[#081535]">
-          {brand.name}
+        <div>
+          <p className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#9aa8ba]">
+            Sistema
+          </p>
+
+          <div className="grid gap-2">
+            {toolsNav.map((item) => (
+              <SidebarNavItem key={item.href} item={item} compact />
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      <div className="mt-5 rounded-[28px] border border-[#dfe8f3] bg-[#f8fbff] p-3 text-center shadow-sm">
+        <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#081535] text-sm font-black text-white shadow-[0_14px_30px_rgba(8,21,53,0.18)]">
+          {getInitials(brand.name)}
+          <span className="absolute bottom-0 right-0 h-4 w-4 rounded-full border-2 border-white bg-[#12b981]" />
+        </div>
+
+        <p className="mt-3 truncate text-xs font-black text-[#081535]">
+          {brand.name || "Cometa Mkt"}
         </p>
-        <p className="text-[10px] font-bold text-[#728199]">Admin</p>
+
+        <p className="mt-1 truncate text-[10px] font-bold text-[#728199]">
+          WhatsApp activo
+        </p>
       </div>
     </aside>
+  );
+}
+
+function SidebarNavItem({
+  item,
+  compact = false,
+}: {
+  item: NavItem;
+  compact?: boolean;
+}) {
+  return (
+    <Link
+      href={item.href}
+      title={`${item.label} · ${item.description}`}
+      className={`group relative flex items-center gap-3 rounded-[22px] border px-3 py-3 text-left transition ${
+        item.active
+          ? "border-[#08a9c6] bg-[#08a9c6] text-white shadow-[0_14px_30px_rgba(8,169,198,0.28)]"
+          : "border-[#dfe8f3] bg-white text-[#62718a] hover:border-[#bdeaf2] hover:bg-[#f8fdff] hover:text-[#08a9c6]"
+      }`}
+    >
+      <span
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
+          item.active
+            ? "bg-white/18 text-white"
+            : "bg-[#effcff] text-[#08a9c6] group-hover:bg-[#dff8ff]"
+        }`}
+      >
+        <Icon name={item.icon} className="h-5 w-5" />
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-black leading-4">
+          {item.label}
+        </span>
+
+        {!compact ? (
+          <span
+            className={`mt-0.5 block truncate text-[9px] font-bold leading-3 ${
+              item.active ? "text-white/75" : "text-[#8a98ad]"
+            }`}
+          >
+            {item.description}
+          </span>
+        ) : null}
+      </span>
+
+      {item.active ? (
+        <span className="absolute -right-1 top-1/2 h-7 w-1 -translate-y-1/2 rounded-full bg-white" />
+      ) : null}
+    </Link>
+  );
+}
+
+function MobileSalesNav({
+  nav,
+  brand,
+}: {
+  nav: NavItem[];
+  brand: BrandContext;
+}) {
+  return (
+    <div className="mb-4 rounded-[26px] border border-[#dfe8f3] bg-white p-3 shadow-sm xl:hidden">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#08a9c6]">
+            SALES AI
+          </p>
+          <p className="truncate text-lg font-black text-[#081535]">
+            {brand.name}
+          </p>
+        </div>
+
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#081535] text-xs font-black text-white">
+          {getInitials(brand.name)}
+        </div>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {nav.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`shrink-0 rounded-2xl border px-4 py-3 text-xs font-black ${
+              item.active
+                ? "border-[#08a9c6] bg-[#08a9c6] text-white"
+                : "border-[#dfe8f3] bg-[#f8fbff] text-[#60708a]"
+            }`}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -494,7 +716,9 @@ function InboxHero({
           </button>
 
           <Link
-            href="/sales-ai/agent-settings"
+            href={`/sales-ai/agent-settings?brandSlug=${encodeURIComponent(
+              brand.slug || "cometa-mkt"
+            )}`}
             className="inline-flex items-center justify-center gap-3 rounded-2xl border border-[#dbe6f0] bg-white px-6 py-4 text-sm font-black text-[#0b1836] shadow-sm transition hover:border-[#b8d7e4] hover:bg-[#f8fcff]"
           >
             <Icon name="gear" className="h-5 w-5" />
@@ -519,7 +743,7 @@ function InboxHealthPanel({
 }) {
   return (
     <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <div className="grid grid-cols-[1fr_150px_1fr] gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_150px_1fr]">
         <div>
           <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
             Inbox Health
@@ -534,7 +758,7 @@ function InboxHealthPanel({
           </p>
         </div>
 
-        <div className="flex items-center justify-center border-r border-[#e6eef6] pr-6">
+        <div className="flex items-center justify-center md:border-r md:border-[#e6eef6] md:pr-6">
           <ScoreRing value={metrics.health || 0} />
         </div>
 
@@ -552,7 +776,9 @@ function InboxHealthPanel({
           <HealthLine
             icon="clock"
             label="Auto reply"
-            value={runtimeSettings?.auto_reply_enabled ? "Activado" : "Desactivado"}
+            value={
+              runtimeSettings?.auto_reply_enabled ? "Activado" : "Desactivado"
+            }
           />
           <HealthLine
             icon="whatsapp"
@@ -732,9 +958,11 @@ function LeadInboxList({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-black uppercase tracking-[0.28em] text-[#728199]">
-            Sales Pipeline
+            Inbox comercial
           </p>
-          <h2 className="mt-2 text-3xl font-black text-[#081535]">Prospectos</h2>
+          <h2 className="mt-2 text-3xl font-black text-[#081535]">
+            Conversaciones
+          </h2>
         </div>
 
         <span className="rounded-full bg-[#f3f7fb] px-4 py-2 text-sm font-black text-[#60708a]">
@@ -781,10 +1009,6 @@ function LeadInboxList({
           />
         )}
       </div>
-
-      <button className="mt-5 w-full rounded-2xl border border-[#dfe8f3] bg-white px-5 py-4 text-sm font-black text-[#081535] transition hover:bg-[#f8fbff]">
-        Ver todos los leads
-      </button>
     </section>
   );
 }
@@ -816,7 +1040,7 @@ function LeadCard({
               {lead.name || "Lead sin nombre"}
             </h3>
             <p className="mt-1 truncate text-xs font-bold text-[#78889e]">
-              {lead.phone || lead.intent || "Sin contacto"}
+              {formatPhone(lead.phone) || lead.intent || "Sin contacto"}
             </p>
           </div>
         </div>
@@ -831,7 +1055,9 @@ function LeadCard({
             {lead.status || "new"}
           </p>
           <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-[#65758d]">
-            {lead.nextAction || "SALES AI está evaluando el siguiente paso."}
+            {lead.lastMessage ||
+              lead.nextAction ||
+              "SALES AI está evaluando el siguiente paso."}
           </p>
         </div>
 
@@ -910,14 +1136,14 @@ function ConversationPanel({
               ) : (
                 <EmptyBox
                   title="Sin mensajes cargados"
-                  text="El lead existe, pero todavía no hay historial en sales_messages."
+                  text="El lead existe, pero todavía no hay historial conectado a este prospecto."
                 />
               )}
             </div>
 
             {agentReply ? <RecommendedReply reply={agentReply} /> : null}
 
-            <div className="mt-5 grid grid-cols-[minmax(0,1fr)_150px] gap-3">
+            <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_150px]">
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -1188,7 +1414,10 @@ function RuntimeSafetyCard({
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <DarkMini label="Modo" value={labelAgentMode(safety.mode)} />
-        <DarkMini label="WhatsApp" value={labelWhatsappStatus(safety.whatsappStatus)} />
+        <DarkMini
+          label="WhatsApp"
+          value={labelWhatsappStatus(safety.whatsappStatus)}
+        />
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#dfe8f3] bg-[#f8fbff] p-4">
@@ -1236,9 +1465,9 @@ function QuickLinks({
   brandSlug: string;
 }) {
   const links = [
-    { label: "Dashboard SALES AI", href: "/sales-ai" },
-    { label: "Conexión WhatsApp", href: "/sales-ai/connect" },
-    { label: "Configurar agente", href: "/sales-ai/agent-settings" },
+    { label: "Dashboard SALES AI", href: `/sales-ai?${brandQuery}` },
+    { label: "Conexión WhatsApp", href: `/sales-ai/connect?${brandQuery}` },
+    { label: "Configurar agente", href: `/sales-ai/agent-settings?${brandQuery}` },
     { label: "Knowledge Brain", href: `/sales-ai/knowledge?${brandQuery}` },
     { label: "Learning Hub", href: `/sales-ai/learning?${brandQuery}` },
     { label: "Brand OS", href: `/brand/${brandSlug}` },
@@ -1438,6 +1667,8 @@ function buildDisplayMessages(
       content: inbound,
       sender: lead.name || "Cliente",
       createdAt: lead.lastMessageAt || now,
+      waId: lead.phone,
+      phone: lead.phone,
     },
   ];
 
@@ -1449,10 +1680,72 @@ function buildDisplayMessages(
       content: agentReply,
       sender: "SALES AI",
       createdAt: now,
+      waId: lead.phone,
+      phone: lead.phone,
     });
   }
 
   return display;
+}
+
+function normalizeInboxMessages(rows: any[]): SalesMessage[] {
+  return rows
+    .map((row, index) => {
+      const direction =
+        row?.direction || row?.message_direction || row?.type || "inbound";
+
+      const content =
+        row?.content ||
+        row?.content_text ||
+        row?.message ||
+        row?.body ||
+        row?.text ||
+        row?.incoming_message ||
+        row?.raw_message?.text?.body ||
+        "";
+
+      const waId =
+        row?.waId ||
+        row?.wa_id ||
+        row?.from_number ||
+        row?.from ||
+        row?.to_number ||
+        row?.to ||
+        row?.phone ||
+        "";
+
+      const sender =
+        row?.sender ||
+        row?.sender_name ||
+        row?.profile_name ||
+        (String(direction).toLowerCase() === "outbound"
+          ? "SALES AI"
+          : "Cliente");
+
+      return {
+        id: String(
+          row?.id ||
+            row?.message_id ||
+            row?.whatsapp_message_id ||
+            row?.external_message_id ||
+            `message-${index}`
+        ),
+        leadId: String(row?.leadId || row?.lead_id || row?.sales_lead_id || ""),
+        direction: String(direction || "inbound"),
+        content: String(content || ""),
+        sender: String(sender || "Cliente"),
+        createdAt:
+          row?.createdAt ||
+          row?.created_at ||
+          row?.timestamp_at ||
+          row?.inserted_at ||
+          null,
+        waId: String(waId || ""),
+        phone: String(waId || ""),
+        messageId: String(row?.message_id || row?.whatsapp_message_id || ""),
+      };
+    })
+    .filter((message) => message.content || message.messageId || message.id);
 }
 
 function deriveSafetyState(
@@ -1542,7 +1835,9 @@ function getActionStatusTone(
 
   if (status.includes("sent")) return "green";
   if (status.includes("ready")) return "blue";
-  if (status.includes("observation") || status.includes("logged")) return "amber";
+  if (status.includes("observation") || status.includes("logged")) {
+    return "amber";
+  }
   if (status.includes("failed") || status.includes("blocked")) return "red";
 
   return "neutral";
@@ -1591,6 +1886,13 @@ function formatPhone(value?: string | null) {
     )} ${clean.slice(8)}`;
   }
 
+  if (clean.length === 13 && clean.startsWith("521")) {
+    return `${clean.slice(0, 3)} ${clean.slice(3, 6)} ${clean.slice(
+      6,
+      9
+    )} ${clean.slice(9)}`;
+  }
+
   return value || "";
 }
 
@@ -1598,6 +1900,7 @@ function labelAgentMode(value?: string | null) {
   const mode = String(value || "observation").toLowerCase();
 
   if (mode === "automatic") return "Automático";
+  if (mode === "supervised") return "Supervisado";
   if (mode === "paused") return "Pausado";
 
   return "Observación";
@@ -1619,6 +1922,10 @@ function getInitials(name: string) {
   const second = words[1]?.[0] || "O";
 
   return `${first}${second}`.toUpperCase();
+}
+
+function cleanPhone(value: any) {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -1718,7 +2025,11 @@ function Icon({
   if (name === "user") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
         <path
           d="M4.5 20c1-4 3.5-6 7.5-6s6.5 2 7.5 6"
           stroke="currentColor"
@@ -1732,8 +2043,21 @@ function Icon({
   if (name === "brain" || name === "bot") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <rect x="5" y="8" width="14" height="10" rx="4" stroke="currentColor" strokeWidth="2" />
-        <path d="M12 8V4M8.5 12h.01M15.5 12h.01M9 16h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <rect
+          x="5"
+          y="8"
+          width="14"
+          height="10"
+          rx="4"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <path
+          d="M12 8V4M8.5 12h.01M15.5 12h.01M9 16h6"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -1741,9 +2065,19 @@ function Icon({
   if (name === "refresh") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M20 12a8 8 0 0 1-14 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M20 12a8 8 0 0 1-14 5"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
         <path d="M6 21v-4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        <path d="M4 12a8 8 0 0 1 14-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M4 12a8 8 0 0 1 14-5"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
         <path d="M18 3v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
     );
@@ -1752,8 +2086,16 @@ function Icon({
   if (name === "gear") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="2" />
-        <path d="M19 13v-2l-2-.5a6 6 0 0 0-.7-1.6l1-1.7-1.5-1.5-1.7 1a6 6 0 0 0-1.6-.7L12 3h-2l-.5 2a6 6 0 0 0-1.6.7l-1.7-1-1.5 1.5 1 1.7a6 6 0 0 0-.7 1.6L3 11v2l2 .5a6 6 0 0 0 .7 1.6l-1 1.7 1.5 1.5 1.7-1a6 6 0 0 0 1.6.7l.5 2h2l.5-2a6 6 0 0 0 1.6-.7l1.7 1 1.5-1.5-1-1.7a6 6 0 0 0 .7-1.6L19 13Z" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <path
+          d="M19 13v-2l-2-.5a6 6 0 0 0-.7-1.6l1-1.7-1.5-1.5-1.7 1a6 6 0 0 0-1.6-.7L12 3h-2l-.5 2a6 6 0 0 0-1.6.7l-1.7-1-1.5 1.5 1 1.7a6 6 0 0 0-.7 1.6L3 11v2l2 .5a6 6 0 0 0 .7 1.6l-1 1.7 1.5 1.5 1.7-1a6 6 0 0 0 1.6.7l.5 2h2l.5-2a6 6 0 0 0 1.6-.7l1.7 1 1.5-1.5-1-1.7a6 6 0 0 0 .7-1.6L19 13Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
       </svg>
     );
   }
@@ -1761,8 +2103,17 @@ function Icon({
   if (name === "clock") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M12 7v5l3 2"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
       </svg>
     );
   }
@@ -1770,7 +2121,11 @@ function Icon({
   if (name === "shield") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
       </svg>
     );
   }
