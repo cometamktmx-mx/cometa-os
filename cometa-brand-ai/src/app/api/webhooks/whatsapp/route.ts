@@ -808,9 +808,9 @@ async function sendWhatsappTextMessage({
     "";
 
   const graphApiVersion =
-    process.env.WHATSAPP_GRAPH_API_VERSION ||
-    process.env.META_GRAPH_API_VERSION ||
-    "v23.0";
+  process.env.WHATSAPP_GRAPH_API_VERSION ||
+  process.env.META_GRAPH_API_VERSION ||
+  "v25.0";
 
   if (!accessToken) {
     return {
