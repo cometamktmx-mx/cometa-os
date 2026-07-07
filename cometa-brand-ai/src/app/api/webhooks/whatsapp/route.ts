@@ -35,7 +35,57 @@ const enforceWebhookSignature =
 const defaultBrandSlug =
   process.env.WHATSAPP_DEFAULT_BRAND_SLUG || "cometa-mkt";
 
+const automaticMinConfidence = normalizeEnvNumber(
+  process.env.SALES_AI_AUTOMATIC_MIN_CONFIDENCE,
+  75
+);
+
+const automaticCooldownSeconds = normalizeEnvNumber(
+  process.env.SALES_AI_AUTOMATIC_COOLDOWN_SECONDS,
+  90
+);
+
+const automaticMaxReplyChars = normalizeEnvNumber(
+  process.env.SALES_AI_AUTOMATIC_MAX_REPLY_CHARS,
+  900
+);
+
+const riskyAutomaticKeywords = [
+  "pago",
+  "pagar",
+  "pagarte",
+  "transferencia",
+  "deposito",
+  "depósito",
+  "comprobante",
+  "factura",
+  "facturación",
+  "garantía",
+  "garantia",
+  "devolución",
+  "devolucion",
+  "reembolso",
+  "cancelar",
+  "cancelación",
+  "cancelacion",
+  "queja",
+  "reclamo",
+  "descuento",
+  "rebaja",
+  "urgente",
+  "mayoreo grande",
+  "pedido grande",
+  "stock exacto",
+  "existencia exacta",
+];
+
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+type AutomaticSafetyResult = {
+  ok: boolean;
+  reasons: string[];
+  context: Record<string, any>;
+};
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -104,14 +154,17 @@ export async function POST(request: NextRequest) {
     }
 
     const entries = Array.isArray(body?.entry) ? body.entry : [];
+
     let responseBrand = await resolveWebhookBrand();
     let processedMessages = 0;
     let processedStatuses = 0;
+    let skippedDuplicateMessages = 0;
     let createdOrUpdatedLeads = 0;
     let createdSalesMessages = 0;
     let createdAgentRuns = 0;
     let sentWhatsappMessages = 0;
     let failedWhatsappMessages = 0;
+    let blockedAutomaticMessages = 0;
 
     for (const entry of entries) {
       const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -122,17 +175,20 @@ export async function POST(request: NextRequest) {
 
         const phoneNumberId = metadata?.phone_number_id || null;
         const displayPhoneNumber = metadata?.display_phone_number || null;
+
         const brand = await resolveWebhookBrand({
-  phoneNumberId,
-  displayPhoneNumber,
-});
-responseBrand = brand;
-await supabase.from("whatsapp_webhook_events").insert({
-  id: randomUUID(),
-  brand_slug: brand.slug,
-  event_type: "whatsapp_webhook",
-  payload: body,
-});
+          phoneNumberId,
+          displayPhoneNumber,
+        });
+
+        responseBrand = brand;
+
+        await supabase.from("whatsapp_webhook_events").insert({
+          id: randomUUID(),
+          brand_slug: brand.slug,
+          event_type: "whatsapp_webhook",
+          payload: body,
+        });
 
         const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
         const messages = Array.isArray(value?.messages) ? value.messages : [];
@@ -211,6 +267,22 @@ await supabase.from("whatsapp_webhook_events").insert({
 
           processedMessages += 1;
 
+          const alreadyProcessedSalesMessage =
+            await hasProcessedSalesMessage(messageId);
+
+          if (alreadyProcessedSalesMessage) {
+            skippedDuplicateMessages += 1;
+
+            console.log("WhatsApp message duplicado. Se evita doble agente:", {
+              brandName: brand.name,
+              brandSlug: brand.slug,
+              messageId,
+              waId,
+            });
+
+            continue;
+          }
+
           const analysis = analyzeInboundMessage(contentText);
 
           const leadId = await createOrUpdateSalesLead({
@@ -223,147 +295,161 @@ await supabase.from("whatsapp_webhook_events").insert({
             analysis,
           });
 
-          if (leadId) {
-            createdOrUpdatedLeads += 1;
+          if (!leadId) {
+            continue;
+          }
 
-            const salesMessageOk = await createSalesMessage({
+          createdOrUpdatedLeads += 1;
+
+          const salesMessageOk = await createSalesMessage({
+            brandName: brand.name,
+            leadId,
+            waId,
+            contactName,
+            messageId,
+            contentText,
+            timestampIso,
+            rawMessage: message,
+          });
+
+          if (salesMessageOk) {
+            createdSalesMessages += 1;
+          }
+
+          const runtimeSettings = await getSalesAiRuntimeSettings(brand.name);
+
+          const runtimeAgentMode = resolveSalesAiAgentMode(
+            runtimeSettings,
+            process.env.SALES_AI_AGENT_MODE || "observation"
+          );
+
+          const agentResult = await runSalesAiAgent(request, {
+            brandName: brand.name,
+            leadId,
+            contactName,
+            contactPhone: waId,
+            contactUsername: waId,
+            incomingMessage: contentText,
+            conversationText: `Cliente (${contactName}): ${contentText}`,
+            source: "whatsapp",
+            agentMode: runtimeAgentMode,
+          });
+
+          if (!agentResult?.success) {
+            continue;
+          }
+
+          createdAgentRuns += 1;
+
+          const envAllowsWhatsappSend =
+            process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
+
+          const settingsAllowWhatsappSend =
+            canSendRealWhatsapp(runtimeSettings);
+
+          const agentReply =
+            typeof agentResult.decision?.agent_reply === "string"
+              ? agentResult.decision.agent_reply.trim()
+              : "";
+
+          const automaticSafety = await evaluateAutomaticWhatsappSafety({
+            brandSlug: brand.slug,
+            brandName: brand.name,
+            leadId,
+            waId,
+            incomingText: contentText,
+            agentReply,
+            phoneNumberId,
+            agentResult,
+            runtimeSettings,
+            envAllowsWhatsappSend,
+            settingsAllowWhatsappSend,
+          });
+
+          const shouldSendRealWhatsapp = automaticSafety.ok;
+
+          if (
+            !shouldSendRealWhatsapp &&
+            agentResult.shouldSendWhatsapp === true
+          ) {
+            blockedAutomaticMessages += 1;
+
+            console.log("SALES AI WhatsApp automático bloqueado:", {
               brandName: brand.name,
+              brandSlug: brand.slug,
               leadId,
               waId,
-              contactName,
-              messageId,
-              contentText,
-              timestampIso,
-              rawMessage: message,
+              reasons: automaticSafety.reasons,
+              context: automaticSafety.context,
             });
 
-            if (salesMessageOk) {
-              createdSalesMessages += 1;
+            if (agentResult.runId) {
+              await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                {
+                  action_status: "whatsapp_send_blocked",
+                  execution_error: `Bloqueado por seguridad automática: ${automaticSafety.reasons.join(
+                    ", "
+                  )}`,
+                },
+                {
+                  action_status: "whatsapp_send_blocked",
+                },
+              ]);
             }
+          }
 
-            const runtimeSettings = await getSalesAiRuntimeSettings(brand.name);
-
-            const runtimeAgentMode = resolveSalesAiAgentMode(
-              runtimeSettings,
-              process.env.SALES_AI_AGENT_MODE || "observation"
-            );
-
-            const agentResult = await runSalesAiAgent(request, {
-              brandName: brand.name,
-              leadId,
-              contactName,
-              contactPhone: waId,
-              contactUsername: waId,
-              incomingMessage: contentText,
-              conversationText: `Cliente (${contactName}): ${contentText}`,
-              source: "whatsapp",
-              agentMode: runtimeAgentMode,
+          if (shouldSendRealWhatsapp) {
+            const whatsappSendResult = await sendWhatsappTextMessage({
+              phoneNumberId,
+              to: waId,
+              message: agentReply,
             });
 
-            if (agentResult?.success) {
-              createdAgentRuns += 1;
+            if (whatsappSendResult.ok) {
+              sentWhatsappMessages += 1;
 
-              const envAllowsWhatsappSend =
-                process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
+              await saveOutboundWhatsappMessage({
+                brandSlug: brand.slug,
+                brandName: brand.name,
+                leadId,
+                waId,
+                phoneNumberId,
+                displayPhoneNumber,
+                messageText: agentReply,
+                whatsappMessageId: whatsappSendResult.whatsappMessageId,
+                rawResponse: whatsappSendResult.data,
+              });
 
-              const settingsAllowWhatsappSend =
-                canSendRealWhatsapp(runtimeSettings);
-
-              const agentReply =
-                typeof agentResult.decision?.agent_reply === "string"
-                  ? agentResult.decision.agent_reply.trim()
-                  : "";
-
-              const shouldSendRealWhatsapp =
-                agentResult.shouldSendWhatsapp === true &&
-                Boolean(agentReply) &&
-                Boolean(phoneNumberId) &&
-                envAllowsWhatsappSend &&
-                settingsAllowWhatsappSend;
-
-              if (
-                !shouldSendRealWhatsapp &&
-                agentResult.shouldSendWhatsapp === true
-              ) {
-                console.log("SALES AI WhatsApp real bloqueado:", {
-                  brandName: brand.name,
-                  envAllowsWhatsappSend,
-                  settingsAllowWhatsappSend,
-                  hasAgentReply: Boolean(agentReply),
-                  hasPhoneNumberId: Boolean(phoneNumberId),
-                  lockReasons: explainWhatsappSendLock(runtimeSettings),
-                });
-
-                if (agentResult.runId) {
-                  await safeUpdateById("sales_agent_runs", agentResult.runId, [
-                    {
-                      action_status: "whatsapp_send_blocked",
-                      execution_error: `Bloqueado por configuración: ${explainWhatsappSendLock(
-                        runtimeSettings
-                      ).join(", ")}`,
-                    },
-                    {
-                      action_status: "whatsapp_send_blocked",
-                    },
-                  ]);
-                }
+              if (agentResult.runId) {
+                await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                  {
+                    action_status: "sent_whatsapp",
+                    whatsapp_message_id: whatsappSendResult.whatsappMessageId,
+                    executed_at: new Date().toISOString(),
+                  },
+                  {
+                    action_status: "sent_whatsapp",
+                  },
+                ]);
               }
+            } else {
+              failedWhatsappMessages += 1;
 
-              if (shouldSendRealWhatsapp) {
-                const whatsappSendResult = await sendWhatsappTextMessage({
-                  phoneNumberId,
-                  to: waId,
-                  message: agentReply,
-                });
+              console.error(
+                "No se pudo enviar WhatsApp automático:",
+                whatsappSendResult.error
+              );
 
-                if (whatsappSendResult.ok) {
-                  sentWhatsappMessages += 1;
-
-                  await saveOutboundWhatsappMessage({
-                    brandSlug: brand.slug,
-                    brandName: brand.name,
-                    leadId,
-                    waId,
-                    phoneNumberId,
-                    displayPhoneNumber,
-                    messageText: agentReply,
-                    whatsappMessageId: whatsappSendResult.whatsappMessageId,
-                    rawResponse: whatsappSendResult.data,
-                  });
-
-                  if (agentResult.runId) {
-                    await safeUpdateById("sales_agent_runs", agentResult.runId, [
-                      {
-                        action_status: "sent_whatsapp",
-                        whatsapp_message_id:
-                          whatsappSendResult.whatsappMessageId,
-                        executed_at: new Date().toISOString(),
-                      },
-                      {
-                        action_status: "sent_whatsapp",
-                      },
-                    ]);
-                  }
-                } else {
-                  failedWhatsappMessages += 1;
-
-                  console.error(
-                    "No se pudo enviar WhatsApp automático:",
-                    whatsappSendResult.error
-                  );
-
-                  if (agentResult.runId) {
-                    await safeUpdateById("sales_agent_runs", agentResult.runId, [
-                      {
-                        action_status: "whatsapp_send_failed",
-                        execution_error: whatsappSendResult.error,
-                      },
-                      {
-                        action_status: "whatsapp_send_failed",
-                      },
-                    ]);
-                  }
-                }
+              if (agentResult.runId) {
+                await safeUpdateById("sales_agent_runs", agentResult.runId, [
+                  {
+                    action_status: "whatsapp_send_failed",
+                    execution_error: whatsappSendResult.error,
+                  },
+                  {
+                    action_status: "whatsapp_send_failed",
+                  },
+                ]);
               }
             }
           }
@@ -394,17 +480,19 @@ await supabase.from("whatsapp_webhook_events").insert({
       ok: true,
       message: "Webhook recibido correctamente.",
       brand: {
-  slug: responseBrand.slug,
-  name: responseBrand.name,
-},
+        slug: responseBrand.slug,
+        name: responseBrand.name,
+      },
       processed: {
         messages: processedMessages,
         statuses: processedStatuses,
+        skippedDuplicateMessages,
         leads: createdOrUpdatedLeads,
         salesMessages: createdSalesMessages,
         agentRuns: createdAgentRuns,
         sentWhatsappMessages,
         failedWhatsappMessages,
+        blockedAutomaticMessages,
       },
     });
   } catch (error: any) {
@@ -621,6 +709,7 @@ async function createOrUpdateSalesLead({
   }
 
   console.warn("No se pudo crear sales_lead. Se mantiene lead virtual WhatsApp.");
+
   return null;
 }
 
@@ -657,6 +746,7 @@ async function findExistingSalesLead(brandName: string, waId: string) {
     );
   } catch (error: any) {
     console.warn("findExistingSalesLead exception:", error?.message);
+
     return null;
   }
 }
@@ -689,6 +779,7 @@ async function createSalesMessage({
       message_direction: "inbound",
       type: "inbound",
       message: contentText,
+      message_text: contentText,
       body: contentText,
       content: contentText,
       text: contentText,
@@ -709,6 +800,7 @@ async function createSalesMessage({
       brand_name: brandName,
       lead_id: leadId,
       direction: "inbound",
+      message_text: contentText,
       content_text: contentText,
       sender: contactName,
       created_at: timestampIso,
@@ -716,6 +808,7 @@ async function createSalesMessage({
     {
       brand_name: brandName,
       lead_id: leadId,
+      message_text: contentText,
       message: contentText,
       direction: "inbound",
       created_at: timestampIso,
@@ -793,6 +886,246 @@ async function runSalesAiAgent(
   }
 }
 
+async function evaluateAutomaticWhatsappSafety({
+  brandSlug,
+  brandName,
+  leadId,
+  waId,
+  incomingText,
+  agentReply,
+  phoneNumberId,
+  agentResult,
+  runtimeSettings,
+  envAllowsWhatsappSend,
+  settingsAllowWhatsappSend,
+}: {
+  brandSlug: string;
+  brandName: string;
+  leadId: string;
+  waId: string;
+  incomingText: string;
+  agentReply: string;
+  phoneNumberId: string | null;
+  agentResult: any;
+  runtimeSettings: any;
+  envAllowsWhatsappSend: boolean;
+  settingsAllowWhatsappSend: boolean;
+}): Promise<AutomaticSafetyResult> {
+  const reasons: string[] = [];
+  const decision = agentResult?.decision || {};
+
+  const action = cleanText(decision.action);
+  const riskLevel = cleanText(decision.risk_level || "low").toLowerCase();
+  const confidenceScore = Number(decision.confidence_score || 0);
+  const requiresHuman = decision.requires_human === true;
+  const shouldSendWhatsapp = agentResult?.shouldSendWhatsapp === true;
+
+  if (!shouldSendWhatsapp) {
+    reasons.push("agent_result_should_send_whatsapp=false");
+  }
+
+  if (!envAllowsWhatsappSend) {
+    reasons.push("env_sales_ai_send_whatsapp_enabled=false");
+  }
+
+  if (!settingsAllowWhatsappSend) {
+    reasons.push(
+      `settings_blocked=${explainWhatsappSendLock(runtimeSettings).join("|")}`
+    );
+  }
+
+  if (!phoneNumberId) {
+    reasons.push("missing_phone_number_id");
+  }
+
+  if (!agentReply) {
+    reasons.push("missing_agent_reply");
+  }
+
+  if (agentReply.length > automaticMaxReplyChars) {
+    reasons.push(`agent_reply_too_long=${agentReply.length}`);
+  }
+
+  if (action !== "send_reply") {
+    reasons.push(`action=${action || "empty"}`);
+  }
+
+  if (requiresHuman) {
+    reasons.push("requires_human=true");
+  }
+
+  if (riskLevel !== "low") {
+    reasons.push(`risk_level=${riskLevel}`);
+  }
+
+  if (confidenceScore < automaticMinConfidence) {
+    reasons.push(`confidence_score=${confidenceScore}`);
+  }
+
+  if (isNonTextPlaceholder(incomingText)) {
+    reasons.push("non_text_message_requires_human_review");
+  }
+
+  const riskyIncomingKeyword = findRiskyKeyword(incomingText);
+  const riskyReplyKeyword = findRiskyKeyword(agentReply);
+
+  if (riskyIncomingKeyword) {
+    reasons.push(`risky_incoming_keyword=${riskyIncomingKeyword}`);
+  }
+
+  if (riskyReplyKeyword) {
+    reasons.push(`risky_reply_keyword=${riskyReplyKeyword}`);
+  }
+
+  const recentOutbound = await getRecentOutboundMessage({
+    brandSlug,
+    brandName,
+    leadId,
+    waId,
+  });
+
+  if (recentOutbound?.createdAt) {
+    const secondsSinceLastOutbound = Math.floor(
+      (Date.now() - new Date(recentOutbound.createdAt).getTime()) / 1000
+    );
+
+    if (
+      Number.isFinite(secondsSinceLastOutbound) &&
+      secondsSinceLastOutbound >= 0 &&
+      secondsSinceLastOutbound < automaticCooldownSeconds
+    ) {
+      reasons.push(`cooldown_active=${secondsSinceLastOutbound}s`);
+    }
+
+    const previousText = cleanText(recentOutbound.messageText).toLowerCase();
+    const nextText = cleanText(agentReply).toLowerCase();
+
+    if (previousText && nextText && previousText === nextText) {
+      reasons.push("duplicate_agent_reply");
+    }
+  }
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    context: {
+      brandSlug,
+      brandName,
+      leadId,
+      waId,
+      action,
+      riskLevel,
+      confidenceScore,
+      requiresHuman,
+      automaticMinConfidence,
+      automaticCooldownSeconds,
+      automaticMaxReplyChars,
+      envAllowsWhatsappSend,
+      settingsAllowWhatsappSend,
+      whatsappStatus: runtimeSettings?.whatsapp_status,
+      agentMode: runtimeSettings?.agent_mode,
+      autoReplyEnabled: runtimeSettings?.auto_reply_enabled,
+      sendWhatsappEnabled: runtimeSettings?.send_whatsapp_enabled,
+      recentOutbound,
+    },
+  };
+}
+
+async function getRecentOutboundMessage({
+  brandSlug,
+  brandName,
+  leadId,
+  waId,
+}: {
+  brandSlug: string;
+  brandName: string;
+  leadId: string;
+  waId: string;
+}) {
+  try {
+    const { data, error } = await supabase
+      .from("sales_messages")
+      .select("*")
+      .eq("lead_id", leadId)
+      .eq("direction", "outbound")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      return {
+        source: "sales_messages",
+        id: data.id || null,
+        createdAt: data.created_at || null,
+        messageText:
+          data.message_text ||
+          data.content_text ||
+          data.message ||
+          data.body ||
+          data.text ||
+          "",
+      };
+    }
+  } catch (error: any) {
+    console.warn("getRecentOutboundMessage sales_messages:", error?.message);
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("whatsapp_messages")
+      .select("*")
+      .eq("brand_slug", brandSlug)
+      .eq("wa_id", waId)
+      .eq("direction", "outbound")
+      .order("timestamp_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      return {
+        source: "whatsapp_messages",
+        id: data.id || data.message_id || null,
+        createdAt: data.timestamp_at || data.created_at || null,
+        messageText: data.content_text || data.message_text || "",
+      };
+    }
+  } catch (error: any) {
+    console.warn("getRecentOutboundMessage whatsapp_messages:", error?.message);
+  }
+
+  return null;
+}
+
+async function hasProcessedSalesMessage(messageId: string) {
+  try {
+    const { data: byWhatsappId, error: whatsappIdError } = await supabase
+      .from("sales_messages")
+      .select("id")
+      .eq("whatsapp_message_id", messageId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!whatsappIdError && byWhatsappId?.id) {
+      return true;
+    }
+  } catch {}
+
+  try {
+    const { data: byExternalId, error: externalIdError } = await supabase
+      .from("sales_messages")
+      .select("id")
+      .eq("external_message_id", messageId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!externalIdError && byExternalId?.id) {
+      return true;
+    }
+  } catch {}
+
+  return false;
+}
+
 async function sendWhatsappTextMessage({
   phoneNumberId,
   to,
@@ -808,9 +1141,9 @@ async function sendWhatsappTextMessage({
     "";
 
   const graphApiVersion =
-  process.env.WHATSAPP_GRAPH_API_VERSION ||
-  process.env.META_GRAPH_API_VERSION ||
-  "v25.0";
+    process.env.WHATSAPP_GRAPH_API_VERSION ||
+    process.env.META_GRAPH_API_VERSION ||
+    "v25.0";
 
   if (!accessToken) {
     return {
@@ -926,6 +1259,7 @@ async function saveOutboundWhatsappMessage({
       message_direction: "outbound",
       type: "outbound",
       message: messageText,
+      message_text: messageText,
       body: messageText,
       content: messageText,
       text: messageText,
@@ -945,6 +1279,7 @@ async function saveOutboundWhatsappMessage({
       brand_name: brandName,
       lead_id: leadId,
       direction: "outbound",
+      message_text: messageText,
       content_text: messageText,
       sender: "SALES AI",
       created_at: now,
@@ -952,6 +1287,7 @@ async function saveOutboundWhatsappMessage({
     {
       brand_name: brandName,
       lead_id: leadId,
+      message_text: messageText,
       message: messageText,
       direction: "outbound",
       created_at: now,
@@ -999,6 +1335,7 @@ async function safeUpdateById(tableName: string, id: string, payloads: any[]) {
 
   return false;
 }
+
 function safeJsonParse(text: string) {
   try {
     return JSON.parse(text);
@@ -1308,6 +1645,34 @@ function unixTimestampToIso(value: string | null) {
   return new Date(timestamp * 1000).toISOString();
 }
 
+function isNonTextPlaceholder(value: string) {
+  const clean = cleanText(value);
+
+  return (
+    clean.startsWith("[") &&
+    clean.endsWith("]") &&
+    !clean.includes("respuesta interactiva")
+  );
+}
+
+function findRiskyKeyword(value: string) {
+  const clean = cleanText(value).toLowerCase();
+
+  if (!clean) return null;
+
+  return riskyAutomaticKeywords.find((keyword) => clean.includes(keyword)) || null;
+}
+
+function normalizeEnvNumber(value: unknown, fallback: number) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue) || numberValue < 0) {
+    return fallback;
+  }
+
+  return numberValue;
+}
+
 function cleanText(value: any) {
   if (value === null || value === undefined) return "";
 
@@ -1342,5 +1707,6 @@ function getBaseUrl(request: NextRequest) {
   }
 
   const url = new URL(request.url);
+
   return `${url.protocol}//${url.host}`;
 }
