@@ -102,6 +102,11 @@ type SafetyState = {
   whatsappStatus: string;
 };
 
+type SendStatus = {
+  type: "success" | "error" | "blocked";
+  message: string;
+};
+
 const fallbackBrand: BrandContext = {
   id: null,
   slug: "cometa-mkt",
@@ -150,8 +155,12 @@ function SalesAIInboxInner() {
   const [loading, setLoading] = useState(true);
   const [systemMessage, setSystemMessage] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [note, setNote] = useState("");
+const [searchTerm, setSearchTerm] = useState("");
+const [note, setNote] = useState("");
+
+const [sendingApprovedReply, setSendingApprovedReply] = useState(false);
+const [approvedSendStatus, setApprovedSendStatus] =
+  useState<SendStatus | null>(null);
 
   const activeBrandSlug = brand.slug || requestedBrandSlug || "cometa-mkt";
   const brandQuery = `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
@@ -344,6 +353,80 @@ function SalesAIInboxInner() {
     return buildDisplayMessages(selectedLead, selectedMessages, getAgentReply(selectedRun, selectedLead));
   }, [selectedLead, selectedMessages, selectedRun]);
 
+  const sendApprovedReply = useCallback(async () => {
+  setApprovedSendStatus(null);
+
+  if (!selectedLead) {
+    setApprovedSendStatus({
+      type: "error",
+      message: "Selecciona una conversación antes de enviar.",
+    });
+    return;
+  }
+
+  const reply = getAgentReply(selectedRun, selectedLead).trim();
+
+  if (!reply) {
+    setApprovedSendStatus({
+      type: "error",
+      message: "No hay respuesta recomendada para enviar.",
+    });
+    return;
+  }
+
+  try {
+    setSendingApprovedReply(true);
+
+    const res = await fetch("/api/sales-ai/send-message", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        leadId: selectedLead.id,
+        brandName: brand.name,
+        brandSlug: brand.slug,
+        toPhone: selectedLead.phone,
+        messageText: reply,
+        approved: true,
+        approvedBy: "Cometa",
+        sendReason: "Respuesta aprobada manualmente desde SALES AI Inbox",
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || data?.ok === false) {
+      const reasons = Array.isArray(data?.reasons)
+        ? ` ${data.reasons.join(" · ")}`
+        : "";
+
+      setApprovedSendStatus({
+        type: data?.blocked ? "blocked" : "error",
+        message:
+          data?.error ||
+          `No se pudo enviar la respuesta aprobada.${reasons}`,
+      });
+
+      return;
+    }
+
+    setApprovedSendStatus({
+      type: "success",
+      message: "Respuesta enviada correctamente por WhatsApp.",
+    });
+
+    await loadInbox();
+  } catch (error: any) {
+    setApprovedSendStatus({
+      type: "error",
+      message: error?.message || "Error enviando respuesta aprobada.",
+    });
+  } finally {
+    setSendingApprovedReply(false);
+  }
+}, [brand.name, brand.slug, loadInbox, selectedLead, selectedRun]);
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#eaf5fb] text-[#07142f]">
       <AppSidebar
@@ -382,14 +465,17 @@ function SalesAIInboxInner() {
   />
 
   <ChatColumn
-    brand={brand}
-    lead={selectedLead}
-    messages={displayMessages}
-    agentRun={selectedRun}
-    safety={safety}
-    note={note}
-    setNote={setNote}
-  />
+  brand={brand}
+  lead={selectedLead}
+  messages={displayMessages}
+  agentRun={selectedRun}
+  safety={safety}
+  note={note}
+  setNote={setNote}
+  onSendApprovedReply={sendApprovedReply}
+  sendingApprovedReply={sendingApprovedReply}
+  sendStatus={approvedSendStatus}
+/>
 
   <IntelligenceColumn
     lead={selectedLead}
@@ -1010,6 +1096,9 @@ function ChatColumn({
   safety,
   note,
   setNote,
+  onSendApprovedReply,
+  sendingApprovedReply,
+  sendStatus,
 }: {
   brand: BrandContext;
   lead: SalesLead | null;
@@ -1018,6 +1107,9 @@ function ChatColumn({
   safety: SafetyState;
   note: string;
   setNote: (value: string) => void;
+  onSendApprovedReply: () => void;
+  sendingApprovedReply: boolean;
+  sendStatus: SendStatus | null;
 }) {
   const agentReply = getAgentReply(agentRun, lead);
 
@@ -1078,7 +1170,13 @@ function ChatColumn({
 
       <div className="border-t border-[#e5eef6] bg-white p-8">
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <RecommendedReplyCard reply={agentReply} />
+          <RecommendedReplyCard
+            reply={agentReply}
+            lead={lead}
+            onSendApprovedReply={onSendApprovedReply}
+            sendingApprovedReply={sendingApprovedReply}
+            sendStatus={sendStatus}
+          />
 
           <NextActionCard lead={lead} agentRun={agentRun} safety={safety} />
         </div>
@@ -1107,7 +1205,28 @@ function ChatColumn({
   );
 }
 
-function RecommendedReplyCard({ reply }: { reply: string }) {
+function RecommendedReplyCard({
+  reply,
+  lead,
+  onSendApprovedReply,
+  sendingApprovedReply,
+  sendStatus,
+}: {
+  reply: string;
+  lead: SalesLead | null;
+  onSendApprovedReply: () => void;
+  sendingApprovedReply: boolean;
+  sendStatus: SendStatus | null;
+}) {
+  const canSend = Boolean(lead?.id && reply?.trim());
+
+  const statusClass =
+    sendStatus?.type === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : sendStatus?.type === "blocked"
+      ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-red-200 bg-red-50 text-red-700";
+
   return (
     <div className="rounded-[26px] border border-[#c7ebf7] bg-[#eafbff] p-5">
       <div className="flex items-center justify-between gap-3">
@@ -1133,13 +1252,40 @@ function RecommendedReplyCard({ reply }: { reply: string }) {
         <ToneChip label="Directo" />
       </div>
 
-      <button
-        type="button"
-        onClick={() => reply && navigator.clipboard?.writeText(reply)}
-        className="mt-4 w-full rounded-[22px] bg-gradient-to-r from-[#15bfd2] to-[#2578ee] px-5 py-4 text-sm font-black text-white shadow-[0_16px_30px_rgba(37,120,238,0.22)] transition hover:scale-[1.01]"
-      >
-        Copiar respuesta
-      </button>
+      {sendStatus ? (
+        <div
+          className={`mt-4 rounded-[18px] border px-4 py-3 text-sm font-black leading-6 ${statusClass}`}
+        >
+          {sendStatus.message}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => reply && navigator.clipboard?.writeText(reply)}
+          disabled={!reply}
+          className="rounded-[22px] border border-[#c7dff2] bg-white px-5 py-4 text-sm font-black text-[#276df6] shadow-sm transition hover:bg-[#f5fbff] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Copiar respuesta
+        </button>
+
+        <button
+          type="button"
+          onClick={onSendApprovedReply}
+          disabled={!canSend || sendingApprovedReply}
+          className="rounded-[22px] bg-gradient-to-r from-[#15bfd2] to-[#2578ee] px-5 py-4 text-sm font-black text-white shadow-[0_16px_30px_rgba(37,120,238,0.22)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {sendingApprovedReply
+            ? "Enviando..."
+            : "Enviar respuesta aprobada"}
+        </button>
+      </div>
+
+      <p className="mt-3 text-xs font-black leading-5 text-[#5d7088]">
+        Este botón envía el mensaje real por WhatsApp solo después de aprobación
+        manual.
+      </p>
     </div>
   );
 }
