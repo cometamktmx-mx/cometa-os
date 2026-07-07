@@ -155,12 +155,13 @@ function SalesAIInboxInner() {
   const [loading, setLoading] = useState(true);
   const [systemMessage, setSystemMessage] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
-const [searchTerm, setSearchTerm] = useState("");
-const [note, setNote] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [note, setNote] = useState("");
 
-const [sendingApprovedReply, setSendingApprovedReply] = useState(false);
-const [approvedSendStatus, setApprovedSendStatus] =
-  useState<SendStatus | null>(null);
+  const [sendingApprovedReply, setSendingApprovedReply] = useState(false);
+  const [approvedSendStatus, setApprovedSendStatus] =
+    useState<SendStatus | null>(null);
+  const [editableReply, setEditableReply] = useState("");
 
   const activeBrandSlug = brand.slug || requestedBrandSlug || "cometa-mkt";
   const brandQuery = `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
@@ -202,8 +203,11 @@ const [approvedSendStatus, setApprovedSendStatus] =
       }
 
       const nextBrand = normalizeBrand(data?.brand);
+
       const nextLeads = Array.isArray(data?.leads)
-        ? data.leads.map((lead: any, index: number) => normalizeLead(lead, index))
+        ? data.leads.map((lead: any, index: number) =>
+            normalizeLead(lead, index)
+          )
         : [];
 
       const rawMessages =
@@ -227,7 +231,9 @@ const [approvedSendStatus, setApprovedSendStatus] =
         [];
 
       const nextRuns = Array.isArray(rawRuns)
-        ? rawRuns.map((run: any, index: number) => normalizeAgentRun(run, index))
+        ? rawRuns.map((run: any, index: number) =>
+            normalizeAgentRun(run, index)
+          )
         : [];
 
       setBrand(nextBrand);
@@ -345,87 +351,100 @@ const [approvedSendStatus, setApprovedSendStatus] =
     );
   }, [agentRuns, selectedLead]);
 
+  const selectedSuggestedReply = useMemo(() => {
+    return getAgentReply(selectedRun, selectedLead);
+  }, [selectedRun, selectedLead]);
+
+  useEffect(() => {
+    setEditableReply(selectedSuggestedReply);
+    setApprovedSendStatus(null);
+  }, [selectedLead?.id, selectedSuggestedReply]);
+
   const safety = useMemo(() => {
     return deriveSafetyState(selectedRun, runtimeSettings, metrics);
   }, [selectedRun, runtimeSettings, metrics]);
 
   const displayMessages = useMemo(() => {
-    return buildDisplayMessages(selectedLead, selectedMessages, getAgentReply(selectedRun, selectedLead));
-  }, [selectedLead, selectedMessages, selectedRun]);
+    return buildDisplayMessages(
+      selectedLead,
+      selectedMessages,
+      selectedSuggestedReply
+    );
+  }, [selectedLead, selectedMessages, selectedSuggestedReply]);
 
   const sendApprovedReply = useCallback(async () => {
-  setApprovedSendStatus(null);
+    setApprovedSendStatus(null);
 
-  if (!selectedLead) {
-    setApprovedSendStatus({
-      type: "error",
-      message: "Selecciona una conversación antes de enviar.",
-    });
-    return;
-  }
-
-  const reply = getAgentReply(selectedRun, selectedLead).trim();
-
-  if (!reply) {
-    setApprovedSendStatus({
-      type: "error",
-      message: "No hay respuesta recomendada para enviar.",
-    });
-    return;
-  }
-
-  try {
-    setSendingApprovedReply(true);
-
-    const res = await fetch("/api/sales-ai/send-message", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        leadId: selectedLead.id,
-        brandName: brand.name,
-        brandSlug: brand.slug,
-        toPhone: selectedLead.phone,
-        messageText: reply,
-        approved: true,
-        approvedBy: "Cometa",
-        sendReason: "Respuesta aprobada manualmente desde SALES AI Inbox",
-      }),
-    });
-
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok || data?.ok === false) {
-      const reasons = Array.isArray(data?.reasons)
-        ? ` ${data.reasons.join(" · ")}`
-        : "";
-
+    if (!selectedLead) {
       setApprovedSendStatus({
-        type: data?.blocked ? "blocked" : "error",
-        message:
-          data?.error ||
-          `No se pudo enviar la respuesta aprobada.${reasons}`,
+        type: "error",
+        message: "Selecciona una conversación antes de enviar.",
       });
-
       return;
     }
 
-    setApprovedSendStatus({
-      type: "success",
-      message: "Respuesta enviada correctamente por WhatsApp.",
-    });
+    const reply = editableReply.trim();
 
-    await loadInbox();
-  } catch (error: any) {
-    setApprovedSendStatus({
-      type: "error",
-      message: error?.message || "Error enviando respuesta aprobada.",
-    });
-  } finally {
-    setSendingApprovedReply(false);
-  }
-}, [brand.name, brand.slug, loadInbox, selectedLead, selectedRun]);
+    if (!reply) {
+      setApprovedSendStatus({
+        type: "error",
+        message: "No hay respuesta para enviar.",
+      });
+      return;
+    }
+
+    try {
+      setSendingApprovedReply(true);
+
+      const res = await fetch("/api/sales-ai/send-message", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          leadId: selectedLead.id,
+          brandName: brand.name,
+          brandSlug: brand.slug,
+          toPhone: selectedLead.phone,
+          messageText: reply,
+          approved: true,
+          approvedBy: "Cometa",
+          sendReason: "Respuesta aprobada manualmente desde SALES AI Inbox",
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || data?.ok === false) {
+        const reasons = Array.isArray(data?.reasons)
+          ? ` ${data.reasons.join(" · ")}`
+          : "";
+
+        setApprovedSendStatus({
+          type: data?.blocked ? "blocked" : "error",
+          message:
+            data?.error ||
+            `No se pudo enviar la respuesta aprobada.${reasons}`,
+        });
+
+        return;
+      }
+
+      setApprovedSendStatus({
+        type: "success",
+        message: "Respuesta enviada correctamente por WhatsApp.",
+      });
+
+      await loadInbox();
+    } catch (error: any) {
+      setApprovedSendStatus({
+        type: "error",
+        message: error?.message || "Error enviando respuesta aprobada.",
+      });
+    } finally {
+      setSendingApprovedReply(false);
+    }
+  }, [brand.name, brand.slug, editableReply, loadInbox, selectedLead]);
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#eaf5fb] text-[#07142f]">
@@ -451,39 +470,42 @@ const [approvedSendStatus, setApprovedSendStatus] =
           <MetricRibbon metrics={metrics} loading={loading} />
 
           <section className="mt-8 space-y-8">
-  <InboxColumn
-    leads={filteredLeads}
-    totalLeads={leads.length}
-    metrics={metrics}
-    selectedLeadId={selectedLead?.id || ""}
-    filter={filter}
-    setFilter={setFilter}
-    searchTerm={searchTerm}
-    setSearchTerm={setSearchTerm}
-    loading={loading}
-    onSelect={setSelectedLeadId}
-  />
+            <InboxColumn
+              leads={filteredLeads}
+              totalLeads={leads.length}
+              metrics={metrics}
+              selectedLeadId={selectedLead?.id || ""}
+              filter={filter}
+              setFilter={setFilter}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              loading={loading}
+              onSelect={setSelectedLeadId}
+            />
 
-  <ChatColumn
-  brand={brand}
-  lead={selectedLead}
-  messages={displayMessages}
-  agentRun={selectedRun}
-  safety={safety}
-  note={note}
-  setNote={setNote}
-  onSendApprovedReply={sendApprovedReply}
-  sendingApprovedReply={sendingApprovedReply}
-  sendStatus={approvedSendStatus}
-/>
+            <ChatColumn
+              brand={brand}
+              lead={selectedLead}
+              messages={displayMessages}
+              agentRun={selectedRun}
+              safety={safety}
+              note={note}
+              setNote={setNote}
+              suggestedReply={selectedSuggestedReply}
+              editableReply={editableReply}
+              setEditableReply={setEditableReply}
+              onSendApprovedReply={sendApprovedReply}
+              sendingApprovedReply={sendingApprovedReply}
+              sendStatus={approvedSendStatus}
+            />
 
-  <IntelligenceColumn
-    lead={selectedLead}
-    agentRun={selectedRun}
-    safety={safety}
-    runtimeSettings={runtimeSettings}
-  />
-</section>
+            <IntelligenceColumn
+              lead={selectedLead}
+              agentRun={selectedRun}
+              safety={safety}
+              runtimeSettings={runtimeSettings}
+            />
+          </section>
 
           <section className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_520px]">
             <PipelinePanel leads={leads} />
@@ -528,7 +550,9 @@ const [approvedSendStatus, setApprovedSendStatus] =
 async function fetchRuntimeSettings(brandName: string) {
   try {
     const res = await fetch(
-      `/api/sales-ai/agent-settings?brandName=${encodeURIComponent(brandName)}`,
+      `/api/sales-ai/agent-settings?brandName=${encodeURIComponent(
+        brandName
+      )}`,
       {
         method: "GET",
         cache: "no-store",
@@ -620,7 +644,10 @@ function AppSidebar({
   return (
     <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[320px] overflow-hidden bg-[#071c3b] text-white shadow-[18px_0_42px_rgba(7,28,59,0.22)] lg:flex lg:flex-col">
       <div className="shrink-0 border-b border-white/10 px-6 py-7">
-        <Link href={`/sales-ai?${brandQuery}`} className="flex items-center gap-5">
+        <Link
+          href={`/sales-ai?${brandQuery}`}
+          className="flex items-center gap-5"
+        >
           <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/10 bg-white/8 p-3 shadow-inner">
             <img
               src="/logo.png"
@@ -742,7 +769,9 @@ function TopBar({
 
           <p className="mt-1 truncate text-sm font-black text-[#697790]">
             {brand.name} · {metrics.openLeads} conversaciones abiertas ·{" "}
-            {labelAgentMode(runtimeSettings?.agent_mode || metrics.automationMode)}
+            {labelAgentMode(
+              runtimeSettings?.agent_mode || metrics.automationMode
+            )}
           </p>
         </div>
 
@@ -750,7 +779,12 @@ function TopBar({
           <TopBadge
             label="WhatsApp"
             value={labelWhatsappStatus(runtimeSettings?.whatsapp_status)}
-            tone="amber"
+            tone={
+              String(runtimeSettings?.whatsapp_status || "").toLowerCase() ===
+              "connected"
+                ? "green"
+                : "amber"
+            }
           />
 
           <TopBadge
@@ -900,7 +934,9 @@ function MetricTile({
   return (
     <article className="rounded-[28px] border border-[#dceaf4] bg-white p-6 shadow-[0_18px_40px_rgba(8,21,53,0.05)]">
       <div className="flex items-start justify-between gap-4">
-        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${toneMap[tone].box}`}>
+        <div
+          className={`flex h-14 w-14 items-center justify-center rounded-2xl ${toneMap[tone].box}`}
+        >
           <Icon name={icon} className="h-7 w-7" />
         </div>
 
@@ -1096,6 +1132,9 @@ function ChatColumn({
   safety,
   note,
   setNote,
+  suggestedReply,
+  editableReply,
+  setEditableReply,
   onSendApprovedReply,
   sendingApprovedReply,
   sendStatus,
@@ -1107,12 +1146,13 @@ function ChatColumn({
   safety: SafetyState;
   note: string;
   setNote: (value: string) => void;
+  suggestedReply: string;
+  editableReply: string;
+  setEditableReply: (value: string) => void;
   onSendApprovedReply: () => void;
   sendingApprovedReply: boolean;
   sendStatus: SendStatus | null;
 }) {
-  const agentReply = getAgentReply(agentRun, lead);
-
   return (
     <section className="overflow-hidden rounded-[34px] border border-[#dceaf4] bg-white shadow-[0_18px_50px_rgba(8,21,53,0.06)]">
       <div className="border-b border-[#e5eef6] px-8 py-7">
@@ -1171,7 +1211,9 @@ function ChatColumn({
       <div className="border-t border-[#e5eef6] bg-white p-8">
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           <RecommendedReplyCard
-            reply={agentReply}
+            suggestedReply={suggestedReply}
+            editableReply={editableReply}
+            setEditableReply={setEditableReply}
             lead={lead}
             onSendApprovedReply={onSendApprovedReply}
             sendingApprovedReply={sendingApprovedReply}
@@ -1206,19 +1248,26 @@ function ChatColumn({
 }
 
 function RecommendedReplyCard({
-  reply,
+  suggestedReply,
+  editableReply,
+  setEditableReply,
   lead,
   onSendApprovedReply,
   sendingApprovedReply,
   sendStatus,
 }: {
-  reply: string;
+  suggestedReply: string;
+  editableReply: string;
+  setEditableReply: (value: string) => void;
   lead: SalesLead | null;
   onSendApprovedReply: () => void;
   sendingApprovedReply: boolean;
   sendStatus: SendStatus | null;
 }) {
-  const canSend = Boolean(lead?.id && reply?.trim());
+  const cleanEditableReply = editableReply.trim();
+  const cleanSuggestedReply = suggestedReply.trim();
+  const canSend = Boolean(lead?.id && cleanEditableReply);
+  const wasEdited = cleanEditableReply !== cleanSuggestedReply;
 
   const statusClass =
     sendStatus?.type === "success"
@@ -1230,20 +1279,46 @@ function RecommendedReplyCard({
   return (
     <div className="rounded-[26px] border border-[#c7ebf7] bg-[#eafbff] p-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-black uppercase tracking-[0.34em] text-[#276df6]">
-          Respuesta recomendada
-        </p>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.34em] text-[#276df6]">
+            Respuesta recomendada
+          </p>
+
+          <p className="mt-2 text-xs font-black text-[#5d7088]">
+            Edita el texto antes de enviarlo por WhatsApp real.
+          </p>
+        </div>
 
         <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-[#276df6]">
           IA
         </span>
       </div>
 
-      <div className="mt-4 rounded-[22px] border border-[#cfe2f6] bg-white p-5">
-        <p className="line-clamp-5 whitespace-pre-wrap break-words text-base font-black leading-8 text-[#07142f]">
-          {reply ||
-            "SALES AI todavía no tiene una respuesta sugerida para esta conversación."}
-        </p>
+      <div className="mt-4 rounded-[22px] border border-[#cfe2f6] bg-white p-4">
+        <textarea
+          value={editableReply}
+          onChange={(e) => setEditableReply(e.target.value)}
+          disabled={!lead || sendingApprovedReply}
+          rows={7}
+          placeholder="SALES AI todavía no tiene una respuesta sugerida para esta conversación."
+          className="min-h-[190px] w-full resize-none bg-transparent text-base font-black leading-8 text-[#07142f] outline-none placeholder:text-[#8da0b8] disabled:cursor-not-allowed disabled:opacity-70"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#eef4fa] pt-3">
+          <span className="text-xs font-black text-[#7b8ca3]">
+            {cleanEditableReply.length} caracteres
+          </span>
+
+          {wasEdited ? (
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+              Editada manualmente
+            </span>
+          ) : (
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-[#276df6]">
+              Sugerencia IA original
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -1260,14 +1335,25 @@ function RecommendedReplyCard({
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <button
           type="button"
-          onClick={() => reply && navigator.clipboard?.writeText(reply)}
-          disabled={!reply}
+          onClick={() =>
+            cleanEditableReply && navigator.clipboard?.writeText(editableReply)
+          }
+          disabled={!cleanEditableReply || sendingApprovedReply}
           className="rounded-[22px] border border-[#c7dff2] bg-white px-5 py-4 text-sm font-black text-[#276df6] shadow-sm transition hover:bg-[#f5fbff] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Copiar respuesta
+          Copiar
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setEditableReply(suggestedReply)}
+          disabled={!cleanSuggestedReply || sendingApprovedReply}
+          className="rounded-[22px] border border-[#c7dff2] bg-white px-5 py-4 text-sm font-black text-[#07142f] shadow-sm transition hover:bg-[#f5fbff] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Restaurar IA
         </button>
 
         <button
@@ -1276,15 +1362,13 @@ function RecommendedReplyCard({
           disabled={!canSend || sendingApprovedReply}
           className="rounded-[22px] bg-gradient-to-r from-[#15bfd2] to-[#2578ee] px-5 py-4 text-sm font-black text-white shadow-[0_16px_30px_rgba(37,120,238,0.22)] transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {sendingApprovedReply
-            ? "Enviando..."
-            : "Enviar respuesta aprobada"}
+          {sendingApprovedReply ? "Enviando..." : "Enviar"}
         </button>
       </div>
 
       <p className="mt-3 text-xs font-black leading-5 text-[#5d7088]">
         Este botón envía el mensaje real por WhatsApp solo después de aprobación
-        manual.
+        manual. El modo automático sigue apagado.
       </p>
     </div>
   );
@@ -1467,7 +1551,11 @@ function PipelinePanel({ leads }: { leads: SalesLead[] }) {
 
   const rows = [
     { label: "Nuevos", value: newCount, tone: "blue" as const },
-    { label: "Califica", value: Math.max(qualified + hot, 1), tone: "orange" as const },
+    {
+      label: "Califica",
+      value: Math.max(qualified + hot, 1),
+      tone: "orange" as const,
+    },
     { label: "Oportun.", value: hot, tone: "cyan" as const },
     { label: "Follow", value: follow, tone: "purple" as const },
     { label: "Cierre", value: close, tone: "green" as const },
@@ -1534,7 +1622,10 @@ function PipelineRow({
       </div>
 
       <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#edf3f8]">
-        <div className={`h-full rounded-full ${toneMap[tone]}`} style={{ width }} />
+        <div
+          className={`h-full rounded-full ${toneMap[tone]}`}
+          style={{ width }}
+        />
       </div>
     </div>
   );
@@ -1607,46 +1698,46 @@ function QuickCommandBar({
   ];
 
   return (
-  <section className="mt-5 overflow-hidden rounded-[34px] bg-gradient-to-r from-[#07142f] via-[#075674] to-[#17bfd2] p-7 text-white shadow-[0_22px_50px_rgba(8,169,198,0.22)]">
-    <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="min-w-0">
-        <p className="text-xs font-black uppercase tracking-[0.36em] text-[#41e5ff]">
-          Comandos rápidos con IA
-        </p>
+    <section className="mt-5 overflow-hidden rounded-[34px] bg-gradient-to-r from-[#07142f] via-[#075674] to-[#17bfd2] p-7 text-white shadow-[0_22px_50px_rgba(8,169,198,0.22)]">
+      <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.36em] text-[#41e5ff]">
+            Comandos rápidos con IA
+          </p>
 
-        <h2 className="mt-4 max-w-[340px] text-2xl font-black leading-tight xl:text-3xl">
-          Ejecuta acciones comerciales sin salir del inbox.
-        </h2>
-      </div>
+          <h2 className="mt-4 max-w-[340px] text-2xl font-black leading-tight xl:text-3xl">
+            Ejecuta acciones comerciales sin salir del inbox.
+          </h2>
+        </div>
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {commands.map((command) => (
-          <Link
-            key={command.label}
-            href={command.href}
-            className="group min-w-0 rounded-[24px] border border-white/14 bg-white/12 p-5 transition hover:bg-white/18"
-          >
-            <div className="flex h-full min-h-[150px] flex-col justify-between gap-5">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#2f6df6] shadow-[0_14px_28px_rgba(47,109,246,0.28)]">
-                <Icon name={command.icon} className="h-6 w-6" />
+        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {commands.map((command) => (
+            <Link
+              key={command.label}
+              href={command.href}
+              className="group min-w-0 rounded-[24px] border border-white/14 bg-white/12 p-5 transition hover:bg-white/18"
+            >
+              <div className="flex h-full min-h-[150px] flex-col justify-between gap-5">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#2f6df6] shadow-[0_14px_28px_rgba(47,109,246,0.28)]">
+                  <Icon name={command.icon} className="h-6 w-6" />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-xl font-black leading-tight text-white">
+                    {command.label}
+                  </p>
+
+                  <p className="mt-2 text-sm font-black leading-5 text-white/60">
+                    {command.text}
+                  </p>
+                </div>
               </div>
-
-              <div className="min-w-0">
-                <p className="text-xl font-black leading-tight text-white">
-                  {command.label}
-                </p>
-
-                <p className="mt-2 text-sm font-black leading-5 text-white/60">
-                  {command.text}
-                </p>
-              </div>
-            </div>
-          </Link>
-        ))}
+            </Link>
+          ))}
+        </div>
       </div>
-    </div>
-  </section>
-);
+    </section>
+  );
 }
 
 function MessageBubble({ message }: { message: SalesMessage }) {
@@ -1657,7 +1748,9 @@ function MessageBubble({ message }: { message: SalesMessage }) {
 
   return (
     <div className={`flex items-start gap-3 ${isOutbound ? "justify-end" : ""}`}>
-      {!isOutbound ? <Avatar name={message.sender || "Cliente"} size="sm" /> : null}
+      {!isOutbound ? (
+        <Avatar name={message.sender || "Cliente"} size="sm" />
+      ) : null}
 
       <div
         className={`max-w-[78%] rounded-[24px] px-5 py-4 shadow-sm ${
@@ -1711,7 +1804,9 @@ function IntelCard({
 
   return (
     <article className="rounded-[26px] border border-[#dceaf4] bg-white p-5">
-      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${toneMap[tone]}`}>
+      <div
+        className={`flex h-16 w-16 items-center justify-center rounded-2xl ${toneMap[tone]}`}
+      >
         <Icon name={icon} className="h-7 w-7" />
       </div>
 
@@ -1955,10 +2050,7 @@ function normalizeLead(lead: any, index: number): SalesLead {
       cleanText(lead?.budget_level) ||
       cleanText(lead?.budget_text) ||
       "No detectado",
-    city:
-      cleanText(lead?.city) ||
-      cleanText(lead?.location) ||
-      "No detectada",
+    city: cleanText(lead?.city) || cleanText(lead?.location) || "No detectada",
     isQualified,
     mainObjection:
       cleanText(lead?.mainObjection) ||
@@ -2048,7 +2140,8 @@ function normalizeMessage(message: any, index: number): SalesMessage {
 }
 
 function normalizeAgentRun(run: any, index: number): AgentRun {
-  const decision = run?.decision || run?.rawData?.decision || run?.raw_data?.decision || {};
+  const decision =
+    run?.decision || run?.rawData?.decision || run?.raw_data?.decision || {};
 
   return {
     id: String(run?.id || run?.run_id || `run-${index}`),
@@ -2118,7 +2211,9 @@ function normalizeAgentRun(run: any, index: number): AgentRun {
 function normalizeMetrics(raw: any, leads: SalesLead[]): InboxMetrics {
   const openLeads = Number(raw?.openLeads ?? raw?.open_leads ?? leads.length);
   const hotLeads = Number(
-    raw?.hotLeads ?? raw?.hot_leads ?? leads.filter((lead) => isHotLead(lead)).length
+    raw?.hotLeads ??
+      raw?.hot_leads ??
+      leads.filter((lead) => isHotLead(lead)).length
   );
   const qualified = Number(
     raw?.qualified ??
@@ -2206,24 +2301,31 @@ function deriveSafetyState(
     agentRun?.agentMode ||
     String(metrics.automationMode || "observation").toLowerCase();
 
-  const whatsappStatus = runtimeSettings?.whatsapp_status || "connection_requested";
+  const normalizedMode = String(mode || "observation").toLowerCase();
+  const whatsappStatus =
+    runtimeSettings?.whatsapp_status || "connection_requested";
+
+  const normalizedWhatsappStatus = String(whatsappStatus).toLowerCase();
 
   const reasons: string[] = [];
 
-  if (String(mode).toLowerCase() !== "automatic") {
+  if (normalizedMode !== "supervised" && normalizedMode !== "automatic") {
     reasons.push("Modo de agente en observación");
   }
 
-  if (String(whatsappStatus).toLowerCase() !== "connected") {
+  if (normalizedWhatsappStatus !== "connected") {
     reasons.push(`WhatsApp: ${labelWhatsappStatus(whatsappStatus)}`);
-  }
-
-  if (runtimeSettings?.auto_reply_enabled !== true) {
-    reasons.push("Auto reply desactivado");
   }
 
   if (runtimeSettings?.send_whatsapp_enabled !== true) {
     reasons.push("Envío real por WhatsApp desactivado");
+  }
+
+  if (
+    normalizedMode === "automatic" &&
+    runtimeSettings?.auto_reply_enabled !== true
+  ) {
+    reasons.push("Auto reply desactivado");
   }
 
   const actionStatus = String(agentRun?.actionStatus || "").toLowerCase();
@@ -2243,6 +2345,30 @@ function deriveSafetyState(
       label: "Protegido por candados",
       tone: "blocked",
       reasons,
+      mode,
+      whatsappStatus,
+    };
+  }
+
+  if (normalizedMode === "supervised") {
+    return {
+      label: "Modo supervisado listo",
+      tone: "safe",
+      reasons: [
+        "El agente puede enviar WhatsApp real solo cuando una persona aprueba la respuesta.",
+      ],
+      mode,
+      whatsappStatus,
+    };
+  }
+
+  if (normalizedMode === "automatic") {
+    return {
+      label: "Automatización lista",
+      tone: "safe",
+      reasons: [
+        "El sistema está configurado para respuestas automáticas con candados activos.",
+      ],
       mode,
       whatsappStatus,
     };
@@ -2607,8 +2733,18 @@ function Icon({
   if (name === "sliders") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M4 7h10M18 7h2M4 17h2M10 17h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        <path d="M16 5v4M8 15v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M4 7h10M18 7h2M4 17h2M10 17h10"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <path
+          d="M16 5v4M8 15v4"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -2616,7 +2752,12 @@ function Icon({
   if (name === "search") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="m21 21-4.3-4.3M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="m21 21-4.3-4.3M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -2624,7 +2765,12 @@ function Icon({
   if (name === "star") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.9L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <path
+          d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.9L12 3Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
       </svg>
     );
   }
@@ -2632,8 +2778,18 @@ function Icon({
   if (name === "tag") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M20 13 13 20 4 11V4h7l9 9Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-        <path d="M8 8h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+        <path
+          d="M20 13 13 20 4 11V4h7l9 9Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8 8h.01"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -2641,7 +2797,12 @@ function Icon({
   if (name === "dots") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M5 12h.01M12 12h.01M19 12h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+        <path
+          d="M5 12h.01M12 12h.01M19 12h.01"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -2649,7 +2810,13 @@ function Icon({
   if (name === "send") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <path
+          d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
@@ -2671,7 +2838,11 @@ function Icon({
   if (name === "shield") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
       </svg>
     );
   }
@@ -2679,15 +2850,30 @@ function Icon({
   if (name === "file") {
     return (
       <svg viewBox="0 0 24 24" fill="none" className={className}>
-        <path d="M7 3h7l5 5v13H7V3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-        <path d="M14 3v6h5M10 13h6M10 17h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path
+          d="M7 3h7l5 5v13H7V3Z"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M14 3v6h5M10 13h6M10 17h6"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
       </svg>
     );
   }
 
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M7 3v4M17 3v4M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M7 3v4M17 3v4M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
