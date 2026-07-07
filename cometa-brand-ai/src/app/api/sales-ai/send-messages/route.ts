@@ -2,8 +2,8 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
-  canSendRealWhatsapp,
-  explainWhatsappSendLock,
+  canSendApprovedWhatsapp,
+  explainApprovedWhatsappSendLock,
   getSalesAiRuntimeSettings,
 } from "@/lib/sales-ai-runtime-settings";
 
@@ -127,9 +127,9 @@ export async function POST(request: NextRequest) {
     const envAllowsWhatsappSend =
       process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
 
-    const settingsAllowWhatsappSend = canSendRealWhatsapp(runtimeSettings);
+    const settingsAllowWhatsappSend = canSendApprovedWhatsapp(runtimeSettings);
 
-    const lockReasons = explainWhatsappSendLock(runtimeSettings);
+const lockReasons = explainApprovedWhatsappSendLock(runtimeSettings);
 
     if (!envAllowsWhatsappSend || !settingsAllowWhatsappSend) {
       const blockedReason = [

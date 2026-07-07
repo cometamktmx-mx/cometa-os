@@ -1,6 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
-export type SalesAiAgentMode = "observation" | "automatic" | "paused";
+export type SalesAiAgentMode =
+  | "observation"
+  | "supervised"
+  | "automatic"
+  | "paused";
 
 export type SalesAiRuntimeSettings = {
   brand_name: string;
@@ -69,6 +73,7 @@ export function normalizeSalesAiAgentMode(
   const mode = String(value || "observation").trim().toLowerCase();
 
   if (mode === "automatic") return "automatic";
+  if (mode === "supervised") return "supervised";
   if (mode === "paused") return "paused";
 
   return "observation";
@@ -164,16 +169,35 @@ export function resolveSalesAiAgentMode(
   const settingsMode = normalizeSalesAiAgentMode(settings.agent_mode);
 
   if (settingsMode === "automatic") return "automatic";
+  if (settingsMode === "supervised") return "supervised";
   if (settingsMode === "paused") return "paused";
 
   return normalizeSalesAiAgentMode(fallback || "observation");
 }
 
+/**
+ * Uso exclusivo para respuestas automáticas.
+ * Esta función exige auto_reply_enabled=true para evitar envíos sin aprobación.
+ */
 export function canSendRealWhatsapp(settings: SalesAiRuntimeSettings) {
   return (
     normalizeSalesAiAgentMode(settings.agent_mode) === "automatic" &&
     settings.whatsapp_status === "connected" &&
     settings.auto_reply_enabled === true &&
+    settings.send_whatsapp_enabled === true
+  );
+}
+
+/**
+ * Uso para respuestas aprobadas manualmente desde el Inbox.
+ * Permite modo supervised sin activar auto_reply_enabled.
+ */
+export function canSendApprovedWhatsapp(settings: SalesAiRuntimeSettings) {
+  const agentMode = normalizeSalesAiAgentMode(settings.agent_mode);
+
+  return (
+    (agentMode === "supervised" || agentMode === "automatic") &&
+    settings.whatsapp_status === "connected" &&
     settings.send_whatsapp_enabled === true
   );
 }
@@ -200,6 +224,28 @@ export function explainWhatsappSendLock(settings: SalesAiRuntimeSettings) {
 
   if (settings.auto_reply_enabled !== true) {
     reasons.push("auto_reply_enabled=false");
+  }
+
+  if (settings.send_whatsapp_enabled !== true) {
+    reasons.push("send_whatsapp_enabled=false");
+  }
+
+  return reasons;
+}
+
+export function explainApprovedWhatsappSendLock(
+  settings: SalesAiRuntimeSettings
+) {
+  const reasons: string[] = [];
+
+  const agentMode = normalizeSalesAiAgentMode(settings.agent_mode);
+
+  if (agentMode !== "supervised" && agentMode !== "automatic") {
+    reasons.push(`agent_mode=${agentMode}`);
+  }
+
+  if (settings.whatsapp_status !== "connected") {
+    reasons.push(`whatsapp_status=${settings.whatsapp_status}`);
   }
 
   if (settings.send_whatsapp_enabled !== true) {
