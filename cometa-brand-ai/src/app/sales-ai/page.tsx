@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -97,6 +99,14 @@ export default function SalesAIPage() {
 
   const [isInternalMode, setIsInternalMode] = useState(false);
 
+  const activeBrandSlug = useMemo(() => {
+    return toBrandSlug(brandName || "Cometa Mkt");
+  }, [brandName]);
+
+  const brandQuery = useMemo(() => {
+    return `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
+  }, [activeBrandSlug]);
+
   const loadLeads = useCallback(async () => {
     setLoadingLeads(true);
 
@@ -108,14 +118,15 @@ export default function SalesAIPage() {
       const data = await res.json();
 
       if (data.ok) {
-        const nextLeads = data.leads || [];
+        const nextLeads: SalesLead[] = Array.isArray(data.leads)
+          ? data.leads
+          : [];
+
         setLeads(nextLeads);
 
         setSelectedLead((current) => {
           if (current) {
-            const stillExists = nextLeads.find(
-              (lead: SalesLead) => lead.id === current.id
-            );
+            const stillExists = nextLeads.find((lead) => lead.id === current.id);
 
             if (stillExists) return stillExists;
           }
@@ -351,7 +362,11 @@ export default function SalesAIPage() {
   return (
     <main className="min-h-screen bg-[#f7fafc] text-[#0b1836]">
       <div className="flex min-h-screen">
-        <LeftRail />
+        <LeftRail
+          brandName={brandName}
+          isInternalMode={isInternalMode}
+          leadCount={stats.total}
+        />
 
         <div className="flex-1 px-5 py-6 lg:px-8 xl:px-10">
           <div className="mx-auto max-w-[1680px]">
@@ -367,24 +382,26 @@ export default function SalesAIPage() {
                 </h1>
 
                 <p className="mt-4 max-w-3xl text-lg leading-relaxed text-[#52617a]">
-                  Agente 24/7 para atender, calificar, responder, dar seguimiento
-                  y detectar oportunidades reales de venta en WhatsApp.
+                  Agente 24/7 para atender, calificar, responder, dar
+                  seguimiento y detectar oportunidades reales de venta en
+                  WhatsApp.
                 </p>
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-  <Link
-    href="/sales-ai/inbox"
-    className="inline-flex items-center justify-center rounded-2xl bg-[#08a9c6] px-5 py-3 text-sm font-black text-white shadow-[0_12px_28px_rgba(8,169,198,0.22)] transition hover:bg-[#0598b5]"
-  >
-    Abrir Inbox de ventas →
-  </Link>
 
-  <Link
-    href="/sales-ai?admin=1"
-    className="inline-flex items-center justify-center rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
-  >
-    Modo interno
-  </Link>
-</div>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link
+                    href={`/sales-ai/inbox?${brandQuery}`}
+                    className="inline-flex items-center justify-center rounded-2xl bg-[#08a9c6] px-5 py-3 text-sm font-black text-white shadow-[0_12px_28px_rgba(8,169,198,0.22)] transition hover:bg-[#0598b5]"
+                  >
+                    Abrir Inbox de ventas →
+                  </Link>
+
+                  <Link
+                    href={`/sales-ai?${brandQuery}&admin=1`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
+                  >
+                    Modo interno
+                  </Link>
+                </div>
               </div>
 
               <BrandCard
@@ -438,16 +455,19 @@ export default function SalesAIPage() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <Icon name="pipeline" className="h-5 w-5 text-[#10aeca]" />
+                        <Icon
+                          name="pipeline"
+                          className="h-5 w-5 text-[#10aeca]"
+                        />
                         <p className="text-xs font-black tracking-wide text-[#0b9fbd]">
                           PIPELINE AUTOMÁTICO
                         </p>
                       </div>
 
                       <p className="mt-2 text-sm leading-relaxed text-[#60708a]">
-                        Estas etapas no se operan manualmente. SALES AI clasifica
-                        los prospectos según intención, objeción, etapa y
-                        probabilidad de cierre.
+                        Estas etapas no se operan manualmente. SALES AI
+                        clasifica los prospectos según intención, objeción,
+                        etapa y probabilidad de cierre.
                       </p>
                     </div>
 
@@ -530,49 +550,215 @@ export default function SalesAIPage() {
   );
 }
 
-function LeftRail() {
-  return (
-    <aside className="sticky top-0 hidden h-screen w-[74px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white py-6 shadow-[8px_0_28px_rgba(15,23,42,0.03)] lg:flex">
-      <div className="mb-7 flex h-10 w-10 items-center justify-center rounded-2xl text-[#13bdd7]">
-        <Icon name="planet" className="h-9 w-9" />
-      </div>
-
-      <nav className="flex flex-1 flex-col items-center gap-4">
-        <RailButton active icon="home" />
-        <RailButton icon="users" />
-        <RailButton icon="chat" />
-        <RailButton icon="chart" />
-        <RailButton icon="settings" />
-        <RailButton icon="flask" />
-      </nav>
-
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#e9fbff] text-sm font-black text-[#0b1836] ring-1 ring-[#cdeff7]">
-        N
-        <span className="ml-[-3px] mt-6 h-2.5 w-2.5 rounded-full bg-[#22c55e] ring-2 ring-white" />
-      </div>
-
-      <div className="text-xl text-[#91a1b8]">»</div>
-    </aside>
-  );
-}
-
-function RailButton({
-  icon,
-  active,
+function LeftRail({
+  brandName,
+  isInternalMode,
+  leadCount,
 }: {
-  icon: IconName;
-  active?: boolean;
+  brandName: string;
+  isInternalMode: boolean;
+  leadCount: number;
 }) {
+  const pathname = usePathname();
+  const brandSlug = toBrandSlug(brandName || "Cometa Mkt");
+  const brandQuery = `brandSlug=${encodeURIComponent(brandSlug)}`;
+
+  const navItems: {
+    label: string;
+    helper: string;
+    href: string;
+    match: string;
+    exact?: boolean;
+    icon: IconName;
+    badge?: string;
+  }[] = [
+    {
+      label: "Sales AI",
+      helper: "Dashboard",
+      href: `/sales-ai?${brandQuery}`,
+      match: "/sales-ai",
+      exact: true,
+      icon: "home",
+    },
+    {
+      label: "Inbox",
+      helper: "Conversaciones",
+      href: `/sales-ai/inbox?${brandQuery}`,
+      match: "/sales-ai/inbox",
+      icon: "chat",
+      badge: String(leadCount || 0),
+    },
+    {
+      label: "Conexión",
+      helper: "WhatsApp",
+      href: `/sales-ai/connect?${brandQuery}`,
+      match: "/sales-ai/connect",
+      icon: "pipeline",
+    },
+    {
+      label: "Knowledge",
+      helper: "Memoria comercial",
+      href: `/sales-ai/knowledge?${brandQuery}`,
+      match: "/sales-ai/knowledge",
+      icon: "inbox",
+    },
+    {
+      label: "Learning",
+      helper: "Mejoras IA",
+      href: `/sales-ai/learning?${brandQuery}`,
+      match: "/sales-ai/learning",
+      icon: "flask",
+    },
+    {
+      label: "Configuración",
+      helper: "Agente",
+      href: `/sales-ai/agent-settings?brandName=${encodeURIComponent(
+        brandName || "Cometa Mkt"
+      )}`,
+      match: "/sales-ai/agent-settings",
+      icon: "settings",
+    },
+  ];
+
   return (
-    <button
-      className={`flex h-12 w-12 items-center justify-center rounded-2xl transition ${
-        active
-          ? "bg-[#ecfbff] text-[#0faccc] shadow-sm ring-1 ring-[#d8f3f8]"
-          : "text-[#728199] hover:bg-[#f3f7fb] hover:text-[#0faccc]"
-      }`}
-    >
-      <Icon name={icon} className="h-5 w-5" />
-    </button>
+    <aside className="sticky top-0 z-30 hidden h-screen w-[300px] shrink-0 overflow-hidden border-r border-[#12345d] bg-[#071b3a] text-white shadow-[12px_0_34px_rgba(7,27,58,0.16)] lg:flex lg:flex-col">
+      <div className="relative flex min-h-[178px] items-center gap-5 border-b border-white/10 px-6">
+        <div className="flex h-[74px] w-[74px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] border border-white/10 bg-white/10 shadow-[0_16px_34px_rgba(0,0,0,0.18)]">
+          <Image
+            src="/logo.png"
+            alt="Cometa OS"
+            width={64}
+            height={64}
+            priority
+            className="h-[58px] w-[58px] object-contain"
+          />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-[34px] font-black uppercase leading-[0.9] tracking-tight">
+            COMETA
+            <br />
+            OS
+          </p>
+          <p className="mt-3 text-sm font-black uppercase tracking-[0.42em] text-[#38dff7]">
+            SALES AI
+          </p>
+        </div>
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#38dff7]/40 to-transparent" />
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-5 pb-3 pt-7">
+          <p className="px-1 text-xs font-black uppercase tracking-[0.38em] text-white/46">
+            Operación
+          </p>
+        </div>
+
+        <nav className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-5">
+          {navItems.map((item) => {
+            const active = item.exact
+              ? pathname === item.match
+              : pathname.startsWith(item.match);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`group flex min-h-[82px] items-center gap-4 rounded-[24px] px-4 transition ${
+                  active
+                    ? "bg-gradient-to-r from-[#14bdd4] to-[#2f6df6] text-white shadow-[0_18px_40px_rgba(20,189,212,0.26)]"
+                    : "bg-white/[0.055] text-white/82 hover:bg-white/[0.095] hover:text-white"
+                }`}
+              >
+                <div
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${
+                    active
+                      ? "bg-white/16 text-white"
+                      : "bg-white/8 text-[#7deeff] group-hover:bg-white/12"
+                  }`}
+                >
+                  <Icon name={item.icon} className="h-5 w-5" />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-base font-black leading-tight">
+                      {item.label}
+                    </p>
+
+                    {item.badge ? (
+                      <span
+                        className={`ml-auto flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-black ${
+                          active
+                            ? "bg-white/16 text-white"
+                            : "bg-[#2563eb] text-white"
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p
+                    className={`mt-1 truncate text-xs font-black ${
+                      active ? "text-white/72" : "text-white/46"
+                    }`}
+                  >
+                    {item.helper}
+                  </p>
+                </div>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="border-t border-white/10 p-4">
+        <div className="rounded-[24px] border border-white/10 bg-white/[0.065] p-4 shadow-[0_18px_36px_rgba(0,0,0,0.16)]">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white">
+              <Image
+                src="/logo.png"
+                alt="Cometa OS"
+                width={48}
+                height={48}
+                className="h-11 w-11 object-contain"
+              />
+              <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#22c55e]" />
+            </div>
+
+            <div className="min-w-0">
+              <p className="truncate text-base font-black text-white">
+                {brandName || "Cometa Mkt"}
+              </p>
+              <p className="truncate text-xs font-black text-white/50">
+                Workspace activo
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#04142c] px-4 py-3">
+            <span className="text-xs font-black text-white/52">Sistema</span>
+            <span className="inline-flex items-center gap-2 text-xs font-black text-[#38f59b]">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#38f59b]" />
+              Online
+            </span>
+          </div>
+
+          <Link
+            href={
+              isInternalMode
+                ? `/sales-ai?${brandQuery}&admin=0`
+                : `/sales-ai?${brandQuery}&admin=1`
+            }
+            className="mt-3 flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-xs font-black text-white/76 transition hover:bg-white/[0.1] hover:text-white"
+          >
+            {isInternalMode ? "Salir de modo interno" : "Modo interno"}
+          </Link>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -597,11 +783,15 @@ function BrandCard({
           />
         </div>
 
-        {isInternalMode && (
-          <span className="rounded-full bg-[#fff7dc] px-3 py-1 text-[11px] font-black text-[#9a7200]">
-            ADMIN
-          </span>
-        )}
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[#e1eaf3] bg-white shadow-sm">
+          <Image
+            src="/logo.png"
+            alt="Cometa OS"
+            width={42}
+            height={42}
+            className="h-10 w-10 object-contain"
+          />
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -858,10 +1048,15 @@ function LeadDetailPanel({
             : "SALES AI registra cada decisión comercial, respuesta y seguimiento para que el equipo pueda supervisar la atención sin operar manualmente cada conversación."}
         </InfoCard>
 
-        <button className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#324159] transition hover:bg-[#f8fbff]">
+        <Link
+          href={`/sales-ai/inbox?brandSlug=${encodeURIComponent(
+            toBrandSlug(lead.brand_name || "Cometa Mkt")
+          )}`}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#324159] transition hover:bg-[#f8fbff]"
+        >
           <Icon name="chat" className="h-4 w-4" />
           Ver conversación completa
-        </button>
+        </Link>
       </div>
     </aside>
   );
@@ -1485,6 +1680,16 @@ function getInitials(name?: string | null) {
   }
 
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function toBrandSlug(value: string) {
+  return String(value || "cometa-mkt")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function formatDate(date?: string) {
