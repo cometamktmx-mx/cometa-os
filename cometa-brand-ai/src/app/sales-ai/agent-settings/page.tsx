@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 
@@ -146,6 +146,32 @@ const days: { key: DayKey; label: string; short: string }[] = [
 ];
 
 export default function SalesAIAgentSettingsPage() {
+  return (
+    <Suspense fallback={<AgentSettingsLoading />}>
+      <SalesAIAgentSettingsPageInner />
+    </Suspense>
+  );
+}
+
+function AgentSettingsLoading() {
+  return (
+    <main className="min-h-screen bg-[#f7fafc] px-6 py-10 text-[#081535]">
+      <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center">
+        <div className="rounded-[28px] border border-[#dfe8f3] bg-white p-8 text-center shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-[#dfe8f3] border-t-[#08a9c6]" />
+          <h1 className="mt-5 text-2xl font-black text-[#081535]">
+            Cargando configuración del agente
+          </h1>
+          <p className="mt-2 text-sm font-bold text-[#60708a]">
+            Preparando SALES AI...
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function SalesAIAgentSettingsPageInner() {
   const searchParams = useSearchParams();
 
 const urlBrandName = searchParams.get("brandName") || "";
