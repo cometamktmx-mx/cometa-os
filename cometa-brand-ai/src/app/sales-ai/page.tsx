@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -76,7 +77,41 @@ type PipelineColumn = {
 };
 
 export default function SalesAIPage() {
-  const [brandName, setBrandName] = useState("Cometa Mkt");
+  return (
+    <Suspense fallback={<SalesAILoading />}>
+      <SalesAIPageInner />
+    </Suspense>
+  );
+}
+
+function SalesAILoading() {
+  return (
+    <main className="min-h-screen bg-[#f7fafc] px-6 py-10 text-[#0b1836]">
+      <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center">
+        <div className="rounded-[28px] border border-[#dfe8f3] bg-white p-8 text-center shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-[#dfe8f3] border-t-[#08a9c6]" />
+          <h1 className="mt-5 text-2xl font-black text-[#0b1836]">
+            Cargando SALES AI
+          </h1>
+          <p className="mt-2 text-sm font-bold text-[#60708a]">
+            Preparando dashboard comercial...
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function SalesAIPageInner() {
+  const searchParams = useSearchParams();
+
+  const urlBrandName = searchParams.get("brandName") || "";
+  const urlBrandSlug = searchParams.get("brandSlug") || "";
+
+  const initialBrandName =
+    urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+
+  const [brandName, setBrandName] = useState(initialBrandName);
 
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
@@ -99,9 +134,16 @@ export default function SalesAIPage() {
 
   const [isInternalMode, setIsInternalMode] = useState(false);
 
+  useEffect(() => {
+    const nextBrandName =
+      urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+
+    setBrandName(nextBrandName);
+  }, [urlBrandName, urlBrandSlug]);
+
   const activeBrandSlug = useMemo(() => {
-    return toBrandSlug(brandName || "Cometa Mkt");
-  }, [brandName]);
+    return urlBrandSlug || toBrandSlug(brandName || "Cometa Mkt");
+  }, [brandName, urlBrandSlug]);
 
   const brandQuery = useMemo(() => {
     return `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
@@ -111,9 +153,14 @@ export default function SalesAIPage() {
     setLoadingLeads(true);
 
     try {
-      const res = await fetch(
-        `/api/sales-ai/leads?brandName=${encodeURIComponent(brandName)}`
-      );
+      const params = new URLSearchParams();
+      params.set("brandName", brandName);
+      params.set("brandSlug", activeBrandSlug);
+
+      const res = await fetch(`/api/sales-ai/leads?${params.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
 
       const data = await res.json();
 
@@ -139,7 +186,7 @@ export default function SalesAIPage() {
     } finally {
       setLoadingLeads(false);
     }
-  }, [brandName]);
+  }, [brandName, activeBrandSlug]);
 
   useEffect(() => {
     loadLeads();
@@ -185,6 +232,7 @@ export default function SalesAIPage() {
         },
         body: JSON.stringify({
           brandName,
+          brandSlug: activeBrandSlug,
           contactName: finalContactName,
           contactPhone: finalContactPhone,
           incomingMessage: conversationText,
@@ -249,6 +297,7 @@ export default function SalesAIPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          brandName,
           force: true,
           limit: 10,
           mode: "simulation",
@@ -364,6 +413,7 @@ export default function SalesAIPage() {
       <div className="flex min-h-screen">
         <LeftRail
           brandName={brandName}
+          brandSlug={activeBrandSlug}
           isInternalMode={isInternalMode}
           leadCount={stats.total}
         />
@@ -386,6 +436,11 @@ export default function SalesAIPage() {
                   seguimiento y detectar oportunidades reales de venta en
                   WhatsApp.
                 </p>
+
+                <div className="mt-3 rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#324159] shadow-sm">
+                  Marca activa:{" "}
+                  <span className="text-[#08a9c6]">{brandName}</span>
+                </div>
 
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <Link
@@ -540,6 +595,7 @@ export default function SalesAIPage() {
 
               <LeadDetailPanel
                 lead={selectedLead}
+                brandSlug={activeBrandSlug}
                 isInternalMode={isInternalMode}
               />
             </section>
@@ -552,16 +608,18 @@ export default function SalesAIPage() {
 
 function LeftRail({
   brandName,
+  brandSlug,
   isInternalMode,
   leadCount,
 }: {
   brandName: string;
+  brandSlug: string;
   isInternalMode: boolean;
   leadCount: number;
 }) {
   const pathname = usePathname();
-  const brandSlug = toBrandSlug(brandName || "Cometa Mkt");
-  const brandQuery = `brandSlug=${encodeURIComponent(brandSlug)}`;
+  const safeBrandSlug = brandSlug || toBrandSlug(brandName || "Cometa Mkt");
+  const brandQuery = `brandSlug=${encodeURIComponent(safeBrandSlug)}`;
 
   const navItems: {
     label: string;
@@ -612,9 +670,7 @@ function LeftRail({
     {
       label: "Configuración",
       helper: "Agente",
-      href: `/sales-ai/agent-settings?brandName=${encodeURIComponent(
-        brandName || "Cometa Mkt"
-      )}`,
+      href: `/sales-ai/agent-settings?${brandQuery}`,
       match: "/sales-ai/agent-settings",
       icon: "settings",
     },
@@ -778,8 +834,13 @@ function BrandCard({
           <p className="text-sm font-semibold text-[#76849a]">Marca activa</p>
           <input
             value={brandName}
-            onChange={(e) => setBrandName(e.target.value)}
-            className="mt-2 w-full bg-transparent text-2xl font-black text-[#0b1836] outline-none"
+            readOnly={!isInternalMode}
+            onChange={(e) => {
+              if (isInternalMode) setBrandName(e.target.value);
+            }}
+            className={`mt-2 w-full bg-transparent text-2xl font-black text-[#0b1836] outline-none ${
+              isInternalMode ? "" : "cursor-default"
+            }`}
           />
         </div>
 
@@ -969,9 +1030,11 @@ function PipelineColumnCard({
 
 function LeadDetailPanel({
   lead,
+  brandSlug,
   isInternalMode,
 }: {
   lead: SalesLead | null;
+  brandSlug: string;
   isInternalMode: boolean;
 }) {
   if (!lead) {
@@ -1049,9 +1112,7 @@ function LeadDetailPanel({
         </InfoCard>
 
         <Link
-          href={`/sales-ai/inbox?brandSlug=${encodeURIComponent(
-            toBrandSlug(lead.brand_name || "Cometa Mkt")
-          )}`}
+          href={`/sales-ai/inbox?brandSlug=${encodeURIComponent(brandSlug)}`}
           className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#324159] transition hover:bg-[#f8fbff]"
         >
           <Icon name="chat" className="h-4 w-4" />
@@ -1690,6 +1751,24 @@ function toBrandSlug(value: string) {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatBrandNameFromSlug(slug: string) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLowerCase();
+
+      if (lower === "mkt") return "Mkt";
+      if (lower === "ai") return "AI";
+      if (lower === "os") return "OS";
+      if (lower === "lr") return "LR";
+
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ")
+    .trim();
 }
 
 function formatDate(date?: string) {
