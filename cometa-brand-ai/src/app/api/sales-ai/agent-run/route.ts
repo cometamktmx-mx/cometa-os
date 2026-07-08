@@ -280,6 +280,39 @@ function getSafeRuntimeSnapshot(runtimeSettings: any) {
   };
 }
 
+function buildFallbackFollowUpMessage({
+  decision,
+}: {
+  decision: any;
+}) {
+  const action = String(decision?.action || "");
+  const stage = String(decision?.lead_stage || "");
+
+  if (!["send_reply", "schedule_followup"].includes(action)) {
+    return null;
+  }
+
+  if (decision?.requires_human === true) {
+    return null;
+  }
+
+  if (isTerminalOrHumanStage(stage)) {
+    return null;
+  }
+
+  const missingInfo = Array.isArray(decision?.detected_missing_info)
+    ? decision.detected_missing_info
+        .map((item: any) => String(item || "").trim())
+        .find(Boolean)
+    : "";
+
+  if (missingInfo) {
+    return `Hola, solo para dar seguimiento. ¿Me puedes compartir ${missingInfo} para orientarte mejor?`;
+  }
+
+  return "Hola, solo para dar seguimiento. ¿Te gustaría que avancemos con más información o prefieres que te ayude a resolver alguna duda específica?";
+}
+
 async function validateLeadBelongsToBrand(leadId: string, brandName: string) {
   try {
     const { data, error } = await supabase
@@ -691,19 +724,40 @@ Devuelve únicamente JSON válido.
 
     const normalizedDecision = normalizeDecision(decision, finalAgentMode);
 
-    const effectiveFollowUpDelayMinutes =
-      normalizedDecision.follow_up_message &&
-      Number(normalizedDecision.follow_up_delay_minutes || 0) > 0
-        ? Number(normalizedDecision.follow_up_delay_minutes)
-        : normalizedDecision.follow_up_message
-        ? Number(runtimeSettings.first_followup_delay_minutes || 1440)
-        : 0;
+const fallbackFollowUpMessage = buildFallbackFollowUpMessage({
+  decision: normalizedDecision,
+});
 
-    normalizedDecision.follow_up_delay_minutes = effectiveFollowUpDelayMinutes;
+const plannedFollowUpMessage =
+  normalizedDecision.follow_up_message || fallbackFollowUpMessage;
 
-    const nextFollowUpAt = followupsAllowedBySettings
-      ? getNextFollowUpAt(effectiveFollowUpDelayMinutes)
-      : null;
+const shouldPlanFollowUpCandidate =
+  followupsAllowedBySettings &&
+  finalAgentMode !== "paused" &&
+  Boolean(plannedFollowUpMessage) &&
+  normalizedDecision.requires_human !== true &&
+  ["send_reply", "schedule_followup"].includes(normalizedDecision.action) &&
+  !isTerminalOrHumanStage(normalizedDecision.lead_stage);
+
+const effectiveFollowUpDelayMinutes = shouldPlanFollowUpCandidate
+  ? clampNumber(
+      normalizedDecision.follow_up_delay_minutes ||
+        runtimeSettings.first_followup_delay_minutes ||
+        1440,
+      1,
+      10080
+    )
+  : 0;
+
+normalizedDecision.follow_up_message = shouldPlanFollowUpCandidate
+  ? plannedFollowUpMessage
+  : normalizedDecision.follow_up_message;
+
+normalizedDecision.follow_up_delay_minutes = effectiveFollowUpDelayMinutes;
+
+const nextFollowUpAt = shouldPlanFollowUpCandidate
+  ? getNextFollowUpAt(effectiveFollowUpDelayMinutes)
+  : null;
 
     const canPrepareRealSend =
       finalAgentMode === "automatic" &&
@@ -881,18 +935,20 @@ Devuelve únicamente JSON válido.
     }
 
     const existingFollowupsCount = await getExistingFollowupCount(finalLeadId);
-    const maxFollowups = Number(runtimeSettings.max_followups || 3);
+const existingPendingFollowupsCount =
+  await getExistingPendingFollowupCount(finalLeadId);
 
-    const shouldCreateFollowUp =
-      followupsAllowedBySettings &&
-      finalAgentMode !== "paused" &&
-      existingFollowupsCount < maxFollowups &&
-      Boolean(normalizedDecision.follow_up_message) &&
-      Boolean(nextFollowUpAt) &&
-      normalizedDecision.requires_human !== true &&
-      !["mark_lost", "mark_unqualified", "closed", "human_required"].includes(
-        normalizedDecision.lead_stage
-      );
+const maxFollowups = Number(runtimeSettings.max_followups || 3);
+
+const shouldCreateFollowUp =
+  followupsAllowedBySettings &&
+  finalAgentMode !== "paused" &&
+  existingFollowupsCount < maxFollowups &&
+  existingPendingFollowupsCount === 0 &&
+  Boolean(normalizedDecision.follow_up_message) &&
+  Boolean(nextFollowUpAt) &&
+  normalizedDecision.requires_human !== true &&
+  !isTerminalOrHumanStage(normalizedDecision.lead_stage);
 
     if (shouldCreateFollowUp) {
       const { error: followupError } = await supabase
@@ -950,12 +1006,13 @@ Devuelve únicamente JSON válido.
       realWhatsappAllowedBySettings,
       realWhatsappLockReasons,
       followups: {
-        allowed: followupsAllowedBySettings,
-        created: shouldCreateFollowUp,
-        existingFollowupsCount,
-        maxFollowups,
-        nextFollowUpAt,
-      },
+  allowed: followupsAllowedBySettings,
+  created: shouldCreateFollowUp,
+  existingFollowupsCount,
+  existingPendingFollowupsCount,
+  maxFollowups,
+  nextFollowUpAt,
+},
       playbook: {
         id: salesPlaybook.id,
         brandName: salesPlaybook.brandName,
@@ -1040,6 +1097,34 @@ async function getExistingFollowupCount(leadId?: string | null) {
     return Number(count || 0);
   } catch (error: any) {
     console.error("getExistingFollowupCount error:", error?.message || error);
+    return 0;
+  }
+}
+
+async function getExistingPendingFollowupCount(leadId?: string | null) {
+  if (!leadId) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from("sales_followups")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", leadId)
+      .eq("status", "pending");
+
+    if (error) {
+      console.error(
+        "Error contando followups pendientes:",
+        error.message
+      );
+      return 0;
+    }
+
+    return Number(count || 0);
+  } catch (error: any) {
+    console.error(
+      "getExistingPendingFollowupCount error:",
+      error?.message || error
+    );
     return 0;
   }
 }
@@ -1147,6 +1232,12 @@ function normalizeDecision(decision: any, agentMode: string) {
       : [],
     memory_learning: decision.memory_learning || "",
   };
+}
+
+function isTerminalOrHumanStage(stage: any) {
+  return ["lost", "unqualified", "closed", "human_required"].includes(
+    String(stage || "").trim()
+  );
 }
 
 function normalizeRiskLevel(value: any) {
