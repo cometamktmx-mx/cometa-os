@@ -814,14 +814,14 @@ function BrandModules({ brand }: { brand: BrandData }) {
       access: "Editable",
     },
     {
-      code: "AI",
-      title: "Información para Agentes IA",
-      description:
-        "Catálogo, reglas, FAQs, límites, objeciones y datos comerciales.",
-      href: `/sales-ai/knowledge?${brandQuery}`,
-      status: `${brand.knowledge}% listo`,
-      access: "Editable",
-    },
+  code: "AG",
+  title: "Configurar agente SALES AI",
+  description:
+    "Tono, servicios, reglas de venta, seguimientos, límites y escalamiento humano.",
+  href: `/sales-ai/agent-settings?${brandQuery}`,
+  status: "Editable",
+  access: "Editable",
+},
     {
       code: "CX",
       title: "Conexiones",
@@ -1108,12 +1108,12 @@ function RecommendedActions({ brand }: { brand: BrandData }) {
       priority: "Media",
     },
     {
-      number: "3",
-      title: "Actualizar información para IA",
-      description: "Mantener productos, reglas, FAQs y límites aprobados.",
-      href: `/sales-ai/knowledge?${brandQuery}`,
-      priority: "Baja",
-    },
+  number: "3",
+  title: "Configurar agente SALES AI",
+  description: "Actualizar servicios, reglas, tono, límites y seguimientos.",
+  href: `/sales-ai/agent-settings?${brandQuery}`,
+  priority: "Baja",
+},
   ];
 
   return (

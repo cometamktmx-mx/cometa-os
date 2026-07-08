@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+
 
 type DayKey =
   | "monday"
@@ -73,6 +75,15 @@ type AgentSettings = {
   updated_at?: string;
 };
 
+function formatBrandNameFromSlug(slug: string) {
+  return String(slug || "Cometa Mkt")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+    .trim();
+}
+
 const defaultBusinessHours: BusinessHours = {
   enabled: false,
   monday: { open: "09:00", close: "18:00" },
@@ -135,7 +146,15 @@ const days: { key: DayKey; label: string; short: string }[] = [
 ];
 
 export default function SalesAIAgentSettingsPage() {
-  const [brandName, setBrandName] = useState("Cometa Mkt");
+  const searchParams = useSearchParams();
+
+const urlBrandName = searchParams.get("brandName") || "";
+const urlBrandSlug = searchParams.get("brandSlug") || "";
+
+const initialBrandName =
+  urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+
+const [brandName, setBrandName] = useState(initialBrandName);
   const [settings, setSettings] = useState<AgentSettings>(defaultSettings);
 
   const [loading, setLoading] = useState(true);
@@ -215,6 +234,13 @@ export default function SalesAIAgentSettingsPage() {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  useEffect(() => {
+  const nextBrandName =
+    urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+
+  setBrandName(nextBrandName);
+}, [urlBrandName, urlBrandSlug]);
 
   async function saveSettings() {
     setSaving(true);
@@ -364,7 +390,11 @@ export default function SalesAIAgentSettingsPage() {
         <div className="min-w-0 flex-1 px-4 py-5 lg:px-5 xl:px-6">
           <div className="mx-auto w-full max-w-[1480px] space-y-4">
             <header className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <HeroCard onSave={saveSettings} saving={saving || loading} />
+              <HeroCard
+  brandName={settings.brand_name || brandName}
+  onSave={saveSettings}
+  saving={saving || loading}
+/>
               <SummaryPanel
                 status={status}
                 settings={settings}
@@ -772,12 +802,15 @@ export default function SalesAIAgentSettingsPage() {
 }
 
 function HeroCard({
+  brandName,
   onSave,
   saving,
 }: {
+  brandName: string;
   onSave: () => void;
   saving: boolean;
 }) {
+  const brandQuery = `brandName=${encodeURIComponent(brandName)}`;
   return (
     <section className="relative overflow-hidden rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)] lg:p-7">
       <div className="relative z-10">
@@ -816,14 +849,14 @@ function HeroCard({
 
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/sales-ai"
+  href={`/sales-ai?${brandQuery}`}
             className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
           >
             ← Dashboard
           </Link>
 
           <Link
-            href="/sales-ai/connect"
+  href={`/sales-ai/connect?${brandQuery}`}
             className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
           >
             Conexión WhatsApp
