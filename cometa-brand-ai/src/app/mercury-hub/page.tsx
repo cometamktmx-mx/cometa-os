@@ -45,6 +45,25 @@ type DetailUpdatePayload = {
   comment?: string | null;
 };
 
+type CreateItemPayload = {
+  title: string;
+  contentType: string;
+  platform: string;
+  objective?: string | null;
+  brief?: string | null;
+  copyBase?: string | null;
+  cta?: string | null;
+  visualDirection?: string | null;
+  referenceNotes?: string | null;
+  clientNotes?: string | null;
+  privateNotes?: string | null;
+  dueDate?: string | null;
+  publishDate?: string | null;
+  assignedRole?: string | null;
+  priority?: string;
+  status?: string;
+};
+
 type MercuryAsset = {
   id: string;
   content_item_id: string;
@@ -235,6 +254,10 @@ function formatMonth(month?: number, year?: number) {
     month: "long",
     year: "numeric",
   });
+}
+
+function getTodayDateOnly() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function getStatusLabel(status?: string) {
@@ -436,7 +459,6 @@ function MercuryLoadingScreen() {
 }
 
 function MercuryHubClient() {
-  
   const searchParams = useSearchParams();
 
   const queryBrandSlug = normalizeBrandSlug(searchParams.get("brandSlug"));
@@ -450,6 +472,8 @@ function MercuryHubClient() {
   const [data, setData] = useState<MercuryDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [creatingItem, setCreatingItem] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const [savingDetail, setSavingDetail] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
@@ -522,6 +546,49 @@ function MercuryHubClient() {
       setError(err?.message || "No se pudo generar el calendario.");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function createManualItem(payload: CreateItemPayload) {
+    if (isClientView) return;
+
+    setCreatingItem(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/mercury/content-item/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...payload,
+          brandSlug,
+          brandName: activeBrandName,
+          calendarId: data?.selectedCalendar?.id || null,
+          cycleMonth: data?.selectedCalendar?.cycle_month || undefined,
+          cycleYear: data?.selectedCalendar?.cycle_year || undefined,
+        }),
+      });
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json?.ok) {
+        throw new Error(
+          json?.error || json?.details || `Error ${response.status}`
+        );
+      }
+
+      setCreateModalOpen(false);
+      await loadDashboard(brandSlug);
+
+      if (json?.item) {
+        setSelectedItem(json.item);
+      }
+    } catch (err: any) {
+      setError(err?.message || "No se pudo crear la pieza manual.");
+    } finally {
+      setCreatingItem(false);
     }
   }
 
@@ -626,7 +693,7 @@ function MercuryHubClient() {
     setBrandSlug(nextBrandSlug);
     loadDashboard(nextBrandSlug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [queryBrandSlug]);
 
   function handleSectionChange(section: MercurySectionKey) {
     setActiveSection(section);
@@ -748,7 +815,9 @@ function MercuryHubClient() {
   }, [items]);
 
   const activeBrandName =
-    data?.settings?.brand_name || data?.selectedCalendar?.brand_name || brandSlug;
+    data?.settings?.brand_name ||
+    data?.selectedCalendar?.brand_name ||
+    brandSlug;
 
   return (
     <main className="min-h-screen bg-[#f3f8fb] text-slate-950">
@@ -764,7 +833,9 @@ function MercuryHubClient() {
         <section className="min-w-0 flex-1">
           <Topbar
             onGenerate={generateCalendar}
+            onCreateItem={() => setCreateModalOpen(true)}
             generating={generating}
+            creatingItem={creatingItem}
             loading={loading}
             brandSlug={brandSlug}
             brandName={activeBrandName}
@@ -864,6 +935,7 @@ function MercuryHubClient() {
                       brandSlug={brandSlug}
                       setBrandSlug={setBrandSlug}
                       onLoad={() => loadDashboard(brandSlug)}
+                      onCreateItem={() => setCreateModalOpen(true)}
                     />
                   )}
                 </div>
@@ -878,6 +950,15 @@ function MercuryHubClient() {
           </div>
         </section>
       </div>
+
+      {createModalOpen && !isClientView ? (
+        <ManualItemModal
+          creating={creatingItem}
+          brandName={activeBrandName}
+          onClose={() => setCreateModalOpen(false)}
+          onCreate={createManualItem}
+        />
+      ) : null}
 
       {selectedItem ? (
         <TaskDetailModal
@@ -914,7 +995,11 @@ function Sidebar({
     { key: "resumen", label: "Resumen", icon: "▦" },
     { key: "calendario", label: "Calendario", icon: "📅" },
     { key: "produccion", label: "Producción", icon: "▣" },
-    { key: "disenadores", label: isClientView ? "Equipo" : "Diseñadores", icon: "👥" },
+    {
+      key: "disenadores",
+      label: isClientView ? "Equipo" : "Diseñadores",
+      icon: "👥",
+    },
     { key: "aprobaciones", label: "Aprobaciones", icon: "✓" },
     { key: "entregas", label: "Entregas", icon: "📦" },
     { key: "reportes", label: "Reportes", icon: "📊" },
@@ -1063,14 +1148,18 @@ function SidebarSection({
 
 function Topbar({
   onGenerate,
+  onCreateItem,
   generating,
+  creatingItem,
   loading,
   brandSlug,
   brandName,
   isClientView,
 }: {
   onGenerate: () => void;
+  onCreateItem: () => void;
   generating: boolean;
+  creatingItem: boolean;
   loading: boolean;
   brandSlug: string;
   brandName: string;
@@ -1103,6 +1192,14 @@ function Topbar({
 
           {!isClientView ? (
             <>
+              <button
+                onClick={onCreateItem}
+                disabled={creatingItem || loading}
+                className="flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-7 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                + Nueva pieza
+              </button>
+
               <button
                 onClick={onGenerate}
                 disabled={generating || loading}
@@ -1155,7 +1252,9 @@ function HeroPanel({
                   Marca activa
                 </p>
                 <h2 className="mt-2 text-4xl font-black tracking-[-0.06em]">
-                  {data?.settings?.brand_name || "Cometa MKT"}
+                  {data?.settings?.brand_name ||
+                    data?.selectedCalendar?.brand_name ||
+                    "Cometa MKT"}
                 </h2>
                 <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-400">
                   {loading
@@ -1522,6 +1621,303 @@ function MiniTask({
   );
 }
 
+/* ----------------------------- CREATE MODAL ----------------------------- */
+
+function ManualItemModal({
+  creating,
+  brandName,
+  onClose,
+  onCreate,
+}: {
+  creating: boolean;
+  brandName: string;
+  onClose: () => void;
+  onCreate: (payload: CreateItemPayload) => Promise<void>;
+}) {
+  const today = getTodayDateOnly();
+
+  const [title, setTitle] = useState("");
+  const [contentType, setContentType] = useState("post");
+  const [platform, setPlatform] = useState("instagram");
+  const [objective, setObjective] = useState("");
+  const [brief, setBrief] = useState("");
+  const [copyBase, setCopyBase] = useState("");
+  const [cta, setCta] = useState("");
+  const [visualDirection, setVisualDirection] = useState("");
+  const [referenceNotes, setReferenceNotes] = useState("");
+  const [clientNotes, setClientNotes] = useState("");
+  const [privateNotes, setPrivateNotes] = useState("");
+  const [dueDate, setDueDate] = useState(today);
+  const [publishDate, setPublishDate] = useState(today);
+  const [assignedRole, setAssignedRole] = useState("designer");
+  const [priority, setPriority] = useState("normal");
+  const [status, setStatus] = useState("generated");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  function handleSubmit() {
+    const cleanTitle = title.trim();
+
+    if (!cleanTitle) {
+      setLocalError("Agrega un título para la pieza.");
+      return;
+    }
+
+    setLocalError(null);
+
+    onCreate({
+      title: cleanTitle,
+      contentType,
+      platform,
+      objective,
+      brief,
+      copyBase,
+      cta,
+      visualDirection,
+      referenceNotes,
+      clientNotes,
+      privateNotes,
+      dueDate,
+      publishDate,
+      assignedRole,
+      priority,
+      status,
+    });
+  }
+
+  useEffect(() => {
+    if (contentType === "reel" || contentType === "video") {
+      setAssignedRole("reels");
+    } else if (contentType === "story") {
+      setAssignedRole("cm");
+    } else {
+      setAssignedRole("designer");
+    }
+  }, [contentType]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm md:items-center md:p-6">
+      <section className="flex max-h-[96vh] w-full max-w-[980px] flex-col overflow-hidden rounded-t-[34px] bg-white shadow-[0_40px_140px_rgba(15,23,42,0.35)] md:rounded-[34px]">
+        <header className="border-b border-slate-200 bg-white p-5 md:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">
+                Nueva pieza manual
+              </p>
+
+              <h2 className="mt-2 text-3xl font-black leading-tight tracking-[-0.06em] text-slate-950">
+                Agregar contenido a {brandName}
+              </h2>
+
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+                Crea una pieza manual para el calendario sin depender de la
+                generación automática de MERCURY.
+              </p>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-xl font-black text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[#f3f8fb] p-5 md:p-6">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <EditInput
+                label="Título"
+                value={title}
+                onChange={setTitle}
+                placeholder="Ej. Reel beneficios del legging seamless"
+              />
+            </div>
+
+            <SelectInput
+              label="Tipo de contenido"
+              value={contentType}
+              onChange={setContentType}
+              options={[
+                { value: "post", label: "Post" },
+                { value: "carousel", label: "Carrusel" },
+                { value: "reel", label: "Reel" },
+                { value: "story", label: "Historia" },
+                { value: "video", label: "Video" },
+                { value: "ad", label: "Campaña" },
+                { value: "whatsapp", label: "WhatsApp" },
+                { value: "other", label: "Otro" },
+              ]}
+            />
+
+            <SelectInput
+              label="Plataforma"
+              value={platform}
+              onChange={setPlatform}
+              options={[
+                { value: "instagram", label: "Instagram" },
+                { value: "facebook", label: "Facebook" },
+                { value: "tiktok", label: "TikTok" },
+                { value: "whatsapp", label: "WhatsApp" },
+                { value: "other", label: "Otra" },
+              ]}
+            />
+
+            <EditInput
+              label="Fecha de entrega"
+              value={dueDate}
+              onChange={setDueDate}
+              type="date"
+            />
+
+            <EditInput
+              label="Fecha de publicación"
+              value={publishDate}
+              onChange={setPublishDate}
+              type="date"
+            />
+
+            <SelectInput
+              label="Responsable"
+              value={assignedRole}
+              onChange={setAssignedRole}
+              options={[
+                { value: "designer", label: "Diseño" },
+                { value: "reels", label: "Reels / Video" },
+                { value: "cm", label: "Community Manager" },
+                { value: "copy", label: "Copy" },
+                { value: "admin", label: "Admin" },
+              ]}
+            />
+
+            <SelectInput
+              label="Prioridad"
+              value={priority}
+              onChange={setPriority}
+              options={[
+                { value: "low", label: "Baja" },
+                { value: "normal", label: "Normal" },
+                { value: "high", label: "Alta" },
+                { value: "urgent", label: "Urgente" },
+              ]}
+            />
+
+            <SelectInput
+              label="Estado inicial"
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: "generated", label: "Brief listo" },
+                { value: "assigned", label: "Asignado" },
+                { value: "in_design", label: "En diseño" },
+                { value: "internal_review", label: "Revisión interna" },
+                { value: "approved_internal", label: "Aprobado Cometa" },
+                { value: "scheduled", label: "Programado" },
+              ]}
+            />
+
+            <div />
+
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Objetivo"
+                value={objective}
+                onChange={setObjective}
+                placeholder="¿Qué debe lograr esta pieza?"
+                rows={3}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Brief"
+                value={brief}
+                onChange={setBrief}
+                placeholder="Instrucciones para diseño, video o CM"
+                rows={5}
+              />
+            </div>
+
+            <EditTextarea
+              label="Copy base"
+              value={copyBase}
+              onChange={setCopyBase}
+              placeholder="Texto sugerido para la publicación"
+              rows={5}
+            />
+
+            <EditTextarea
+              label="CTA"
+              value={cta}
+              onChange={setCta}
+              placeholder="Llamado a la acción"
+              rows={5}
+            />
+
+            <EditTextarea
+              label="Dirección visual"
+              value={visualDirection}
+              onChange={setVisualDirection}
+              placeholder="Estilo visual, elementos, composición"
+              rows={4}
+            />
+
+            <EditTextarea
+              label="Notas de referencia"
+              value={referenceNotes}
+              onChange={setReferenceNotes}
+              placeholder="Referencias, ideas o restricciones"
+              rows={4}
+            />
+
+            <EditTextarea
+              label="Notas para cliente"
+              value={clientNotes}
+              onChange={setClientNotes}
+              placeholder="Notas visibles para cliente"
+              rows={4}
+            />
+
+            <EditTextarea
+              label="Notas internas"
+              value={privateNotes}
+              onChange={setPrivateNotes}
+              placeholder="Notas privadas del equipo Cometa"
+              rows={4}
+            />
+          </div>
+
+          {localError ? (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-700">
+              {localError}
+            </div>
+          ) : null}
+        </div>
+
+        <footer className="border-t border-slate-200 bg-white p-5 md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <button
+              onClick={onClose}
+              disabled={creating}
+              className="h-14 rounded-2xl border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+
+            <button
+              onClick={handleSubmit}
+              disabled={creating}
+              className="h-14 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {creating ? "Creando pieza..." : "Crear pieza"}
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 /* ----------------------------- DETAIL MODAL ----------------------------- */
 
 function TaskDetailModal({
@@ -1762,7 +2158,9 @@ function TaskDetailModal({
               </div>
 
               <h2 className="text-3xl font-black leading-[0.98] tracking-[-0.06em] text-slate-950 md:text-4xl">
-                {isClientView ? item.title || "Detalle de pieza" : "Detalle de pieza"}
+                {isClientView
+                  ? item.title || "Detalle de pieza"
+                  : "Detalle de pieza"}
               </h2>
 
               <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -2643,11 +3041,13 @@ function CycleConfigPanel({
   brandSlug,
   setBrandSlug,
   onLoad,
+  onCreateItem,
 }: {
   data: MercuryDashboardData | null;
   brandSlug: string;
   setBrandSlug: (value: string) => void;
   onLoad: () => void;
+  onCreateItem: () => void;
 }) {
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
@@ -2657,6 +3057,13 @@ function CycleConfigPanel({
         </p>
         <span className="text-slate-400">⚙️</span>
       </div>
+
+      <button
+        onClick={onCreateItem}
+        className="mb-5 h-12 w-full rounded-2xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800"
+      >
+        + Nueva pieza manual
+      </button>
 
       <div className="grid gap-3">
         <ConfigRow
@@ -2771,6 +3178,37 @@ function EditInput({
         placeholder={placeholder}
         className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-950 outline-none transition focus:border-cyan-300 focus:bg-white"
       />
+    </label>
+  );
+}
+
+function SelectInput({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="block rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_12px_40px_rgba(15,23,42,0.04)]">
+      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-black text-slate-950 outline-none transition focus:border-cyan-300 focus:bg-white"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
