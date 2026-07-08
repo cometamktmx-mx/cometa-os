@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { slugifyBrand } from "@/lib/brand-resolver";
+
+type UserRole = "admin" | "client";
 
 type DaySchedule = {
   open?: string;
@@ -37,6 +40,11 @@ type AgentSettingsPayload = {
   maxFollowups?: number;
   firstFollowupDelayMinutes?: number;
   responseRules?: Partial<ResponseRules>;
+
+  industry?: string;
+  responseStyle?: string;
+  primaryGoal?: string;
+
   businessSummary?: string;
   productsServices?: string;
   forbiddenPromises?: string;
@@ -44,13 +52,17 @@ type AgentSettingsPayload = {
   escalationNotes?: string;
 };
 
+type UserContext = {
+  id: string;
+  email: string | null;
+  role: UserRole;
+  allowedBrandSlugs: string[];
+};
+
 type AuthCheckResult =
   | {
       ok: true;
-      user: {
-        id?: string;
-        email?: string | null;
-      };
+      userContext: UserContext;
     }
   | {
       ok: false;
@@ -78,6 +90,9 @@ const defaultResponseRules: ResponseRules = {
 
 const defaultClientPreferences = {
   tone: "profesional, claro y vendedor",
+  industry: "marketing",
+  response_style: "directo",
+  primary_goal: "ventas",
   business_hours_enabled: false,
   human_escalation_enabled: true,
   allow_followups: true,
@@ -106,6 +121,29 @@ function getSupabaseAdmin() {
       autoRefreshToken: false,
     },
   });
+}
+
+function parseCsv(value?: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isCometaAdmin(user: { id?: string; email?: string | null } | null) {
+  if (!user) return false;
+
+  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
+  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
+
+  const userEmail = String(user.email || "").trim().toLowerCase();
+  const userId = String(user.id || "").trim().toLowerCase();
+
+  if (!adminEmails.length && !adminUserIds.length) {
+    return false;
+  }
+
+  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
 }
 
 async function requireAuthenticatedUser(): Promise<AuthCheckResult> {
@@ -138,12 +176,7 @@ async function requireAuthenticatedUser(): Promise<AuthCheckResult> {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
           });
-        } catch {
-          /**
-           * En route handlers puede no ser necesario setear cookies.
-           * Solo necesitamos leer la sesión actual.
-           */
-        }
+        } catch {}
       },
     },
   });
@@ -166,9 +199,106 @@ async function requireAuthenticatedUser(): Promise<AuthCheckResult> {
     };
   }
 
+  const supabase = getSupabaseAdmin();
+
+  if (isCometaAdmin(user)) {
+    return {
+      ok: true,
+      userContext: {
+        id: user.id,
+        email: user.email || null,
+        role: "admin",
+        allowedBrandSlugs: [],
+      },
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,role,status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn("agent-settings profile error:", profileError.message);
+  }
+
+  const role: UserRole =
+    profile?.role === "admin" && profile?.status === "active"
+      ? "admin"
+      : "client";
+
+  if (role === "admin") {
+    return {
+      ok: true,
+      userContext: {
+        id: user.id,
+        email: user.email || profile?.email || null,
+        role: "admin",
+        allowedBrandSlugs: [],
+      },
+    };
+  }
+
+  const { data: accessRows, error: accessError } = await supabase
+    .from("user_brand_access")
+    .select("brand_slug,status")
+    .eq("user_id", user.id)
+    .eq("status", "active");
+
+  if (accessError) {
+    console.warn("agent-settings access error:", accessError.message);
+  }
+
+  const allowedBrandSlugs = Array.from(
+    new Set(
+      (accessRows || [])
+        .map((row: any) => slugifyBrand(row.brand_slug || ""))
+        .filter(Boolean)
+    )
+  );
+
   return {
     ok: true,
-    user,
+    userContext: {
+      id: user.id,
+      email: user.email || profile?.email || null,
+      role,
+      allowedBrandSlugs,
+    },
+  };
+}
+
+function validateBrandAccess({
+  userContext,
+  brandName,
+}: {
+  userContext: UserContext;
+  brandName: string;
+}) {
+  const brandSlug = slugifyBrand(brandName);
+
+  if (userContext.role === "admin") {
+    return {
+      ok: true,
+      brandSlug,
+      error: null,
+    };
+  }
+
+  if (userContext.allowedBrandSlugs.includes(brandSlug)) {
+    return {
+      ok: true,
+      brandSlug,
+      error: null,
+    };
+  }
+
+  return {
+    ok: false,
+    brandSlug,
+    error:
+      "No tienes permiso para configurar esta marca. Esta marca no está asignada a tu usuario.",
   };
 }
 
@@ -186,13 +316,33 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.max(min, Math.min(max, numberValue));
 }
 
+function safeText(value: unknown, maxLength = 4000) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+function safeTextOrCurrent({
+  incoming,
+  current,
+  maxLength = 4000,
+}: {
+  incoming: unknown;
+  current: unknown;
+  maxLength?: number;
+}) {
+  if (incoming === undefined) {
+    return safeText(current, maxLength);
+  }
+
+  return safeText(incoming, maxLength);
+}
+
 function defaultSettings(brandName: string) {
   return {
     brand_name: brandName,
 
     /**
      * Campos técnicos bloqueados para cliente.
-     * Solo /api/sales-ai/settings puede modificarlos.
+     * Solo /api/sales-ai/settings o procesos internos de Cometa deben modificarlos.
      */
     agent_mode: "observation",
     whatsapp_status: "pending_verification",
@@ -203,7 +353,7 @@ function defaultSettings(brandName: string) {
     send_whatsapp_enabled: false,
 
     /**
-     * Campos seguros que sí puede configurar el cliente.
+     * Campos seguros configurables.
      */
     followups_enabled: true,
     human_escalation_enabled: true,
@@ -296,10 +446,6 @@ function normalizeResponseRules(
   };
 }
 
-function safeText(value: unknown, maxLength = 4000) {
-  return String(value || "").trim().slice(0, maxLength);
-}
-
 function safeClientResponse(settings: any) {
   const businessHours = normalizeBusinessHours(settings.business_hours);
 
@@ -318,8 +464,7 @@ function safeClientResponse(settings: any) {
     brand_name: settings.brand_name,
 
     /**
-     * Estos campos se pueden mostrar porque no permiten modificar nada técnico.
-     * No incluimos phone_number_id, WABA, tokens, send_whatsapp_enabled ni auto_reply_enabled.
+     * Estos campos se pueden mostrar porque no revelan tokens ni IDs técnicos sensibles.
      */
     agent_mode: settings.agent_mode || "observation",
     whatsapp_status: settings.whatsapp_status || "pending_verification",
@@ -360,6 +505,25 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const brandName = normalizeBrandName(searchParams.get("brandName"));
 
+    const accessValidation = validateBrandAccess({
+      userContext: authCheck.userContext,
+      brandName,
+    });
+
+    if (!accessValidation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: accessValidation.error,
+          requestedBrand: {
+            name: brandName,
+            slug: accessValidation.brandSlug,
+          },
+        },
+        { status: 403 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("sales_ai_settings")
       .select("*")
@@ -373,7 +537,12 @@ export async function GET(request: Request) {
         ok: true,
         settings: safeClientResponse(data),
         protected: true,
-        user: authCheck.user.email || authCheck.user.id || null,
+        user: authCheck.userContext.email || authCheck.userContext.id || null,
+        role: authCheck.userContext.role,
+        brand: {
+          name: brandName,
+          slug: accessValidation.brandSlug,
+        },
       });
     }
 
@@ -387,9 +556,15 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      action: "created",
       settings: safeClientResponse(created),
       protected: true,
-      user: authCheck.user.email || authCheck.user.id || null,
+      user: authCheck.userContext.email || authCheck.userContext.id || null,
+      role: authCheck.userContext.role,
+      brand: {
+        name: brandName,
+        slug: accessValidation.brandSlug,
+      },
     });
   } catch (error: unknown) {
     console.error("GET /api/sales-ai/agent-settings error:", error);
@@ -397,7 +572,9 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: getErrorMessage(error) || "Error cargando configuración del agente.",
+        error:
+          getErrorMessage(error) ||
+          "Error cargando configuración del agente.",
       },
       { status: 500 }
     );
@@ -417,6 +594,25 @@ export async function POST(request: Request) {
 
     const brandName = normalizeBrandName(body.brandName);
 
+    const accessValidation = validateBrandAccess({
+      userContext: authCheck.userContext,
+      brandName,
+    });
+
+    if (!accessValidation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: accessValidation.error,
+          requestedBrand: {
+            name: brandName,
+            slug: accessValidation.brandSlug,
+          },
+        },
+        { status: 403 }
+      );
+    }
+
     const { data: existing, error: existingError } = await supabase
       .from("sales_ai_settings")
       .select("*")
@@ -427,9 +623,16 @@ export async function POST(request: Request) {
 
     const currentSettings = existing || defaultSettings(brandName);
 
+    const currentPreferences = {
+      ...defaultClientPreferences,
+      ...(currentSettings.client_agent_preferences || {}),
+    };
+
     const tone =
       safeText(
-        body.tone || body.responseRules?.tone || currentSettings.response_rules?.tone,
+        body.tone ||
+          body.responseRules?.tone ||
+          currentSettings.response_rules?.tone,
         500
       ) || defaultResponseRules.tone;
 
@@ -437,16 +640,28 @@ export async function POST(request: Request) {
       body.businessHours || currentSettings.business_hours
     );
 
-    const allowFollowups = body.allowFollowups !== false;
-    const humanEscalationEnabled = body.humanEscalationEnabled !== false;
+    const allowFollowups =
+      body.allowFollowups === undefined
+        ? currentSettings.followups_enabled !== false
+        : body.allowFollowups !== false;
 
-    const maxFollowups = clampNumber(body.maxFollowups, 0, 10, 3);
+    const humanEscalationEnabled =
+      body.humanEscalationEnabled === undefined
+        ? currentSettings.human_escalation_enabled !== false
+        : body.humanEscalationEnabled !== false;
+
+    const maxFollowups = clampNumber(
+      body.maxFollowups,
+      0,
+      10,
+      Number(currentSettings.max_followups || 3)
+    );
 
     const firstFollowupDelayMinutes = clampNumber(
       body.firstFollowupDelayMinutes,
       10,
       43200,
-      1440
+      Number(currentSettings.first_followup_delay_minutes || 1440)
     );
 
     const responseRules = normalizeResponseRules(
@@ -455,23 +670,53 @@ export async function POST(request: Request) {
       tone
     );
 
-    const currentPreferences = {
-      ...defaultClientPreferences,
-      ...(currentSettings.client_agent_preferences || {}),
-    };
-
     const clientPreferences = {
       ...currentPreferences,
       tone,
+      industry: safeTextOrCurrent({
+        incoming: body.industry,
+        current: currentPreferences.industry,
+        maxLength: 120,
+      }),
+      response_style: safeTextOrCurrent({
+        incoming: body.responseStyle,
+        current: currentPreferences.response_style,
+        maxLength: 120,
+      }),
+      primary_goal: safeTextOrCurrent({
+        incoming: body.primaryGoal,
+        current: currentPreferences.primary_goal,
+        maxLength: 120,
+      }),
       business_hours_enabled: businessHours.enabled,
       human_escalation_enabled: humanEscalationEnabled,
       allow_followups: allowFollowups,
       client_can_activate_automatic: false,
-      business_summary: safeText(body.businessSummary, 4000),
-      products_services: safeText(body.productsServices, 4000),
-      forbidden_promises: safeText(body.forbiddenPromises, 4000),
-      required_questions: safeText(body.requiredQuestions, 4000),
-      escalation_notes: safeText(body.escalationNotes, 4000),
+      business_summary: safeTextOrCurrent({
+        incoming: body.businessSummary,
+        current: currentPreferences.business_summary,
+        maxLength: 4000,
+      }),
+      products_services: safeTextOrCurrent({
+        incoming: body.productsServices,
+        current: currentPreferences.products_services,
+        maxLength: 4000,
+      }),
+      forbidden_promises: safeTextOrCurrent({
+        incoming: body.forbiddenPromises,
+        current: currentPreferences.forbidden_promises,
+        maxLength: 4000,
+      }),
+      required_questions: safeTextOrCurrent({
+        incoming: body.requiredQuestions,
+        current: currentPreferences.required_questions,
+        maxLength: 4000,
+      }),
+      escalation_notes: safeTextOrCurrent({
+        incoming: body.escalationNotes,
+        current: currentPreferences.escalation_notes,
+        maxLength: 4000,
+      }),
     };
 
     /**
@@ -526,7 +771,12 @@ export async function POST(request: Request) {
         action: "created",
         settings: safeClientResponse(created),
         protected: true,
-        user: authCheck.user.email || authCheck.user.id || null,
+        user: authCheck.userContext.email || authCheck.userContext.id || null,
+        role: authCheck.userContext.role,
+        brand: {
+          name: brandName,
+          slug: accessValidation.brandSlug,
+        },
       });
     }
 
@@ -544,7 +794,12 @@ export async function POST(request: Request) {
       action: "updated",
       settings: safeClientResponse(updated),
       protected: true,
-      user: authCheck.user.email || authCheck.user.id || null,
+      user: authCheck.userContext.email || authCheck.userContext.id || null,
+      role: authCheck.userContext.role,
+      brand: {
+        name: brandName,
+        slug: accessValidation.brandSlug,
+      },
     });
   } catch (error: unknown) {
     console.error("POST /api/sales-ai/agent-settings error:", error);
@@ -552,7 +807,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: getErrorMessage(error) || "Error guardando configuración del agente.",
+        error:
+          getErrorMessage(error) ||
+          "Error guardando configuración del agente.",
       },
       { status: 500 }
     );

@@ -40,6 +40,9 @@ type ResponseRules = {
 
 type ClientAgentPreferences = {
   tone: string;
+  industry: string;
+  response_style: string;
+  primary_goal: string;
   business_hours_enabled: boolean;
   human_escalation_enabled: boolean;
   allow_followups: boolean;
@@ -105,17 +108,20 @@ const defaultSettings: AgentSettings = {
   },
 
   client_agent_preferences: {
-    tone: "profesional, claro y vendedor",
-    business_hours_enabled: false,
-    human_escalation_enabled: true,
-    allow_followups: true,
-    client_can_activate_automatic: false,
-    business_summary: "",
-    products_services: "",
-    forbidden_promises: "",
-    required_questions: "",
-    escalation_notes: "",
-  },
+  tone: "profesional, claro y vendedor",
+  industry: "marketing",
+  response_style: "directo",
+  primary_goal: "ventas",
+  business_hours_enabled: false,
+  human_escalation_enabled: true,
+  allow_followups: true,
+  client_can_activate_automatic: false,
+  business_summary: "",
+  products_services: "",
+  forbidden_promises: "",
+  required_questions: "",
+  escalation_notes: "",
+},
 };
 
 const days: { key: DayKey; label: string; short: string }[] = [
@@ -224,20 +230,25 @@ export default function SalesAIAgentSettingsPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          brandName: settings.brand_name || brandName,
-          tone: settings.response_rules.tone,
-          businessHours: settings.business_hours,
-          allowFollowups: settings.followups_enabled,
-          humanEscalationEnabled: settings.human_escalation_enabled,
-          maxFollowups: settings.max_followups,
-          firstFollowupDelayMinutes: settings.first_followup_delay_minutes,
-          responseRules: settings.response_rules,
-          businessSummary: prefs.business_summary || "",
-          productsServices: prefs.products_services || "",
-          forbiddenPromises: prefs.forbidden_promises || "",
-          requiredQuestions: prefs.required_questions || "",
-          escalationNotes: prefs.escalation_notes || "",
-        }),
+  brandName: settings.brand_name || brandName,
+  tone: settings.response_rules.tone,
+  businessHours: settings.business_hours,
+  allowFollowups: settings.followups_enabled,
+  humanEscalationEnabled: settings.human_escalation_enabled,
+  maxFollowups: settings.max_followups,
+  firstFollowupDelayMinutes: settings.first_followup_delay_minutes,
+  responseRules: settings.response_rules,
+
+  industry: prefs.industry || "marketing",
+  responseStyle: prefs.response_style || "directo",
+  primaryGoal: prefs.primary_goal || "ventas",
+
+  businessSummary: prefs.business_summary || "",
+  productsServices: prefs.products_services || "",
+  forbiddenPromises: prefs.forbidden_promises || "",
+  requiredQuestions: prefs.required_questions || "",
+  escalationNotes: prefs.escalation_notes || "",
+}),
       });
 
       const data = await res.json();
@@ -394,7 +405,11 @@ export default function SalesAIAgentSettingsPage() {
                   </FieldGroup>
 
                   <FieldGroup label="Industria">
-                    <select className="input" defaultValue="marketing">
+                    <select
+  className="input"
+  value={settings.client_agent_preferences.industry || "marketing"}
+  onChange={(e) => updatePreference("industry", e.target.value)}
+>
                       <option value="marketing">Marketing y publicidad</option>
                       <option value="moda">Moda / retail</option>
                       <option value="servicios">Servicios profesionales</option>
@@ -445,7 +460,11 @@ export default function SalesAIAgentSettingsPage() {
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <FieldGroup label="Estilo de respuesta">
-                    <select className="input" defaultValue="directo">
+                    <select
+  className="input"
+  value={settings.client_agent_preferences.response_style || "directo"}
+  onChange={(e) => updatePreference("response_style", e.target.value)}
+>
                       <option value="directo">Directo y persuasivo</option>
                       <option value="consultivo">Consultivo</option>
                       <option value="breve">Breve y práctico</option>
@@ -454,7 +473,11 @@ export default function SalesAIAgentSettingsPage() {
                   </FieldGroup>
 
                   <FieldGroup label="Objetivo principal">
-                    <select className="input" defaultValue="ventas">
+                    <select
+  className="input"
+  value={settings.client_agent_preferences.primary_goal || "ventas"}
+  onChange={(e) => updatePreference("primary_goal", e.target.value)}
+>
                       <option value="ventas">Generar ventas</option>
                       <option value="calificar">Calificar prospectos</option>
                       <option value="agendar">Agendar citas</option>
