@@ -263,7 +263,20 @@ function formatMonth(month?: number, year?: number) {
 }
 
 function getTodayDateOnly() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekdayFromDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+
+  if (!year || !month || !day) return 0;
+
+  return new Date(year, month - 1, day).getDay();
 }
 
 function getStatusLabel(status?: string) {
@@ -1370,7 +1383,27 @@ function CalendarPanel({
   loading: boolean;
   onOpenItem: (item: any) => void;
 }) {
-  const visibleDays = days;
+  const todayKey = getTodayDateOnly();
+
+  const calendarCells = useMemo(() => {
+  if (!days.length) return [];
+
+  const firstWeekday = getWeekdayFromDateKey(days[0].key);
+
+  const emptyCells = Array.from({ length: firstWeekday }, (_, index) => ({
+    day: null as number | null,
+    key: `empty-${index}`,
+    items: [] as any[],
+    isEmpty: true,
+  }));
+
+  const realCells = days.map((day) => ({
+    ...day,
+    isEmpty: false,
+  }));
+
+  return [...emptyCells, ...realCells];
+}, [days]);
 
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
@@ -1391,7 +1424,7 @@ function CalendarPanel({
 
       {loading ? (
         <EmptyMini message="Cargando calendario..." />
-      ) : visibleDays.length === 0 ? (
+      ) : calendarCells.length === 0 ? (
         <EmptyMini message="Todavía no hay calendario generado para esta marca." />
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200">
@@ -1405,37 +1438,58 @@ function CalendarPanel({
               </div>
             ))}
 
-            {visibleDays.map((day) => (
-              <div
-                key={day.key}
-                className="min-h-[92px] border-r border-t border-slate-200 bg-white p-2 last:border-r-0"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-400">
-                    {day.day}
-                  </span>
-                  {day.items.length > 0 ? (
-                    <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-black text-cyan-700">
-                      {day.items.length}
-                    </span>
+            {calendarCells.map((day) => {
+              const isToday = !day.isEmpty && day.key === todayKey;
+
+              return (
+                <div
+                  key={day.key}
+                  className={`min-h-[92px] border-r border-t border-slate-200 p-2 last:border-r-0 ${
+                    day.isEmpty
+                      ? "bg-slate-50/50"
+                      : isToday
+                      ? "bg-cyan-50 ring-2 ring-inset ring-cyan-300"
+                      : "bg-white"
+                  }`}
+                >
+                  {!day.isEmpty ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${
+                            isToday
+                              ? "bg-cyan-300 text-slate-950"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          {day.day}
+                        </span>
+
+                        {day.items.length > 0 ? (
+                          <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[9px] font-black text-cyan-700">
+                            {day.items.length}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-2 grid gap-1">
+                        {day.items.slice(0, 2).map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => onOpenItem(item)}
+                            className={`truncate rounded-lg border px-2 py-1 text-left text-[9px] font-black transition hover:scale-[1.01] ${getTypeColor(
+                              item.content_type
+                            )}`}
+                          >
+                            {getTypeLabel(item.content_type)}
+                          </button>
+                        ))}
+                      </div>
+                    </>
                   ) : null}
                 </div>
-
-                <div className="mt-2 grid gap-1">
-                  {day.items.slice(0, 2).map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => onOpenItem(item)}
-                      className={`truncate rounded-lg border px-2 py-1 text-left text-[9px] font-black transition hover:scale-[1.01] ${getTypeColor(
-                        item.content_type
-                      )}`}
-                    >
-                      {getTypeLabel(item.content_type)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
