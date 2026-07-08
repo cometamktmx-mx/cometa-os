@@ -365,7 +365,7 @@ async function getOrCreateCalendar({
       cycle_year: cycleYear,
       cycle_start_date: startDate,
       cycle_end_date: endDate,
-      status: "manual",
+      status: "generated",
       monthly_objective: "Calendario creado manualmente desde MERCURY.",
       strategic_focus: "Ejecución manual de contenido.",
       campaign_theme: "Calendario manual",
