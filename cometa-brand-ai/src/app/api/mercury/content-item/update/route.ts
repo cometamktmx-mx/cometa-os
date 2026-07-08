@@ -12,25 +12,22 @@ type UserContext = {
   email: string | null;
 };
 
-type UpdateBody = {
-  contentItemId?: string;
-  id?: string;
+type CreateBody = {
+  brandSlug?: string;
+  brandName?: string;
+  calendarId?: string | null;
 
-  status?: string;
-  assignedTo?: string | null;
-  assigned_to?: string | null;
-  assignedRole?: string | null;
-  assigned_role?: string | null;
-
-  dueDate?: string | null;
-  due_date?: string | null;
-  publishDate?: string | null;
-  publish_date?: string | null;
-
-  priority?: string;
+  cycleMonth?: number | null;
+  cycleYear?: number | null;
 
   title?: string;
+  contentType?: string;
+  content_type?: string;
+  platform?: string;
+
   objective?: string | null;
+  funnelStage?: string | null;
+  funnel_stage?: string | null;
   brief?: string | null;
   copyBase?: string | null;
   copy_base?: string | null;
@@ -40,15 +37,32 @@ type UpdateBody = {
   referenceNotes?: string | null;
   reference_notes?: string | null;
 
-  privateNotes?: string | null;
-  private_notes?: string | null;
+  dueDate?: string | null;
+  due_date?: string | null;
+  publishDate?: string | null;
+  publish_date?: string | null;
+
+  assignedRole?: string | null;
+  assigned_role?: string | null;
+  priority?: string;
+  status?: string;
   clientNotes?: string | null;
   client_notes?: string | null;
-
-  comment?: string | null;
-  isPrivateComment?: boolean;
-  is_private_comment?: boolean;
+  privateNotes?: string | null;
+  private_notes?: string | null;
 };
+
+const allowedContentTypes = new Set([
+  "post",
+  "carousel",
+  "reel",
+  "story",
+  "video",
+  "ad",
+  "email",
+  "whatsapp",
+  "other",
+]);
 
 const allowedStatuses = new Set([
   "generated",
@@ -76,20 +90,6 @@ const allowedAssignedRoles = new Set([
 
 const allowedPriorities = new Set(["low", "normal", "high", "urgent"]);
 
-const teamAllowedStatuses = new Set([
-  "assigned",
-  "in_design",
-  "design_uploaded",
-  "changes_requested",
-  "scheduled",
-  "published",
-]);
-
-const clientAllowedStatuses = new Set([
-  "changes_requested",
-  "approved_client",
-]);
-
 function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRole =
@@ -115,10 +115,19 @@ function parseCsv(value?: string | null) {
     .filter(Boolean);
 }
 
+function slugifyBrand(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
 function isUuid(value: unknown) {
   if (typeof value !== "string") return false;
 
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(
     value
   );
 }
@@ -138,6 +147,11 @@ function asNullableText(value: unknown) {
   const clean = value.trim();
 
   return clean.length > 0 ? clean : null;
+}
+
+function asText(value: unknown, fallback = "") {
+  if (typeof value !== "string") return fallback;
+  return value.trim() || fallback;
 }
 
 function getBodyValue<T = unknown>(
@@ -252,382 +266,271 @@ async function getUserContext(request: NextRequest): Promise<UserContext> {
   };
 }
 
-async function getMemberAssignment(userId: string, brandSlug: string) {
-  const supabase = getSupabaseAdmin();
-
-  const { data, error } = await supabase
-    .from("mercury_team_assignments")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("brand_slug", brandSlug)
-    .eq("active", true)
-    .limit(1);
-
-  if (error) throw error;
-
-  return data?.[0]?.role || null;
+function toDateOnly(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function canUpdateField({
-  field,
-  context,
-  assignmentRole,
-}: {
-  field: string;
-  context: UserContext;
-  assignmentRole: string | null;
-}) {
-  if (context.role === "admin" || context.role === "internal") return true;
+function getCurrentCycle() {
+  const now = new Date();
 
-  if (!assignmentRole) return false;
-
-  if (assignmentRole === "client") {
-    return ["status", "client_notes"].includes(field);
-  }
-
-  return [
-    "status",
-    "private_notes",
-    "client_notes",
-    "due_date",
-    "publish_date",
-  ].includes(field);
-}
-
-function validateStatusPermission({
-  status,
-  context,
-  assignmentRole,
-}: {
-  status: string;
-  context: UserContext;
-  assignmentRole: string | null;
-}) {
-  if (!allowedStatuses.has(status)) {
-    throw new Response(
-      JSON.stringify({
-        ok: false,
-        error: `Invalid status: ${status}`,
-      }),
-      { status: 400 }
-    );
-  }
-
-  if (context.role === "admin" || context.role === "internal") return;
-
-  if (assignmentRole === "client" && !clientAllowedStatuses.has(status)) {
-    throw new Response(
-      JSON.stringify({
-        ok: false,
-        error: "Client cannot set this status.",
-      }),
-      { status: 403 }
-    );
-  }
-
-  if (assignmentRole !== "client" && !teamAllowedStatuses.has(status)) {
-    throw new Response(
-      JSON.stringify({
-        ok: false,
-        error: "Team member cannot set this status.",
-      }),
-      { status: 403 }
-    );
-  }
-}
-
-function buildUpdatePayload({
-  body,
-  context,
-  assignmentRole,
-}: {
-  body: UpdateBody;
-  context: UserContext;
-  assignmentRole: string | null;
-}) {
-  const payload: Record<string, any> = {};
-
-  const setField = (field: string, value: unknown) => {
-    if (value === undefined) return;
-
-    if (!canUpdateField({ field, context, assignmentRole })) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: `You cannot update field: ${field}`,
-        }),
-        { status: 403 }
-      );
-    }
-
-    payload[field] = value;
+  return {
+    cycleMonth: now.getMonth() + 1,
+    cycleYear: now.getFullYear(),
   };
-
-  const status = asNullableText(body.status);
-
-  if (status !== undefined && status !== null) {
-    validateStatusPermission({
-      status,
-      context,
-      assignmentRole,
-    });
-
-    setField("status", status);
-  }
-
-  const assignedTo = getBodyValue<string | null>(body, "assignedTo", "assigned_to");
-
-  if (assignedTo !== undefined) {
-    if (assignedTo !== null && assignedTo !== "" && !isUuid(assignedTo)) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: "assignedTo must be a valid UUID or null.",
-        }),
-        { status: 400 }
-      );
-    }
-
-    setField("assigned_to", assignedTo || null);
-  }
-
-  const assignedRole = asNullableText(
-    getBodyValue(body, "assignedRole", "assigned_role")
-  );
-
-  if (assignedRole !== undefined) {
-    if (assignedRole !== null && !allowedAssignedRoles.has(assignedRole)) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Invalid assignedRole.",
-        }),
-        { status: 400 }
-      );
-    }
-
-    setField("assigned_role", assignedRole);
-  }
-
-  const dueDate = getBodyValue<string | null>(body, "dueDate", "due_date");
-
-  if (dueDate !== undefined) {
-    if (!isDateOrNull(dueDate)) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: "dueDate must use YYYY-MM-DD format.",
-        }),
-        { status: 400 }
-      );
-    }
-
-    setField("due_date", dueDate || null);
-  }
-
-  const publishDate = getBodyValue<string | null>(
-    body,
-    "publishDate",
-    "publish_date"
-  );
-
-  if (publishDate !== undefined) {
-    if (!isDateOrNull(publishDate)) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: "publishDate must use YYYY-MM-DD format.",
-        }),
-        { status: 400 }
-      );
-    }
-
-    setField("publish_date", publishDate || null);
-  }
-
-  const priority = asNullableText(body.priority);
-
-  if (priority !== undefined && priority !== null) {
-    if (!allowedPriorities.has(priority)) {
-      throw new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Invalid priority.",
-        }),
-        { status: 400 }
-      );
-    }
-
-    setField("priority", priority);
-  }
-
-  setField("title", asNullableText(body.title));
-  setField("objective", asNullableText(body.objective));
-  setField("brief", asNullableText(body.brief));
-  setField("copy_base", asNullableText(getBodyValue(body, "copyBase", "copy_base")));
-  setField("cta", asNullableText(body.cta));
-  setField(
-    "visual_direction",
-    asNullableText(getBodyValue(body, "visualDirection", "visual_direction"))
-  );
-  setField(
-    "reference_notes",
-    asNullableText(getBodyValue(body, "referenceNotes", "reference_notes"))
-  );
-  setField(
-    "private_notes",
-    asNullableText(getBodyValue(body, "privateNotes", "private_notes"))
-  );
-  setField(
-    "client_notes",
-    asNullableText(getBodyValue(body, "clientNotes", "client_notes"))
-  );
-
-  return payload;
 }
 
-function getCommentRole(context: UserContext, assignmentRole: string | null) {
-  if (context.role === "internal") return "agent";
-  if (context.role === "admin") return "cometa";
-  if (assignmentRole === "client") return "client";
+function getCycleDates(cycleMonth: number, cycleYear: number) {
+  const start = new Date(cycleYear, cycleMonth - 1, 1);
+  const end = new Date(cycleYear, cycleMonth, 0);
+
+  return {
+    startDate: toDateOnly(start),
+    endDate: toDateOnly(end),
+  };
+}
+
+function normalizeContentType(value: unknown) {
+  const clean = asText(value, "post").toLowerCase();
+  return allowedContentTypes.has(clean) ? clean : "post";
+}
+
+function normalizeStatus(value: unknown) {
+  const clean = asText(value, "generated").toLowerCase();
+  return allowedStatuses.has(clean) ? clean : "generated";
+}
+
+function normalizeAssignedRole(value: unknown, contentType: string) {
+  const clean = asText(value, "").toLowerCase();
+
+  if (allowedAssignedRoles.has(clean)) return clean;
+
+  if (contentType === "reel" || contentType === "video") return "reels";
+  if (contentType === "story") return "cm";
 
   return "designer";
+}
+
+function normalizePriority(value: unknown) {
+  const clean = asText(value, "normal").toLowerCase();
+  return allowedPriorities.has(clean) ? clean : "normal";
+}
+
+async function getOrCreateCalendar({
+  brandSlug,
+  brandName,
+  calendarId,
+  cycleMonth,
+  cycleYear,
+}: {
+  brandSlug: string;
+  brandName: string;
+  calendarId?: string | null;
+  cycleMonth: number;
+  cycleYear: number;
+}) {
+  const supabase = getSupabaseAdmin();
+
+  if (calendarId && isUuid(calendarId)) {
+    const { data, error } = await supabase
+      .from("mercury_calendars")
+      .select("*")
+      .eq("id", calendarId)
+      .eq("brand_slug", brandSlug)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("mercury_calendars")
+    .select("*")
+    .eq("brand_slug", brandSlug)
+    .eq("cycle_month", cycleMonth)
+    .eq("cycle_year", cycleYear)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  if (existing) return existing;
+
+  const { startDate, endDate } = getCycleDates(cycleMonth, cycleYear);
+
+  const { data: calendar, error: calendarError } = await supabase
+    .from("mercury_calendars")
+    .insert({
+      brand_name: brandName,
+      brand_slug: brandSlug,
+      cycle_month: cycleMonth,
+      cycle_year: cycleYear,
+      cycle_start_date: startDate,
+      cycle_end_date: endDate,
+      status: "manual",
+      monthly_objective: "Calendario creado manualmente desde MERCURY.",
+      strategic_focus: "Ejecución manual de contenido.",
+      campaign_theme: "Calendario manual",
+      key_offers: [],
+      content_angles: [],
+      channels: ["instagram", "facebook"],
+      generated_by: "manual",
+      generated_from_context: {
+        source: "manual_create_item",
+        created_at: new Date().toISOString(),
+      },
+    })
+    .select("*")
+    .single();
+
+  if (calendarError) throw calendarError;
+
+  return calendar;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const context = await getUserContext(request);
-    const body = (await request.json().catch(() => ({}))) as UpdateBody;
 
-    const contentItemId = body.contentItemId || body.id;
-
-    if (!contentItemId || !isUuid(contentItemId)) {
+    if (context.role !== "admin" && context.role !== "internal") {
       return NextResponse.json(
         {
           ok: false,
-          error: "contentItemId is required and must be a valid UUID.",
+          error: "Only Cometa admins can create Mercury content items.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const body = (await request.json().catch(() => ({}))) as CreateBody;
+
+    const brandSlug = slugifyBrand(
+      body.brandSlug || body.brandName || "cometa-mkt"
+    );
+
+    const brandName =
+      asText(body.brandName) ||
+      brandSlug
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+
+    const currentCycle = getCurrentCycle();
+
+    const cycleMonth = Number(body.cycleMonth || currentCycle.cycleMonth);
+    const cycleYear = Number(body.cycleYear || currentCycle.cycleYear);
+
+    const title = asText(body.title, "Nueva pieza de contenido");
+
+    const contentType = normalizeContentType(
+      getBodyValue(body, "contentType", "content_type")
+    );
+
+    const assignedRole = normalizeAssignedRole(
+      getBodyValue(body, "assignedRole", "assigned_role"),
+      contentType
+    );
+
+    const dueDate = getBodyValue<string | null>(body, "dueDate", "due_date");
+    const publishDate = getBodyValue<string | null>(
+      body,
+      "publishDate",
+      "publish_date"
+    );
+
+    if (!isDateOrNull(dueDate)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "dueDate must use YYYY-MM-DD format.",
         },
         { status: 400 }
       );
     }
+
+    if (!isDateOrNull(publishDate)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "publishDate must use YYYY-MM-DD format.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const calendar = await getOrCreateCalendar({
+      brandSlug,
+      brandName,
+      calendarId: body.calendarId,
+      cycleMonth,
+      cycleYear,
+    });
 
     const supabase = getSupabaseAdmin();
 
-    const { data: existingItem, error: itemError } = await supabase
+    const payload = {
+      calendar_id: calendar.id,
+      brand_name: calendar.brand_name || brandName,
+      brand_slug: calendar.brand_slug || brandSlug,
+
+      title,
+      content_type: contentType,
+      platform: asText(body.platform, "instagram"),
+      objective: asNullableText(body.objective),
+      funnel_stage: asNullableText(
+        getBodyValue(body, "funnelStage", "funnel_stage")
+      ),
+
+      brief: asNullableText(body.brief),
+      copy_base: asNullableText(getBodyValue(body, "copyBase", "copy_base")),
+      cta: asNullableText(body.cta),
+      visual_direction: asNullableText(
+        getBodyValue(body, "visualDirection", "visual_direction")
+      ),
+      reference_notes: asNullableText(
+        getBodyValue(body, "referenceNotes", "reference_notes")
+      ),
+
+      due_date: dueDate || null,
+      publish_date: publishDate || null,
+
+      assigned_to: null,
+      assigned_role: assignedRole,
+
+      status: normalizeStatus(body.status),
+      priority: normalizePriority(body.priority),
+
+      private_notes: asNullableText(
+        getBodyValue(body, "privateNotes", "private_notes")
+      ),
+      client_notes: asNullableText(
+        getBodyValue(body, "clientNotes", "client_notes")
+      ),
+
+      created_by_agent: false,
+      locked: false,
+      raw_ai_data: {
+        source: "manual",
+        created_from: "mercury_content_item_create",
+        created_at: new Date().toISOString(),
+        requested_by: context.email,
+      },
+    };
+
+    const { data: item, error } = await supabase
       .from("mercury_content_items")
+      .insert(payload)
       .select("*")
-      .eq("id", contentItemId)
-      .maybeSingle();
+      .single();
 
-    if (itemError) throw itemError;
-
-    if (!existingItem) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Content item not found.",
-        },
-        { status: 404 }
-      );
-    }
-
-    let assignmentRole: string | null = null;
-
-    if (context.role === "member") {
-      if (!context.userId) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "Missing user context.",
-          },
-          { status: 401 }
-        );
-      }
-
-      assignmentRole = await getMemberAssignment(
-        context.userId,
-        existingItem.brand_slug
-      );
-
-      if (!assignmentRole) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "You do not have access to this Mercury brand.",
-          },
-          { status: 403 }
-        );
-      }
-    }
-
-    const updatePayload = buildUpdatePayload({
-      body,
-      context,
-      assignmentRole,
-    });
-
-    const commentText = asNullableText(body.comment);
-    const isPrivateComment =
-      body.isPrivateComment ?? body.is_private_comment ?? false;
-
-    if (Object.keys(updatePayload).length === 0 && !commentText) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "No update fields provided.",
-        },
-        { status: 400 }
-      );
-    }
-
-    let updatedItem = existingItem;
-
-    if (Object.keys(updatePayload).length > 0) {
-      const { data, error } = await supabase
-        .from("mercury_content_items")
-        .update(updatePayload)
-        .eq("id", contentItemId)
-        .select("*")
-        .single();
-
-      if (error) throw error;
-
-      updatedItem = data;
-    }
-
-    let insertedComment = null;
-
-    if (commentText) {
-      const commentRole = getCommentRole(context, assignmentRole);
-      const safePrivate =
-        commentRole === "client" ? false : Boolean(isPrivateComment);
-
-      const { data, error } = await supabase
-        .from("mercury_content_comments")
-        .insert({
-          content_item_id: updatedItem.id,
-          brand_name: updatedItem.brand_name,
-          brand_slug: updatedItem.brand_slug,
-          user_id: context.userId,
-          user_role: commentRole,
-          comment: commentText,
-          is_private: safePrivate,
-        })
-        .select("*")
-        .single();
-
-      if (error) throw error;
-
-      insertedComment = data;
-    }
+    if (error) throw error;
 
     return NextResponse.json({
       ok: true,
-      item: updatedItem,
-      comment: insertedComment,
+      calendar,
+      item,
       access: {
         role: context.role,
-        assignmentRole,
+        userId: context.userId,
+        email: context.email,
       },
     });
   } catch (error: any) {
@@ -637,12 +540,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.error("[MERCURY_CONTENT_ITEM_UPDATE_ERROR]", error);
+    console.error("[MERCURY_CONTENT_ITEM_CREATE_ERROR]", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message || "Mercury content item update failed.",
+        error: error?.message || "Mercury content item create failed.",
       },
       { status: 500 }
     );

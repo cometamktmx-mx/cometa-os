@@ -33,6 +33,8 @@ type InboxMetrics = {
 
 type SalesLead = {
   id: string;
+  brandName: string;
+  brandSlug: string;
   name: string;
   phone: string;
   status: string;
@@ -109,8 +111,8 @@ type SendStatus = {
 
 const fallbackBrand: BrandContext = {
   id: null,
-  slug: "cometa-mkt",
-  name: "Cometa Mkt",
+  slug: "",
+  name: "Marca no seleccionada",
   industry: "Sistema comercial",
   city: null,
   exists: false,
@@ -125,7 +127,7 @@ const fallbackMetrics: InboxMetrics = {
   humanRequired: 0,
   pendingLearning: 0,
   automationMode: "Observación",
-  health: 82,
+  health: 0,
 };
 
 export default function SalesAIInboxPage() {
@@ -140,9 +142,37 @@ function SalesAIInboxInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const requestedBrandSlug = searchParams.get("brandSlug") || "";
+  const urlBrandSlug = searchParams.get("brandSlug") || "";
+  const urlBrandName = searchParams.get("brandName") || "";
 
-  const [brand, setBrand] = useState<BrandContext>(fallbackBrand);
+  const requestedBrandSlug = useMemo(() => {
+    return toBrandSlug(urlBrandSlug);
+  }, [urlBrandSlug]);
+
+  const requestedBrandName = useMemo(() => {
+    return cleanText(urlBrandName);
+  }, [urlBrandName]);
+
+  const requestedBrandKey = useMemo(() => {
+    return requestedBrandSlug || toBrandSlug(requestedBrandName);
+  }, [requestedBrandName, requestedBrandSlug]);
+
+  const hasBrandContext = Boolean(requestedBrandKey);
+
+  const requestedBrandFallback = useMemo<BrandContext>(() => {
+    if (!requestedBrandKey) return fallbackBrand;
+
+    return {
+      ...fallbackBrand,
+      slug: requestedBrandKey,
+      name:
+        requestedBrandName ||
+        formatBrandNameFromSlug(requestedBrandKey) ||
+        "Marca no seleccionada",
+    };
+  }, [requestedBrandKey, requestedBrandName]);
+
+  const [brand, setBrand] = useState<BrandContext>(requestedBrandFallback);
   const [metrics, setMetrics] = useState<InboxMetrics>(fallbackMetrics);
   const [runtimeSettings, setRuntimeSettings] =
     useState<RuntimeSettings | null>(null);
@@ -163,17 +193,37 @@ function SalesAIInboxInner() {
     useState<SendStatus | null>(null);
   const [editableReply, setEditableReply] = useState("");
 
-  const activeBrandSlug = brand.slug || requestedBrandSlug || "cometa-mkt";
+  const activeBrandSlug = brand.slug || requestedBrandKey;
   const brandQuery = `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
+
+  useEffect(() => {
+    if (!hasBrandContext) {
+      router.replace("/workspace");
+    }
+  }, [hasBrandContext, router]);
 
   const loadInbox = useCallback(async () => {
     try {
       setLoading(true);
       setSystemMessage("");
 
+      if (!hasBrandContext) {
+        setBrand(fallbackBrand);
+        setMetrics(fallbackMetrics);
+        setRuntimeSettings(null);
+        setLeads([]);
+        setMessages([]);
+        setAgentRuns([]);
+        setSelectedLeadId("");
+        setSystemMessage(
+          "Falta brandSlug en la URL. Por seguridad no se cargó ninguna marca por default."
+        );
+        return;
+      }
+
       const query = requestedBrandSlug
         ? `?brandSlug=${encodeURIComponent(requestedBrandSlug)}`
-        : "";
+        : `?brandName=${encodeURIComponent(requestedBrandName)}`;
 
       const res = await fetch(`/api/sales-ai/inbox-dashboard${query}`, {
         method: "GET",
@@ -185,9 +235,7 @@ function SalesAIInboxInner() {
       if (res.status === 401) {
         router.replace(
           `/login?next=${encodeURIComponent(
-            requestedBrandSlug
-              ? `/sales-ai/inbox?brandSlug=${requestedBrandSlug}`
-              : "/sales-ai/inbox"
+            `/sales-ai/inbox?brandSlug=${requestedBrandKey}`
           )}`
         );
         return;
@@ -202,14 +250,48 @@ function SalesAIInboxInner() {
         throw new Error(data?.error || "No se pudo cargar el Inbox.");
       }
 
-      const nextBrand = normalizeBrand(data?.brand);
+      const normalizedReturnedBrand = normalizeBrand(
+        data?.brand,
+        requestedBrandFallback
+      );
 
-      const nextLeads = Array.isArray(data?.leads)
-        ? data.leads.map((lead: any, index: number) =>
-            normalizeLead(lead, index)
-          )
-        : [];
+      const returnedBrandSlug = toBrandSlug(
+        normalizedReturnedBrand.slug || normalizedReturnedBrand.name
+      );
 
+      if (
+        requestedBrandKey &&
+        returnedBrandSlug &&
+        returnedBrandSlug !== requestedBrandKey
+      ) {
+        throw new Error(
+          `Bloqueo de seguridad: el Inbox solicitó ${requestedBrandKey}, pero la API respondió ${returnedBrandSlug}.`
+        );
+      }
+
+      const nextBrand: BrandContext = {
+        ...normalizedReturnedBrand,
+        slug: requestedBrandKey || returnedBrandSlug,
+        name:
+          normalizedReturnedBrand.name ||
+          requestedBrandName ||
+          formatBrandNameFromSlug(requestedBrandKey),
+      };
+
+      const rawLeads = Array.isArray(data?.leads) ? data.leads : [];
+
+      const allLeads: SalesLead[] = rawLeads.map(
+  (lead: any, index: number): SalesLead =>
+    normalizeLead(lead, index, nextBrand)
+);
+
+const nextLeads: SalesLead[] = allLeads.filter((lead: SalesLead) => {
+  return !lead.brandSlug || lead.brandSlug === nextBrand.slug;
+});
+
+const allowedLeadIds = new Set<string>(
+  nextLeads.map((lead: SalesLead) => lead.id)
+);
       const rawMessages =
         data?.conversations ||
         data?.messages ||
@@ -218,9 +300,13 @@ function SalesAIInboxInner() {
         [];
 
       const nextMessages = Array.isArray(rawMessages)
-        ? rawMessages.map((message: any, index: number) =>
-            normalizeMessage(message, index)
-          )
+        ? rawMessages
+            .map((message: any, index: number) =>
+              normalizeMessage(message, index)
+            )
+            .filter((message: SalesMessage) => {
+              return allowedLeadIds.has(message.leadId);
+            })
         : [];
 
       const rawRuns =
@@ -231,9 +317,11 @@ function SalesAIInboxInner() {
         [];
 
       const nextRuns = Array.isArray(rawRuns)
-        ? rawRuns.map((run: any, index: number) =>
-            normalizeAgentRun(run, index)
-          )
+        ? rawRuns
+            .map((run: any, index: number) => normalizeAgentRun(run, index))
+            .filter((run: AgentRun) => {
+              return allowedLeadIds.has(run.leadId);
+            })
         : [];
 
       setBrand(nextBrand);
@@ -257,7 +345,7 @@ function SalesAIInboxInner() {
       setRuntimeSettings(settings);
     } catch (error: any) {
       setSystemMessage(error?.message || "Error cargando Inbox.");
-      setBrand(fallbackBrand);
+      setBrand(requestedBrandFallback);
       setMetrics(fallbackMetrics);
       setRuntimeSettings(null);
       setLeads([]);
@@ -267,7 +355,14 @@ function SalesAIInboxInner() {
     } finally {
       setLoading(false);
     }
-  }, [requestedBrandSlug, router]);
+  }, [
+    hasBrandContext,
+    requestedBrandFallback,
+    requestedBrandKey,
+    requestedBrandName,
+    requestedBrandSlug,
+    router,
+  ]);
 
   useEffect(() => {
     loadInbox();
@@ -1368,7 +1463,8 @@ function RecommendedReplyCard({
 
       <p className="mt-3 text-xs font-black leading-5 text-[#5d7088]">
         Este botón envía el mensaje real por WhatsApp solo después de aprobación
-        manual. El modo automático sigue apagado.
+        manual. Si el agente está en automático, los candados de seguridad se
+        validan desde backend.
       </p>
     </div>
   );
@@ -1632,7 +1728,7 @@ function PipelineRow({
 }
 
 function ProjectionPanel({ leads }: { leads: SalesLead[] }) {
-  const projection = Math.max(29750, leads.length * 3300);
+  const projection = Math.max(0, leads.length * 3300);
 
   return (
     <section className="rounded-[34px] border border-[#dceaf4] bg-white p-8 shadow-[0_18px_50px_rgba(8,21,53,0.06)]">
@@ -1645,7 +1741,7 @@ function ProjectionPanel({ leads }: { leads: SalesLead[] }) {
             {formatCurrency(projection)}
           </p>
           <p className="mt-2 text-base font-black text-emerald-600">
-            ↑ 27% vs ayer
+            Estimado según conversaciones activas
           </p>
         </div>
 
@@ -1966,19 +2062,41 @@ function BigChart() {
   );
 }
 
-function normalizeBrand(value: any): BrandContext {
+function normalizeBrand(value: any, fallback: BrandContext = fallbackBrand): BrandContext {
+  const rawName =
+    cleanText(value?.name) ||
+    cleanText(value?.brandName) ||
+    cleanText(value?.brand_name) ||
+    cleanText(fallback.name);
+
+  const rawSlug =
+    cleanText(value?.slug) ||
+    cleanText(value?.brandSlug) ||
+    cleanText(value?.brand_slug) ||
+    cleanText(fallback.slug) ||
+    toBrandSlug(rawName);
+
+  const slug = toBrandSlug(rawSlug || rawName);
+
   return {
-    id: value?.id || fallbackBrand.id,
-    slug: value?.slug || fallbackBrand.slug,
-    name: value?.name || fallbackBrand.name,
-    industry: value?.industry || fallbackBrand.industry,
-    city: value?.city || fallbackBrand.city,
-    exists: Boolean(value?.exists),
-    sourceTable: value?.sourceTable || value?.source_table || null,
+    id: value?.id || fallback.id,
+    slug,
+    name: rawName || formatBrandNameFromSlug(slug),
+    industry:
+      cleanText(value?.industry) ||
+      cleanText(value?.category) ||
+      fallback.industry,
+    city: value?.city || fallback.city,
+    exists: Boolean(value?.exists ?? fallback.exists),
+    sourceTable: value?.sourceTable || value?.source_table || fallback.sourceTable,
   };
 }
 
-function normalizeLead(lead: any, index: number): SalesLead {
+function normalizeLead(
+  lead: any,
+  index: number,
+  expectedBrand: BrandContext
+): SalesLead {
   const id = String(
     lead?.id ||
       lead?.lead_id ||
@@ -1987,6 +2105,20 @@ function normalizeLead(lead: any, index: number): SalesLead {
       lead?.contact_phone ||
       `lead-${index}`
   );
+
+  const leadBrandName =
+    cleanText(lead?.brandName) ||
+    cleanText(lead?.brand_name) ||
+    cleanText(lead?.brand) ||
+    expectedBrand.name;
+
+  const leadBrandSlug =
+    toBrandSlug(
+      cleanText(lead?.brandSlug) ||
+        cleanText(lead?.brand_slug) ||
+        leadBrandName ||
+        expectedBrand.slug
+    ) || expectedBrand.slug;
 
   const name =
     cleanText(lead?.name) ||
@@ -2029,6 +2161,8 @@ function normalizeLead(lead: any, index: number): SalesLead {
 
   return {
     id,
+    brandName: leadBrandName,
+    brandSlug: leadBrandSlug,
     name,
     phone,
     status:
@@ -2141,7 +2275,12 @@ function normalizeMessage(message: any, index: number): SalesMessage {
 
 function normalizeAgentRun(run: any, index: number): AgentRun {
   const decision =
-    run?.decision || run?.rawData?.decision || run?.raw_data?.decision || {};
+    run?.decision ||
+    run?.rawData?.decision ||
+    run?.raw_data?.decision ||
+    run?.rawData?.agent_decision ||
+    run?.raw_data?.agent_decision ||
+    {};
 
   return {
     id: String(run?.id || run?.run_id || `run-${index}`),
@@ -2232,7 +2371,7 @@ function normalizeMetrics(raw: any, leads: SalesLead[]): InboxMetrics {
       leads.filter((lead) => lead.requiresHuman).length
   );
   const pendingLearning = Number(
-    raw?.pendingLearning ?? raw?.pending_learning ?? Math.max(leads.length + 4, 0)
+    raw?.pendingLearning ?? raw?.pending_learning ?? 0
   );
 
   return {
@@ -2246,7 +2385,7 @@ function normalizeMetrics(raw: any, leads: SalesLead[]): InboxMetrics {
       cleanText(raw?.automationMode) ||
       cleanText(raw?.automation_mode) ||
       "Observación",
-    health: clampNumber(Number(raw?.health ?? 82), 0, 100),
+    health: clampNumber(Number(raw?.health ?? 0), 0, 100),
   };
 }
 
@@ -2388,7 +2527,7 @@ function getAgentReply(agentRun: AgentRun | null, lead: SalesLead | null) {
     agentRun?.agentReply ||
     agentRun?.recommendedReply ||
     lead?.recommendedReply ||
-    "Hola, gracias por tu mensaje. ¿En qué puedo ayudarte hoy? ¿Estás interesado en algún producto en particular o necesitas información sobre nuestros servicios?"
+    ""
   );
 }
 
@@ -2520,6 +2659,25 @@ function clampNumber(value: number, min: number, max: number) {
   if (Number.isNaN(num)) return min;
 
   return Math.max(min, Math.min(max, num));
+}
+
+function toBrandSlug(value: string) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatBrandNameFromSlug(slug: string) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+    .trim();
 }
 
 type IconName =
