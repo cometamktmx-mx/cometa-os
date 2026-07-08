@@ -20,6 +20,12 @@ type MercuryDashboardData = {
     pendingItems: number;
     approvedItems: number;
   };
+  access?: {
+    role?: "admin" | "internal" | "member";
+    userId?: string | null;
+    email?: string | null;
+    assignmentRole?: string | null;
+  };
 };
 
 type StatusChangePayload = {
@@ -462,14 +468,15 @@ function MercuryHubClient() {
   const searchParams = useSearchParams();
 
   const queryBrandSlug = normalizeBrandSlug(searchParams.get("brandSlug"));
-  const viewParam = searchParams.get("view");
-  const hasBrandSlugInUrl = Boolean(searchParams.get("brandSlug"));
-
-  const isClientView =
-    viewParam === "client" || (hasBrandSlugInUrl && viewParam !== "admin");
+const viewParam = searchParams.get("view");
 
   const [brandSlug, setBrandSlug] = useState(queryBrandSlug);
   const [data, setData] = useState<MercuryDashboardData | null>(null);
+  const userAccessRole = data?.access?.role;
+const isAdminUser = userAccessRole === "admin" || userAccessRole === "internal";
+
+const isClientView =
+  viewParam === "client" ? true : viewParam === "admin" ? false : !isAdminUser;
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
