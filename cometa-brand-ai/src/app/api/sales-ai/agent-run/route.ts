@@ -280,6 +280,88 @@ function getSafeRuntimeSnapshot(runtimeSettings: any) {
   };
 }
 
+async function getClientAgentConfiguration(brandName: string) {
+  try {
+    const { data, error } = await supabase
+      .from("sales_ai_settings")
+      .select(
+        "brand_name,response_rules,business_hours,client_agent_preferences,followups_enabled,human_escalation_enabled,max_followups,first_followup_delay_minutes"
+      )
+      .eq("brand_name", brandName)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("getClientAgentConfiguration error:", error.message);
+      return null;
+    }
+
+    return data || null;
+  } catch (error: any) {
+    console.warn("getClientAgentConfiguration exception:", error?.message);
+    return null;
+  }
+}
+
+function buildClientAgentConfigurationContext(config: any) {
+  if (!config) {
+    return `
+CONFIGURACIÓN DEL CLIENTE:
+No hay configuración personalizada guardada todavía.
+Usa Knowledge Base, Playbook y contexto disponible.
+`;
+  }
+
+  const preferences = config.client_agent_preferences || {};
+  const responseRules = config.response_rules || {};
+  const businessHours = config.business_hours || {};
+
+  return `
+CONFIGURACIÓN PERSONALIZADA DEL CLIENTE:
+Esta información fue escrita por el cliente desde Cometa OS. Úsala para adaptar tus respuestas.
+
+NEGOCIO:
+- Industria: ${preferences.industry || "No especificada"}
+- Objetivo principal: ${preferences.primary_goal || "No especificado"}
+- Estilo de respuesta: ${preferences.response_style || "No especificado"}
+- Tono deseado: ${preferences.tone || responseRules.tone || "profesional, claro y vendedor"}
+
+DESCRIPCIÓN DEL NEGOCIO:
+${preferences.business_summary || "No especificada"}
+
+PRODUCTOS / SERVICIOS PRINCIPALES:
+${preferences.products_services || "No especificados"}
+
+PREGUNTAS OBLIGATORIAS PARA CALIFICAR:
+${preferences.required_questions || "No especificadas"}
+
+COSAS QUE EL AGENTE NO PUEDE PROMETER:
+${preferences.forbidden_promises || "No especificadas"}
+
+CASOS ESPECIALES PARA ESCALAR A HUMANO:
+${preferences.escalation_notes || "No especificados"}
+
+REGLAS DE RESPUESTA:
+- No prometer sin confirmar: ${responseRules.avoid_promising_without_confirmation !== false}
+- Hacer una pregunta a la vez: ${responseRules.ask_one_question_at_a_time !== false}
+- Intentar calificar antes de vender: ${responseRules.always_try_to_qualify !== false}
+- No aplicar descuentos sin permiso: ${responseRules.never_apply_discounts_without_permission !== false}
+
+SEGUIMIENTOS:
+- Follow-ups activados: ${config.followups_enabled !== false}
+- Máximo de follow-ups: ${config.max_followups ?? 3}
+- Primer follow-up después de minutos: ${config.first_followup_delay_minutes ?? 1440}
+
+ESCALAMIENTO:
+- Escalamiento humano activado: ${config.human_escalation_enabled !== false}
+
+HORARIO:
+${JSON.stringify(businessHours, null, 2)}
+
+INSTRUCCIÓN:
+Prioriza esta configuración cuando respondas. Si el cliente escribió productos, servicios, reglas o preguntas obligatorias, úsalas antes de responder de forma genérica.
+`;
+}
+
 function buildFallbackFollowUpMessage({
   decision,
 }: {
@@ -445,6 +527,12 @@ export async function POST(req: Request) {
     const knowledgeBase = await getSalesKnowledgeBase(finalBrandName);
     const salesKnowledgeContext = buildSalesKnowledgeContext(knowledgeBase);
 
+    const clientAgentConfiguration =
+  await getClientAgentConfiguration(finalBrandName);
+
+const clientAgentConfigurationContext =
+  buildClientAgentConfigurationContext(clientAgentConfiguration);
+
     console.log("SALES AI playbook cargado:", {
       brandName: salesPlaybook.brandName,
       playbookId: salesPlaybook.id,
@@ -464,6 +552,14 @@ export async function POST(req: Request) {
       faqs: knowledgeBase.faqs.length,
       suggestions: knowledgeBase.suggestions.length,
     });
+
+    console.log("SALES AI configuración cliente cargada:", {
+  brandName: finalBrandName,
+  hasClientConfiguration: Boolean(clientAgentConfiguration),
+  preferences:
+    clientAgentConfiguration?.client_agent_preferences || null,
+  responseRules: clientAgentConfiguration?.response_rules || null,
+});
 
     console.log("SALES AI runtime settings:", {
       brandName: finalBrandName,
@@ -568,6 +664,8 @@ Si no hay información suficiente del negocio, no respondas genérico: haz una p
 ${salesKnowledgeContext}
 
 ${salesPlaybookContext}
+
+${clientAgentConfigurationContext}
 
 ESTILO DE RESPUESTA PARA WHATSAPP:
 - Escribe como una persona de ventas real.
@@ -827,6 +925,20 @@ const nextFollowUpAt = shouldPlanFollowUpCandidate
             objections: salesPlaybook.objectionHandlers,
             escalationRules: salesPlaybook.escalationRules,
           },
+          client_agent_configuration: clientAgentConfiguration
+  ? {
+      response_rules: clientAgentConfiguration.response_rules || {},
+      client_agent_preferences:
+        clientAgentConfiguration.client_agent_preferences || {},
+      business_hours: clientAgentConfiguration.business_hours || {},
+      followups_enabled: clientAgentConfiguration.followups_enabled,
+      human_escalation_enabled:
+        clientAgentConfiguration.human_escalation_enabled,
+      max_followups: clientAgentConfiguration.max_followups,
+      first_followup_delay_minutes:
+        clientAgentConfiguration.first_followup_delay_minutes,
+    }
+  : null,
           knowledge_base: {
             brandName: knowledgeBase.brandName,
             counts: {
@@ -911,6 +1023,14 @@ const nextFollowUpAt = shouldPlanFollowUpCandidate
             followups_enabled: runtimeSettings.followups_enabled,
             max_followups: runtimeSettings.max_followups,
           },
+          client_agent_configuration: clientAgentConfiguration
+  ? {
+      response_rules: clientAgentConfiguration.response_rules || {},
+      client_agent_preferences:
+        clientAgentConfiguration.client_agent_preferences || {},
+      business_hours: clientAgentConfiguration.business_hours || {},
+    }
+  : null,
           playbook_id: salesPlaybook.id || null,
           knowledge_base_counts: {
             knowledgeSources: knowledgeBase.knowledgeSources.length,
