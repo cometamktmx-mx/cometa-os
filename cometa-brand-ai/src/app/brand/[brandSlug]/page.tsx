@@ -60,7 +60,9 @@ export default function BrandHomePage() {
   const router = useRouter();
   const params = useParams();
 
-  const rawBrandSlug = params?.brandSlug;
+  const rawBrandSlug =
+    (params as any)?.brandSlug ?? (params as any)?.slug ?? "";
+
   const brandSlug = Array.isArray(rawBrandSlug)
     ? rawBrandSlug[0]
     : String(rawBrandSlug || "");
@@ -192,6 +194,13 @@ export default function BrandHomePage() {
       access: "view",
     },
     {
+      code: "CA",
+      label: "Calendario de contenido",
+      href: `/brand/${brand.slug}#calendario-contenido`,
+      active: currentHash === "#calendario-contenido",
+      access: "view",
+    },
+    {
       code: "SA",
       label: "Ventas / Leads",
       href: `/sales-ai/inbox?${brandQuery}`,
@@ -252,6 +261,8 @@ export default function BrandHomePage() {
           <DigitalAccountDashboard brand={brand} />
 
           <WorkDoneAndStrategy brand={brand} />
+
+          <MercuryContentCalendar brand={brand} />
 
           <BrandOperatingSystem brand={brand} />
 
@@ -418,6 +429,8 @@ function BrandHero({
   brand: BrandData;
   isLoading: boolean;
 }) {
+  const brandQuery = `brandSlug=${encodeURIComponent(brand.slug)}`;
+
   return (
     <header
       id="resumen"
@@ -459,24 +472,28 @@ function BrandHero({
 
           <p className="mt-6 max-w-4xl text-[17px] font-semibold leading-8 text-slate-300">
             Cometa OS te muestra qué está pasando con tu cuenta digital, qué
-            trabajo se está realizando, qué estrategia está activa y qué
-            información necesitan los agentes IA para operar con seguridad.
+            trabajo se está realizando, qué estrategia está activa, dónde está tu
+            calendario de contenido y qué información necesitan los agentes IA
+            para operar con seguridad.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
             <Link
-              href={`/sales-ai/inbox?brandSlug=${encodeURIComponent(
-                brand.slug
-              )}`}
+              href={`/brand/${brand.slug}#calendario-contenido`}
+              className="flex h-14 items-center justify-center rounded-2xl bg-cyan-300 px-6 text-sm font-black text-slate-950 transition hover:bg-cyan-200"
+            >
+              Ver calendario de contenido →
+            </Link>
+
+            <Link
+              href={`/sales-ai/inbox?${brandQuery}`}
               className="flex h-14 items-center justify-center rounded-2xl bg-white px-6 text-sm font-black text-slate-950 transition hover:bg-cyan-100"
             >
               Abrir ventas / leads →
             </Link>
 
             <Link
-              href={`/sales-ai/knowledge?brandSlug=${encodeURIComponent(
-                brand.slug
-              )}`}
+              href={`/sales-ai/knowledge?${brandQuery}`}
               className="flex h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-6 text-sm font-black text-white transition hover:bg-white/10"
             >
               Editar información IA
@@ -641,7 +658,7 @@ function WorkDoneAndStrategy({ brand }: { brand: BrandData }) {
         className="rounded-[38px] border border-cyan-100 bg-cyan-50 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.05)]"
       >
         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
-          Estrategia del Mes · MERCURY
+          Estrategia del Mes
         </p>
 
         <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
@@ -649,9 +666,9 @@ function WorkDoneAndStrategy({ brand }: { brand: BrandData }) {
         </h2>
 
         <p className="mt-4 text-sm font-semibold leading-7 text-slate-600">
-          MERCURY puede generar hipótesis y dirección mensual, pero el cliente
-          solo visualiza la versión aprobada por Cometa. La estrategia no se
-          edita desde el dashboard del cliente.
+          La estrategia muestra la dirección mensual aprobada. El calendario de
+          contenido se consulta en el apartado de MERCURY para ver publicaciones,
+          reels, historias, fechas, estados y comentarios.
         </p>
 
         <div className="mt-6 rounded-[30px] bg-white p-5">
@@ -669,6 +686,112 @@ function WorkDoneAndStrategy({ brand }: { brand: BrandData }) {
           </p>
         </div>
       </article>
+    </section>
+  );
+}
+
+function MercuryContentCalendar({ brand }: { brand: BrandData }) {
+  const brandQuery = `brandSlug=${encodeURIComponent(brand.slug)}`;
+
+  return (
+    <section
+      id="calendario-contenido"
+      className="rounded-[38px] border border-cyan-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.07)]"
+    >
+      <div className="flex flex-col gap-5 border-b border-slate-100 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
+            Calendario de contenido · MERCURY
+          </p>
+
+          <h2 className="mt-2 text-3xl font-black tracking-[-0.055em] text-slate-950">
+            Planeación mensual de contenido
+          </h2>
+
+          <p className="mt-3 max-w-3xl text-sm font-semibold leading-7 text-slate-500">
+            Aquí el cliente puede consultar qué piezas están planeadas, en qué
+            etapa van, qué falta por revisar y dónde puede dejar comentarios sin
+            tocar la estrategia interna de Cometa.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={`/mercury-hub?${brandQuery}`}
+            className="flex h-13 items-center justify-center rounded-2xl bg-slate-950 px-6 py-4 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700"
+          >
+            Abrir calendario en MERCURY →
+          </Link>
+
+          <span className="flex h-13 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 px-5 py-4 text-xs font-black uppercase tracking-[0.14em] text-cyan-700">
+            Vista controlada
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <CalendarStageCard
+          code="BR"
+          title="Brief listo"
+          description="Ideas y piezas con dirección clara para diseñar o grabar."
+          status="Planeación"
+        />
+
+        <CalendarStageCard
+          code="DI"
+          title="Diseño"
+          description="Contenido en producción visual, edición o armado creativo."
+          status="Proceso"
+          featured
+        />
+
+        <CalendarStageCard
+          code="RV"
+          title="Revisión"
+          description="Piezas listas para validar cambios, comentarios o ajustes."
+          status="Revisión"
+        />
+
+        <CalendarStageCard
+          code="PR"
+          title="Programado"
+          description="Contenido aprobado y listo para publicación."
+          status="Salida"
+        />
+      </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <article className="rounded-[30px] bg-slate-950 p-6 text-white">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-300">
+            Qué ve el cliente
+          </p>
+
+          <h3 className="mt-4 text-3xl font-black leading-tight tracking-[-0.06em]">
+            Publicaciones, reels, historias, estados y comentarios.
+          </h3>
+
+          <p className="mt-4 text-sm font-semibold leading-7 text-slate-300">
+            MERCURY funciona como el espacio de ejecución: no reemplaza la
+            estrategia, la aterriza en piezas concretas que el cliente puede
+            revisar de forma ordenada.
+          </p>
+        </article>
+
+        <article className="rounded-[30px] border border-slate-200 bg-slate-50 p-6">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+            Regla de acceso
+          </p>
+
+          <p className="mt-3 text-2xl font-black leading-tight tracking-[-0.055em] text-slate-950">
+            El cliente revisa y comenta. Cometa controla ejecución y estrategia.
+          </p>
+
+          <p className="mt-3 text-sm font-semibold leading-7 text-slate-500">
+            Esto evita que el cliente vea módulos incompletos o edite decisiones
+            internas que todavía deben mantenerse bajo control del equipo.
+          </p>
+        </article>
+      </div>
     </section>
   );
 }
@@ -771,12 +894,19 @@ function NextActionBlock({ brand }: { brand: BrandData }) {
             {brand.actionDescription}
           </p>
 
-          <div className="mt-7">
+          <div className="mt-7 flex flex-wrap gap-3">
             <Link
               href={actionHref}
               className="inline-flex h-14 items-center justify-center rounded-2xl bg-slate-950 px-6 text-sm font-black text-white shadow-lg shadow-slate-950/10 transition hover:bg-cyan-700"
             >
               Abrir acción →
+            </Link>
+
+            <Link
+              href={`/brand/${brand.slug}#calendario-contenido`}
+              className="inline-flex h-14 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50 px-6 text-sm font-black text-cyan-700 transition hover:bg-cyan-100"
+            >
+              Ver calendario →
             </Link>
           </div>
         </div>
@@ -805,6 +935,15 @@ function BrandModules({ brand }: { brand: BrandData }) {
 
   const modules = [
     {
+      code: "CA",
+      title: "Calendario de contenido",
+      description:
+        "Planeación mensual, publicaciones, reels, historias, estados, revisión y comentarios.",
+      href: `/mercury-hub?${brandQuery}`,
+      status: "Visual",
+      access: "Visual",
+    },
+    {
       code: "SA",
       title: "Ventas / Leads",
       description:
@@ -814,14 +953,14 @@ function BrandModules({ brand }: { brand: BrandData }) {
       access: "Editable",
     },
     {
-  code: "AG",
-  title: "Configurar agente SALES AI",
-  description:
-    "Tono, servicios, reglas de venta, seguimientos, límites y escalamiento humano.",
-  href: `/sales-ai/agent-settings?${brandQuery}`,
-  status: "Editable",
-  access: "Editable",
-},
+      code: "AG",
+      title: "Configurar agente SALES AI",
+      description:
+        "Tono, servicios, reglas de venta, seguimientos, límites y escalamiento humano.",
+      href: `/sales-ai/agent-settings?${brandQuery}`,
+      status: "Editable",
+      access: "Editable",
+    },
     {
       code: "CX",
       title: "Conexiones",
@@ -1016,6 +1155,13 @@ function TopControls({ brandSlug }: { brandSlug: string }) {
   return (
     <div className="flex justify-end gap-3">
       <Link
+        href={`/brand/${brandSlug}#calendario-contenido`}
+        className="flex h-12 items-center rounded-2xl bg-cyan-50 px-5 text-sm font-black text-cyan-700 shadow-sm transition hover:bg-cyan-100"
+      >
+        Calendario
+      </Link>
+
+      <Link
         href={`/brand/${brandSlug}#reportes`}
         className="flex h-12 items-center rounded-2xl bg-white px-5 text-sm font-black text-slate-950 shadow-sm transition hover:bg-slate-50"
       >
@@ -1095,25 +1241,33 @@ function RecommendedActions({ brand }: { brand: BrandData }) {
   const actions = [
     {
       number: "1",
+      title: "Ver calendario de contenido",
+      description:
+        "Consultar piezas del mes, estados, revisión y comentarios en MERCURY.",
+      href: `/brand/${brand.slug}#calendario-contenido`,
+      priority: "Alta",
+    },
+    {
+      number: "2",
       title: brand.mainAction,
       description: brand.actionDescription,
       href: getActionHref(brand),
       priority: brand.riskLevel === "Alto" ? "Alta" : "Media",
     },
     {
-      number: "2",
+      number: "3",
       title: "Revisar conversaciones activas",
       description: "Validar leads abiertos y oportunidades calientes.",
       href: `/sales-ai/inbox?${brandQuery}`,
       priority: "Media",
     },
     {
-  number: "3",
-  title: "Configurar agente SALES AI",
-  description: "Actualizar servicios, reglas, tono, límites y seguimientos.",
-  href: `/sales-ai/agent-settings?${brandQuery}`,
-  priority: "Baja",
-},
+      number: "4",
+      title: "Configurar agente SALES AI",
+      description: "Actualizar servicios, reglas, tono, límites y seguimientos.",
+      href: `/sales-ai/agent-settings?${brandQuery}`,
+      priority: "Baja",
+    },
   ];
 
   return (
@@ -1183,6 +1337,50 @@ function SystemPrinciple() {
 }
 
 function AccountSignalCard({
+  code,
+  title,
+  description,
+  status,
+  featured,
+}: {
+  code: string;
+  title: string;
+  description: string;
+  status: string;
+  featured?: boolean;
+}) {
+  return (
+    <article
+      className={`rounded-[28px] border p-5 ${
+        featured ? "border-cyan-200 bg-cyan-50" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xs font-black ${
+            featured ? "bg-white text-cyan-700" : "bg-white text-slate-400"
+          }`}
+        >
+          {code}
+        </div>
+
+        <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+          {status}
+        </span>
+      </div>
+
+      <h3 className="mt-5 text-2xl font-black tracking-[-0.055em] text-slate-950">
+        {title}
+      </h3>
+
+      <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">
+        {description}
+      </p>
+    </article>
+  );
+}
+
+function CalendarStageCard({
   code,
   title,
   description,
@@ -1378,6 +1576,14 @@ function getActionHref(brand: BrandData) {
     action.includes("ventas")
   ) {
     return `/sales-ai/inbox?${brandQuery}`;
+  }
+
+  if (
+    action.includes("calendario") ||
+    action.includes("contenido") ||
+    action.includes("mercury")
+  ) {
+    return `/brand/${brand.slug}#calendario-contenido`;
   }
 
   if (

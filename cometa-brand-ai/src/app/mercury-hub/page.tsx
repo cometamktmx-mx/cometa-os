@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 type MercuryDashboardData = {
   ok: boolean;
@@ -25,6 +26,7 @@ type StatusChangePayload = {
   itemId: string;
   status: string;
   comment?: string;
+  isPrivateComment?: boolean;
 };
 
 type DetailUpdatePayload = {
@@ -374,8 +376,77 @@ function getQuickActions(status?: string) {
   return [];
 }
 
+function getClientQuickActions(status?: string) {
+  const current = status || "generated";
+
+  if (
+    current === "approved_internal" ||
+    current === "sent_to_client" ||
+    current === "design_uploaded"
+  ) {
+    return [
+      {
+        label: "Aprobar pieza",
+        status: "approved_client",
+        comment: "El cliente aprobó la pieza.",
+        className: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+      },
+      {
+        label: "Solicitar cambios",
+        status: "changes_requested",
+        comment: "El cliente solicitó cambios en la pieza.",
+        className: "bg-orange-50 text-orange-700 hover:bg-orange-100",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function normalizeBrandSlug(value?: string | null) {
+  return String(value || "cometa-mkt").trim() || "cometa-mkt";
+}
+
 export default function MercuryHubPage() {
-  const [brandSlug, setBrandSlug] = useState("cometa-mkt");
+  return (
+    <Suspense fallback={<MercuryLoadingScreen />}>
+      <MercuryHubClient />
+    </Suspense>
+  );
+}
+
+function MercuryLoadingScreen() {
+  return (
+    <main className="min-h-screen bg-[#f3f8fb] text-slate-950">
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="rounded-[34px] border border-slate-200 bg-white p-8 text-center shadow-[0_24px_90px_rgba(15,23,42,0.06)]">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
+            Mercury Execution Hub
+          </p>
+          <h1 className="mt-3 text-3xl font-black tracking-[-0.06em] text-slate-950">
+            Cargando calendario...
+          </h1>
+          <p className="mt-3 text-sm font-semibold text-slate-500">
+            Preparando vista de contenido.
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function MercuryHubClient() {
+  
+  const searchParams = useSearchParams();
+
+  const queryBrandSlug = normalizeBrandSlug(searchParams.get("brandSlug"));
+  const viewParam = searchParams.get("view");
+  const hasBrandSlugInUrl = Boolean(searchParams.get("brandSlug"));
+
+  const isClientView =
+    viewParam === "client" || (hasBrandSlugInUrl && viewParam !== "admin");
+
+  const [brandSlug, setBrandSlug] = useState(queryBrandSlug);
   const [data, setData] = useState<MercuryDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -387,12 +458,14 @@ export default function MercuryHubPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function loadDashboard(nextBrandSlug = brandSlug) {
+    const safeBrandSlug = normalizeBrandSlug(nextBrandSlug);
+
     setLoading(true);
     setError(null);
 
     try {
       const response = await fetch(
-        `/api/mercury/dashboard?brandSlug=${encodeURIComponent(nextBrandSlug)}`,
+        `/api/mercury/dashboard?brandSlug=${encodeURIComponent(safeBrandSlug)}`,
         {
           cache: "no-store",
         }
@@ -404,6 +477,8 @@ export default function MercuryHubPage() {
       }
 
       const json = (await response.json()) as MercuryDashboardData;
+
+      setBrandSlug(json?.brandSlug || safeBrandSlug);
       setData(json);
     } catch (err: any) {
       setError(err?.message || "No se pudo cargar MERCURY.");
@@ -413,6 +488,8 @@ export default function MercuryHubPage() {
   }
 
   async function generateCalendar() {
+    if (isClientView) return;
+
     const ok = window.confirm(
       "¿Quieres regenerar el calendario? Esto reemplazará las piezas actuales del ciclo activo."
     );
@@ -429,7 +506,8 @@ export default function MercuryHubPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          brandName: data?.settings?.brand_name || "Cometa MKT",
+          brandSlug,
+          brandName: data?.settings?.brand_name || brandSlug,
           forceRegenerate: true,
         }),
       });
@@ -439,7 +517,7 @@ export default function MercuryHubPage() {
         throw new Error(text || `Error ${response.status}`);
       }
 
-      await loadDashboard();
+      await loadDashboard(brandSlug);
     } catch (err: any) {
       setError(err?.message || "No se pudo generar el calendario.");
     } finally {
@@ -451,6 +529,7 @@ export default function MercuryHubPage() {
     itemId,
     status,
     comment,
+    isPrivateComment,
   }: StatusChangePayload) {
     setError(null);
     setUpdatingItemId(itemId);
@@ -467,7 +546,10 @@ export default function MercuryHubPage() {
           comment:
             comment ||
             `MERCURY Hub actualizó el estatus de la pieza a: ${status}`,
-          isPrivateComment: true,
+          isPrivateComment:
+            typeof isPrivateComment === "boolean"
+              ? isPrivateComment
+              : !isClientView,
         }),
       });
 
@@ -482,7 +564,7 @@ export default function MercuryHubPage() {
         setSelectedItem(json.item);
       }
 
-      await loadDashboard();
+      await loadDashboard(brandSlug);
     } catch (err: any) {
       setError(err?.message || "No se pudo actualizar la tarea.");
     } finally {
@@ -491,6 +573,8 @@ export default function MercuryHubPage() {
   }
 
   async function updateItemDetails(payload: DetailUpdatePayload) {
+    if (isClientView) return;
+
     setError(null);
     setSavingDetail(true);
 
@@ -529,7 +613,7 @@ export default function MercuryHubPage() {
         setSelectedItem(json.item);
       }
 
-      await loadDashboard();
+      await loadDashboard(brandSlug);
     } catch (err: any) {
       setError(err?.message || "No se pudo guardar el detalle de la tarea.");
     } finally {
@@ -538,9 +622,11 @@ export default function MercuryHubPage() {
   }
 
   useEffect(() => {
-    loadDashboard("cometa-mkt");
+    const nextBrandSlug = normalizeBrandSlug(searchParams.get("brandSlug"));
+    setBrandSlug(nextBrandSlug);
+    loadDashboard(nextBrandSlug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   function handleSectionChange(section: MercurySectionKey) {
     setActiveSection(section);
@@ -646,7 +732,7 @@ export default function MercuryHubPage() {
 
     return Object.entries(byType).map(([type, count]) => ({
       type,
-      count,
+      count: Number(count),
       percent: total > 0 ? Math.round((Number(count) / total) * 100) : 0,
     }));
   }, [data?.summary]);
@@ -661,12 +747,18 @@ export default function MercuryHubPage() {
     return upcoming[0] || null;
   }, [items]);
 
+  const activeBrandName =
+    data?.settings?.brand_name || data?.selectedCalendar?.brand_name || brandSlug;
+
   return (
     <main className="min-h-screen bg-[#f3f8fb] text-slate-950">
       <div className="flex min-h-screen">
         <Sidebar
           activeSection={activeSection}
           onSectionChange={handleSectionChange}
+          brandSlug={brandSlug}
+          brandName={activeBrandName}
+          isClientView={isClientView}
         />
 
         <section className="min-w-0 flex-1">
@@ -674,12 +766,29 @@ export default function MercuryHubPage() {
             onGenerate={generateCalendar}
             generating={generating}
             loading={loading}
+            brandSlug={brandSlug}
+            brandName={activeBrandName}
+            isClientView={isClientView}
           />
 
           <div className="mx-auto w-full max-w-[1580px] px-5 py-6 lg:px-8">
             {error ? (
               <div className="mb-6 rounded-[24px] border border-red-200 bg-red-50 p-5 text-sm font-black text-red-700">
                 {error}
+              </div>
+            ) : null}
+
+            {isClientView ? (
+              <div className="mb-6 rounded-[26px] border border-cyan-200 bg-cyan-50 p-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">
+                  Vista cliente controlada
+                </p>
+                <p className="mt-2 text-sm font-bold leading-6 text-slate-700">
+                  Aquí puedes revisar el calendario, ver el avance de piezas,
+                  abrir detalles, consultar links y dejar comentarios para
+                  Cometa. La configuración interna y la regeneración del
+                  calendario permanecen bajo control del equipo.
+                </p>
               </div>
             ) : null}
 
@@ -690,6 +799,7 @@ export default function MercuryHubPage() {
                     data={data}
                     calendarTitle={calendarTitle}
                     loading={loading}
+                    isClientView={isClientView}
                   />
                 </div>
 
@@ -710,13 +820,14 @@ export default function MercuryHubPage() {
                       updatingItemId={updatingItemId}
                       onOpenItem={setSelectedItem}
                       onStatusChange={updateItemStatus}
+                      isClientView={isClientView}
                     />
                   </div>
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
                   <div id="mercury-section-disenadores" className="scroll-mt-8">
-                    <TeamLoadPanel items={items} />
+                    <TeamLoadPanel items={items} isClientView={isClientView} />
                   </div>
 
                   <div id="mercury-section-reportes" className="scroll-mt-8">
@@ -737,6 +848,7 @@ export default function MercuryHubPage() {
                     data={data}
                     nextPublish={nextPublish}
                     pending={data?.summary?.pendingItems || 0}
+                    isClientView={isClientView}
                   />
                 </div>
 
@@ -744,17 +856,23 @@ export default function MercuryHubPage() {
                   id="mercury-section-configuracion"
                   className="scroll-mt-8"
                 >
-                  <CycleConfigPanel
-                    data={data}
-                    brandSlug={brandSlug}
-                    setBrandSlug={setBrandSlug}
-                    onLoad={() => loadDashboard(brandSlug)}
-                  />
+                  {isClientView ? (
+                    <ClientControlPanel brandName={activeBrandName} />
+                  ) : (
+                    <CycleConfigPanel
+                      data={data}
+                      brandSlug={brandSlug}
+                      setBrandSlug={setBrandSlug}
+                      onLoad={() => loadDashboard(brandSlug)}
+                    />
+                  )}
                 </div>
 
-                <div id="mercury-section-historial" className="scroll-mt-8">
-                  <RecentRunsPanel runs={data?.recentRuns || []} />
-                </div>
+                {!isClientView ? (
+                  <div id="mercury-section-historial" className="scroll-mt-8">
+                    <RecentRunsPanel runs={data?.recentRuns || []} />
+                  </div>
+                ) : null}
               </aside>
             </div>
           </div>
@@ -770,6 +888,7 @@ export default function MercuryHubPage() {
           onClose={() => setSelectedItem(null)}
           onSave={updateItemDetails}
           onStatusChange={updateItemStatus}
+          isClientView={isClientView}
         />
       ) : null}
     </main>
@@ -781,15 +900,21 @@ export default function MercuryHubPage() {
 function Sidebar({
   activeSection,
   onSectionChange,
+  brandSlug,
+  brandName,
+  isClientView,
 }: {
   activeSection: MercurySectionKey;
   onSectionChange: (section: MercurySectionKey) => void;
+  brandSlug: string;
+  brandName: string;
+  isClientView: boolean;
 }) {
   const mainLinks: SidebarLinkItem[] = [
     { key: "resumen", label: "Resumen", icon: "▦" },
     { key: "calendario", label: "Calendario", icon: "📅" },
     { key: "produccion", label: "Producción", icon: "▣" },
-    { key: "disenadores", label: "Diseñadores", icon: "👥" },
+    { key: "disenadores", label: isClientView ? "Equipo" : "Diseñadores", icon: "👥" },
     { key: "aprobaciones", label: "Aprobaciones", icon: "✓" },
     { key: "entregas", label: "Entregas", icon: "📦" },
     { key: "reportes", label: "Reportes", icon: "📊" },
@@ -805,7 +930,7 @@ function Sidebar({
   return (
     <aside className="hidden w-[300px] shrink-0 border-r border-slate-200 bg-white p-5 shadow-[20px_0_80px_rgba(15,23,42,0.04)] xl:block">
       <Link
-        href="/"
+        href={`/brand/${brandSlug}`}
         className="flex items-center gap-3 rounded-[26px] border border-slate-200 bg-slate-50 p-4"
       >
         <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -831,18 +956,18 @@ function Sidebar({
 
       <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-3">
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-          Workspace
+          Marca activa
         </p>
 
         <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-950 px-3 py-3 text-white">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-300 text-sm font-black text-slate-950">
-              C
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cyan-300 text-sm font-black text-slate-950">
+              {getInitials(brandName)}
             </span>
-            <div>
-              <p className="text-sm font-black">Cometa MKT</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black">{brandName}</p>
               <p className="text-[10px] font-bold text-slate-400">
-                Marca activa
+                {isClientView ? "Vista cliente" : "Vista admin"}
               </p>
             </div>
           </div>
@@ -858,12 +983,14 @@ function Sidebar({
           onSectionChange={onSectionChange}
         />
 
-        <SidebarSection
-          title="Sistema"
-          links={systemLinks}
-          activeSection={activeSection}
-          onSectionChange={onSectionChange}
-        />
+        {!isClientView ? (
+          <SidebarSection
+            title="Sistema"
+            links={systemLinks}
+            activeSection={activeSection}
+            onSectionChange={onSectionChange}
+          />
+        ) : null}
       </nav>
 
       <button
@@ -873,7 +1000,7 @@ function Sidebar({
       >
         <p className="text-sm font-black text-slate-950">Mercury AI</p>
         <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
-          Calendarios, producción, responsables y aprendizaje mensual.
+          Calendario, producción, revisión y seguimiento mensual de contenido.
         </p>
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
           <div className="h-full w-[72%] rounded-full bg-cyan-400" />
@@ -938,10 +1065,16 @@ function Topbar({
   onGenerate,
   generating,
   loading,
+  brandSlug,
+  brandName,
+  isClientView,
 }: {
   onGenerate: () => void;
   generating: boolean;
   loading: boolean;
+  brandSlug: string;
+  brandName: string;
+  isClientView: boolean;
 }) {
   return (
     <header className="border-b border-slate-200 bg-white">
@@ -951,26 +1084,38 @@ function Topbar({
             Mercury Execution Hub
           </p>
           <h1 className="mt-2 max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.06em] md:text-5xl">
-            Calendario, producción y flujo del contenido.
+            Calendario de contenido de {brandName}.
           </h1>
           <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
-            MERCURY convierte estrategia en ejecución: calendario, tareas,
-            diseñadores, aprobaciones y publicaciones.
+            {isClientView
+              ? "Aquí puedes revisar la planeación mensual, el avance de producción, piezas aprobadas, fechas y comentarios."
+              : "MERCURY convierte estrategia en ejecución: calendario, tareas, diseñadores, aprobaciones y publicaciones."}
           </p>
         </div>
 
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
-          <button
-            onClick={onGenerate}
-            disabled={generating || loading}
-            className="flex h-14 items-center justify-center rounded-2xl bg-cyan-300 px-7 text-sm font-black text-slate-950 shadow-lg shadow-cyan-400/20 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+          <Link
+            href={`/brand/${brandSlug}`}
+            className="flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-7 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
-            {generating ? "Generando..." : "✦ Regenerar calendario"}
-          </button>
+            ← Volver al dashboard
+          </Link>
 
-          <button className="flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-7 text-sm font-black text-slate-700 transition hover:bg-slate-50">
-            👥 Ver equipo
-          </button>
+          {!isClientView ? (
+            <>
+              <button
+                onClick={onGenerate}
+                disabled={generating || loading}
+                className="flex h-14 items-center justify-center rounded-2xl bg-cyan-300 px-7 text-sm font-black text-slate-950 shadow-lg shadow-cyan-400/20 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {generating ? "Generando..." : "✦ Regenerar calendario"}
+              </button>
+
+              <button className="flex h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white px-7 text-sm font-black text-slate-700 transition hover:bg-slate-50">
+                👥 Ver equipo
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
     </header>
@@ -981,10 +1126,12 @@ function HeroPanel({
   data,
   calendarTitle,
   loading,
+  isClientView,
 }: {
   data: MercuryDashboardData | null;
   calendarTitle: string;
   loading: boolean;
+  isClientView: boolean;
 }) {
   return (
     <section className="rounded-[34px] border border-slate-200 bg-white p-4 shadow-[0_24px_90px_rgba(15,23,42,0.06)]">
@@ -1013,6 +1160,8 @@ function HeroPanel({
                 <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-400">
                   {loading
                     ? "Cargando operación de Mercury..."
+                    : isClientView
+                    ? "Calendario mensual de contenido, producción, revisión y publicaciones visibles para cliente."
                     : "MERCURY transforma estrategia mensual en calendario, briefs, producción y seguimiento operativo."}
                 </p>
               </div>
@@ -1115,7 +1264,7 @@ function CalendarPanel({
   loading: boolean;
   onOpenItem: (item: any) => void;
 }) {
-  const visibleDays = days.slice(0, 35);
+  const visibleDays = days;
 
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
@@ -1129,20 +1278,15 @@ function CalendarPanel({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-black">
-            ‹
-          </button>
-          <button className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-black">
-            ›
-          </button>
-        </div>
+        <span className="rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-2 text-xs font-black text-cyan-700">
+          Vista mensual
+        </span>
       </div>
 
       {loading ? (
         <EmptyMini message="Cargando calendario..." />
       ) : visibleDays.length === 0 ? (
-        <EmptyMini message="Todavía no hay calendario generado." />
+        <EmptyMini message="Todavía no hay calendario generado para esta marca." />
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200">
           <div className="grid grid-cols-7">
@@ -1212,28 +1356,30 @@ function ProductionFlowPanel({
   updatingItemId,
   onOpenItem,
   onStatusChange,
+  isClientView,
 }: {
   pipeline: any[];
   loading: boolean;
   updatingItemId: string | null;
   onOpenItem: (item: any) => void;
   onStatusChange: (params: StatusChangePayload) => Promise<void>;
+  isClientView: boolean;
 }) {
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <p className="text-lg font-black text-slate-950">
-            Flujo de producción
+            {isClientView ? "Estado de producción" : "Flujo de producción"}
           </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
             De brief a publicación
           </p>
         </div>
 
-        <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600">
+        <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600">
           Formatos
-        </button>
+        </span>
       </div>
 
       {loading ? (
@@ -1259,6 +1405,7 @@ function ProductionFlowPanel({
                     updating={updatingItemId === item.id}
                     onOpenItem={onOpenItem}
                     onStatusChange={onStatusChange}
+                    isClientView={isClientView}
                   />
                 ))}
 
@@ -1281,13 +1428,17 @@ function MiniTask({
   updating,
   onOpenItem,
   onStatusChange,
+  isClientView,
 }: {
   item: any;
   updating: boolean;
   onOpenItem: (item: any) => void;
   onStatusChange: (params: StatusChangePayload) => Promise<void>;
+  isClientView: boolean;
 }) {
-  const quickActions = getQuickActions(item.status);
+  const quickActions = isClientView
+    ? getClientQuickActions(item.status)
+    : getQuickActions(item.status);
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -1350,6 +1501,7 @@ function MiniTask({
                   itemId: item.id,
                   status: action.status,
                   comment: action.comment,
+                  isPrivateComment: !isClientView,
                 })
               }
               className={`rounded-xl px-3 py-2 text-[11px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${action.className}`}
@@ -1379,6 +1531,7 @@ function TaskDetailModal({
   onClose,
   onSave,
   onStatusChange,
+  isClientView,
 }: {
   item: any;
   saving: boolean;
@@ -1386,6 +1539,7 @@ function TaskDetailModal({
   onClose: () => void;
   onSave: (payload: DetailUpdatePayload) => Promise<void>;
   onStatusChange: (params: StatusChangePayload) => Promise<void>;
+  isClientView: boolean;
 }) {
   const [title, setTitle] = useState(item.title || "");
   const [objective, setObjective] = useState(item.objective || "");
@@ -1419,7 +1573,9 @@ function TaskDetailModal({
   const [assetUrl, setAssetUrl] = useState("");
   const [assetNotes, setAssetNotes] = useState("");
 
-  const quickActions = getQuickActions(item.status);
+  const quickActions = isClientView
+    ? getClientQuickActions(item.status)
+    : getQuickActions(item.status);
 
   async function loadPieceComments() {
     if (!item?.id) {
@@ -1474,9 +1630,10 @@ function TaskDetailModal({
         body: JSON.stringify({
           pieceId: item.id,
           commentText: cleanText,
-          authorName: "Cometa",
-          authorRole: "Equipo interno",
-          source: "manual",
+          authorName: isClientView ? "Cliente" : "Cometa",
+          authorRole: isClientView ? "Cliente" : "Equipo interno",
+          source: isClientView ? "client" : "manual",
+          isPrivate: !isClientView,
         }),
       });
 
@@ -1522,6 +1679,8 @@ function TaskDetailModal({
   }
 
   async function saveAssetLink() {
+    if (isClientView) return;
+
     setAssetError(null);
 
     if (!assetUrl.trim()) {
@@ -1603,11 +1762,13 @@ function TaskDetailModal({
               </div>
 
               <h2 className="text-3xl font-black leading-[0.98] tracking-[-0.06em] text-slate-950 md:text-4xl">
-                Detalle de pieza
+                {isClientView ? item.title || "Detalle de pieza" : "Detalle de pieza"}
               </h2>
 
               <p className="mt-2 text-sm font-semibold text-slate-500">
-                Revisa, ajusta y avanza esta tarea dentro del flujo de MERCURY.
+                {isClientView
+                  ? "Revisa esta pieza, consulta links y deja comentarios para Cometa."
+                  : "Revisa, ajusta y avanza esta tarea dentro del flujo de MERCURY."}
               </p>
             </div>
 
@@ -1623,80 +1784,119 @@ function TaskDetailModal({
         <div className="min-h-0 flex-1 overflow-y-auto bg-[#f3f8fb] p-5 md:p-6">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-5">
-              <EditInput
-                label="Título"
-                value={title}
-                onChange={setTitle}
-                placeholder="Título de la pieza"
-              />
+              {isClientView ? (
+                <>
+                  <ReadOnlyBlock
+                    label="Título"
+                    value={title || "Sin título definido"}
+                  />
+                  <ReadOnlyBlock
+                    label="Objetivo"
+                    value={objective || "Sin objetivo visible todavía"}
+                  />
+                  <ReadOnlyBlock
+                    label="Brief para producción"
+                    value={brief || "Brief en preparación"}
+                  />
+                  <ReadOnlyBlock
+                    label="Copy base"
+                    value={copyBase || "Copy en preparación"}
+                  />
 
-              <EditTextarea
-                label="Objetivo"
-                value={objective}
-                onChange={setObjective}
-                placeholder="¿Qué debe lograr esta pieza?"
-                rows={3}
-              />
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <ReadOnlyBlock label="CTA" value={cta || "Sin CTA definido"} />
+                    <ReadOnlyBlock
+                      label="Dirección visual"
+                      value={visualDirection || "Dirección visual en preparación"}
+                    />
+                  </div>
 
-              <EditTextarea
-                label="Brief para producción"
-                value={brief}
-                onChange={setBrief}
-                placeholder="Instrucciones para diseño, video o CM"
-                rows={6}
-              />
+                  {clientNotes ? (
+                    <ReadOnlyBlock label="Notas para cliente" value={clientNotes} />
+                  ) : null}
 
-              <EditTextarea
-                label="Copy base"
-                value={copyBase}
-                onChange={setCopyBase}
-                placeholder="Texto sugerido para la publicación"
-                rows={5}
-              />
+                  {referenceNotes ? (
+                    <ReadOnlyBlock label="Referencias" value={referenceNotes} />
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <EditInput
+                    label="Título"
+                    value={title}
+                    onChange={setTitle}
+                    placeholder="Título de la pieza"
+                  />
 
-              <div className="grid gap-5 md:grid-cols-2">
-                <EditTextarea
-                  label="CTA"
-                  value={cta}
-                  onChange={setCta}
-                  placeholder="Llamado a la acción"
-                  rows={4}
-                />
+                  <EditTextarea
+                    label="Objetivo"
+                    value={objective}
+                    onChange={setObjective}
+                    placeholder="¿Qué debe lograr esta pieza?"
+                    rows={3}
+                  />
 
-                <EditTextarea
-                  label="Dirección visual"
-                  value={visualDirection}
-                  onChange={setVisualDirection}
-                  placeholder="Estilo visual, elementos, composición"
-                  rows={4}
-                />
-              </div>
+                  <EditTextarea
+                    label="Brief para producción"
+                    value={brief}
+                    onChange={setBrief}
+                    placeholder="Instrucciones para diseño, video o CM"
+                    rows={6}
+                  />
 
-              <EditTextarea
-                label="Notas de referencia"
-                value={referenceNotes}
-                onChange={setReferenceNotes}
-                placeholder="Referencias, ideas o restricciones"
-                rows={4}
-              />
+                  <EditTextarea
+                    label="Copy base"
+                    value={copyBase}
+                    onChange={setCopyBase}
+                    placeholder="Texto sugerido para la publicación"
+                    rows={5}
+                  />
 
-              <div className="grid gap-5 md:grid-cols-2">
-                <EditTextarea
-                  label="Notas internas Cometa"
-                  value={privateNotes}
-                  onChange={setPrivateNotes}
-                  placeholder="Notas privadas para el equipo"
-                  rows={4}
-                />
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <EditTextarea
+                      label="CTA"
+                      value={cta}
+                      onChange={setCta}
+                      placeholder="Llamado a la acción"
+                      rows={4}
+                    />
 
-                <EditTextarea
-                  label="Notas para cliente"
-                  value={clientNotes}
-                  onChange={setClientNotes}
-                  placeholder="Notas visibles o pensadas para cliente"
-                  rows={4}
-                />
-              </div>
+                    <EditTextarea
+                      label="Dirección visual"
+                      value={visualDirection}
+                      onChange={setVisualDirection}
+                      placeholder="Estilo visual, elementos, composición"
+                      rows={4}
+                    />
+                  </div>
+
+                  <EditTextarea
+                    label="Notas de referencia"
+                    value={referenceNotes}
+                    onChange={setReferenceNotes}
+                    placeholder="Referencias, ideas o restricciones"
+                    rows={4}
+                  />
+
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <EditTextarea
+                      label="Notas internas Cometa"
+                      value={privateNotes}
+                      onChange={setPrivateNotes}
+                      placeholder="Notas privadas para el equipo"
+                      rows={4}
+                    />
+
+                    <EditTextarea
+                      label="Notas para cliente"
+                      value={clientNotes}
+                      onChange={setClientNotes}
+                      placeholder="Notas visibles o pensadas para cliente"
+                      rows={4}
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <div className="mb-4 flex items-start justify-between gap-4">
@@ -1705,7 +1905,9 @@ function TaskDetailModal({
                       Comentarios de la pieza
                     </h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Observaciones y seguimiento interno de esta pieza.
+                      {isClientView
+                        ? "Comentarios visibles para revisión con Cometa."
+                        : "Observaciones y seguimiento interno de esta pieza."}
                     </p>
                   </div>
 
@@ -1718,7 +1920,11 @@ function TaskDetailModal({
                   <textarea
                     value={newCommentText}
                     onChange={(event) => setNewCommentText(event.target.value)}
-                    placeholder="Escribe un comentario interno para esta pieza..."
+                    placeholder={
+                      isClientView
+                        ? "Escribe un comentario o ajuste para Cometa..."
+                        : "Escribe un comentario interno para esta pieza..."
+                    }
                     rows={3}
                     className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-950 outline-none transition focus:border-cyan-300 focus:bg-white"
                   />
@@ -1767,7 +1973,7 @@ function TaskDetailModal({
                               {comment.author_name ||
                                 comment.author_role ||
                                 comment.source ||
-                                "Comentario interno"}
+                                "Comentario"}
                             </p>
 
                             {comment.created_at ? (
@@ -1818,21 +2024,33 @@ function TaskDetailModal({
                 <p className="text-sm font-black text-slate-950">Fechas</p>
 
                 <div className="mt-4 grid gap-3">
-                  <EditInput
-                    label="Entrega"
-                    value={dueDate}
-                    onChange={setDueDate}
-                    placeholder="YYYY-MM-DD"
-                    type="date"
-                  />
+                  {isClientView ? (
+                    <>
+                      <InfoRow label="Entrega" value={formatFullDate(dueDate)} />
+                      <InfoRow
+                        label="Publicación"
+                        value={formatFullDate(publishDate)}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <EditInput
+                        label="Entrega"
+                        value={dueDate}
+                        onChange={setDueDate}
+                        placeholder="YYYY-MM-DD"
+                        type="date"
+                      />
 
-                  <EditInput
-                    label="Publicación"
-                    value={publishDate}
-                    onChange={setPublishDate}
-                    placeholder="YYYY-MM-DD"
-                    type="date"
-                  />
+                      <EditInput
+                        label="Publicación"
+                        value={publishDate}
+                        onChange={setPublishDate}
+                        placeholder="YYYY-MM-DD"
+                        type="date"
+                      />
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1851,16 +2069,23 @@ function TaskDetailModal({
                 setAssetNotes={setAssetNotes}
                 onSave={saveAssetLink}
                 onReload={loadAssets}
+                readOnly={isClientView}
               />
 
               <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
                 <p className="text-sm font-black text-slate-950">
-                  Acciones rápidas
+                  {isClientView ? "Revisión del cliente" : "Acciones rápidas"}
                 </p>
 
                 <div className="mt-4 grid gap-2">
                   {quickActions.length === 0 ? (
-                    <EmptyMini message="No hay acciones disponibles para este estado." />
+                    <EmptyMini
+                      message={
+                        isClientView
+                          ? "Esta pieza todavía no requiere aprobación."
+                          : "No hay acciones disponibles para este estado."
+                      }
+                    />
                   ) : (
                     quickActions.map((action) => (
                       <button
@@ -1871,6 +2096,7 @@ function TaskDetailModal({
                             itemId: item.id,
                             status: action.status,
                             comment: action.comment,
+                            isPrivateComment: !isClientView,
                           })
                         }
                         className={`rounded-2xl px-4 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${action.className}`}
@@ -1884,12 +2110,12 @@ function TaskDetailModal({
 
               <div className="rounded-[28px] border border-cyan-100 bg-cyan-50 p-5">
                 <p className="text-sm font-black text-slate-950">
-                  Mercury recomienda
+                  {isClientView ? "Cómo revisar" : "Mercury recomienda"}
                 </p>
                 <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                  Revisa que la pieza tenga beneficio claro, CTA visible,
-                  dirección visual suficiente y link del diseño antes de
-                  marcarla como aprobada.
+                  {isClientView
+                    ? "Puedes revisar la idea, copy, fecha y links. Si algo necesita cambio, deja un comentario claro para que Cometa lo atienda."
+                    : "Revisa que la pieza tenga beneficio claro, CTA visible, dirección visual suficiente y link del diseño antes de marcarla como aprobada."}
                 </p>
               </div>
             </aside>
@@ -1905,29 +2131,31 @@ function TaskDetailModal({
               Cerrar
             </button>
 
-            <button
-              disabled={saving}
-              onClick={() =>
-                onSave({
-                  itemId: item.id,
-                  title,
-                  objective,
-                  brief,
-                  copyBase,
-                  cta,
-                  visualDirection,
-                  referenceNotes,
-                  privateNotes,
-                  clientNotes,
-                  dueDate,
-                  publishDate,
-                  comment: "Se guardaron cambios desde el detalle de pieza.",
-                })
-              }
-              className="h-14 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? "Guardando..." : "Guardar cambios"}
-            </button>
+            {!isClientView ? (
+              <button
+                disabled={saving}
+                onClick={() =>
+                  onSave({
+                    itemId: item.id,
+                    title,
+                    objective,
+                    brief,
+                    copyBase,
+                    cta,
+                    visualDirection,
+                    referenceNotes,
+                    privateNotes,
+                    clientNotes,
+                    dueDate,
+                    publishDate,
+                    comment: "Se guardaron cambios desde el detalle de pieza.",
+                  })
+                }
+                className="h-14 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving ? "Guardando..." : "Guardar cambios"}
+              </button>
+            ) : null}
           </div>
         </footer>
       </section>
@@ -1950,6 +2178,7 @@ function AssetLinksPanel({
   setAssetNotes,
   onSave,
   onReload,
+  readOnly,
 }: {
   assets: MercuryAsset[];
   loading: boolean;
@@ -1965,6 +2194,7 @@ function AssetLinksPanel({
   setAssetNotes: (value: string) => void;
   onSave: () => Promise<void>;
   onReload: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   return (
     <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
@@ -1972,7 +2202,9 @@ function AssetLinksPanel({
         <div>
           <p className="text-sm font-black text-slate-950">Links y assets</p>
           <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
-            Guarda links de Drive, Canva, CapCut, Figma o evidencia publicada.
+            {readOnly
+              ? "Consulta links de Drive, Canva, CapCut, Figma o evidencias compartidas por Cometa."
+              : "Guarda links de Drive, Canva, CapCut, Figma o evidencia publicada."}
           </p>
         </div>
 
@@ -1985,57 +2217,63 @@ function AssetLinksPanel({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3">
-        <input
-          value={assetName}
-          onChange={(event) => setAssetName(event.target.value)}
-          placeholder="Nombre del asset"
-          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold outline-none transition focus:border-cyan-300 focus:bg-white"
-        />
+      {!readOnly ? (
+        <div className="mt-4 grid gap-3">
+          <input
+            value={assetName}
+            onChange={(event) => setAssetName(event.target.value)}
+            placeholder="Nombre del asset"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold outline-none transition focus:border-cyan-300 focus:bg-white"
+          />
 
-        <select
-          value={assetType}
-          onChange={(event) => setAssetType(event.target.value)}
-          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black outline-none transition focus:border-cyan-300 focus:bg-white"
-        >
-          <option value="design_preview">Preview diseño</option>
-          <option value="final_design">Diseño final</option>
-          <option value="video">Video / Reel</option>
-          <option value="editable_file">Editable</option>
-          <option value="reference">Referencia</option>
-          <option value="published_evidence">Evidencia publicada</option>
-          <option value="external_link">Link externo</option>
-        </select>
+          <select
+            value={assetType}
+            onChange={(event) => setAssetType(event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-black outline-none transition focus:border-cyan-300 focus:bg-white"
+          >
+            <option value="design_preview">Preview diseño</option>
+            <option value="final_design">Diseño final</option>
+            <option value="video">Video / Reel</option>
+            <option value="editable_file">Editable</option>
+            <option value="reference">Referencia</option>
+            <option value="published_evidence">Evidencia publicada</option>
+            <option value="external_link">Link externo</option>
+          </select>
 
-        <input
-          value={assetUrl}
-          onChange={(event) => setAssetUrl(event.target.value)}
-          placeholder="Pega aquí el link"
-          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold outline-none transition focus:border-cyan-300 focus:bg-white"
-        />
+          <input
+            value={assetUrl}
+            onChange={(event) => setAssetUrl(event.target.value)}
+            placeholder="Pega aquí el link"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold outline-none transition focus:border-cyan-300 focus:bg-white"
+          />
 
-        <textarea
-          value={assetNotes}
-          onChange={(event) => setAssetNotes(event.target.value)}
-          placeholder="Notas del link"
-          rows={3}
-          className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold leading-5 outline-none transition focus:border-cyan-300 focus:bg-white"
-        />
+          <textarea
+            value={assetNotes}
+            onChange={(event) => setAssetNotes(event.target.value)}
+            placeholder="Notas del link"
+            rows={3}
+            className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold leading-5 outline-none transition focus:border-cyan-300 focus:bg-white"
+          />
 
-        {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-black text-red-700">
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-black text-red-700">
+              {error}
+            </div>
+          ) : null}
 
-        <button
-          onClick={onSave}
-          disabled={saving}
-          className="h-12 rounded-2xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "Guardando link..." : "Guardar link"}
-        </button>
-      </div>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="h-12 rounded-2xl bg-slate-950 px-4 text-xs font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Guardando link..." : "Guardar link"}
+          </button>
+        </div>
+      ) : error ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs font-black text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="mt-5 border-t border-slate-200 pt-5">
         <div className="mb-3 flex items-center justify-between">
@@ -2112,22 +2350,32 @@ function AssetCard({ asset }: { asset: MercuryAsset }) {
 
 /* ----------------------------- SECONDARY PANELS ----------------------------- */
 
-function TeamLoadPanel({ items }: { items: any[] }) {
+function TeamLoadPanel({
+  items,
+  isClientView,
+}: {
+  items: any[];
+  isClientView: boolean;
+}) {
   const totalTasks = items.length;
 
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <p className="text-lg font-black text-slate-950">Carga del equipo</p>
+          <p className="text-lg font-black text-slate-950">
+            {isClientView ? "Equipo de producción" : "Carga del equipo"}
+          </p>
           <p className="mt-1 text-xs font-bold text-slate-500">
-            Distribución de producción y capacidad
+            {isClientView
+              ? "Áreas que intervienen en la producción del contenido"
+              : "Distribución de producción y capacidad"}
           </p>
         </div>
 
-        <button className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600">
+        <span className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600">
           Semana
-        </button>
+        </span>
       </div>
 
       <div className="grid gap-3">
@@ -2151,23 +2399,27 @@ function TeamLoadPanel({ items }: { items: any[] }) {
                 </div>
               </div>
 
-              <p className="text-sm font-black text-slate-700">
-                {member.load}%
-              </p>
+              {!isClientView ? (
+                <p className="text-sm font-black text-slate-700">
+                  {member.load}%
+                </p>
+              ) : null}
             </div>
 
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
-              <div
-                className={`h-full rounded-full ${
-                  index === 0
-                    ? "bg-orange-400"
-                    : index === 1
-                    ? "bg-amber-400"
-                    : "bg-emerald-400"
-                }`}
-                style={{ width: `${member.load}%` }}
-              />
-            </div>
+            {!isClientView ? (
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
+                <div
+                  className={`h-full rounded-full ${
+                    index === 0
+                      ? "bg-orange-400"
+                      : index === 1
+                      ? "bg-amber-400"
+                      : "bg-emerald-400"
+                  }`}
+                  style={{ width: `${member.load}%` }}
+                />
+              </div>
+            ) : null}
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <TeamMiniMetric label="Tareas" value={totalTasks ? "—" : "0"} />
@@ -2211,9 +2463,9 @@ function ProductionSummaryPanel({
           </p>
         </div>
 
-        <button className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600">
+        <span className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600">
           Reporte
-        </button>
+        </span>
       </div>
 
       <div className="flex flex-col items-center gap-5">
@@ -2264,10 +2516,12 @@ function MercuryAiPanel({
   data,
   nextPublish,
   pending,
+  isClientView,
 }: {
   data: MercuryDashboardData | null;
   nextPublish: any | null;
   pending: number;
+  isClientView: boolean;
 }) {
   return (
     <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
@@ -2276,10 +2530,12 @@ function MercuryAiPanel({
           Mercury AI
         </p>
         <h3 className="mt-2 text-2xl font-black tracking-[-0.05em] text-slate-950">
-          Insights inteligentes
+          {isClientView ? "Resumen inteligente" : "Insights inteligentes"}
         </h3>
         <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-          Recomendaciones para mejorar decisiones de contenido y producción.
+          {isClientView
+            ? "Lectura rápida del calendario y el avance de contenido."
+            : "Recomendaciones para mejorar decisiones de contenido y producción."}
         </p>
       </div>
 
@@ -2352,6 +2608,33 @@ function InsightCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function ClientControlPanel({ brandName }: { brandName: string }) {
+  return (
+    <section className="rounded-[30px] border border-cyan-100 bg-cyan-50 p-5 shadow-[0_18px_70px_rgba(15,23,42,0.05)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">
+        Acceso controlado
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black tracking-[-0.05em] text-slate-950">
+        Calendario visible para {brandName}
+      </h3>
+
+      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+        El cliente puede revisar piezas, estados, fechas, links y comentarios.
+        La estrategia interna, automatizaciones y regeneración del calendario se
+        mantienen bajo control de Cometa.
+      </p>
+
+      <div className="mt-5 grid gap-3">
+        <ConfigRow label="Cliente puede ver" value="Calendario" />
+        <ConfigRow label="Cliente puede comentar" value="Sí" />
+        <ConfigRow label="Cliente puede editar estrategia" value="No" />
+        <ConfigRow label="Control principal" value="Cometa" />
+      </div>
+    </section>
   );
 }
 
@@ -2521,13 +2804,26 @@ function EditTextarea({
   );
 }
 
+function ReadOnlyBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_12px_40px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
       <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">
         {label}
       </p>
-      <p className="text-sm font-black text-slate-950">{value}</p>
+      <p className="text-right text-sm font-black text-slate-950">{value}</p>
     </div>
   );
 }

@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-
 type DayKey =
   | "monday"
   | "tuesday"
@@ -75,15 +74,6 @@ type AgentSettings = {
   updated_at?: string;
 };
 
-function formatBrandNameFromSlug(slug: string) {
-  return String(slug || "Cometa Mkt")
-    .split("-")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-    .trim();
-}
-
 const defaultBusinessHours: BusinessHours = {
   enabled: false,
   monday: { open: "09:00", close: "18:00" },
@@ -119,20 +109,20 @@ const defaultSettings: AgentSettings = {
   },
 
   client_agent_preferences: {
-  tone: "profesional, claro y vendedor",
-  industry: "marketing",
-  response_style: "directo",
-  primary_goal: "ventas",
-  business_hours_enabled: false,
-  human_escalation_enabled: true,
-  allow_followups: true,
-  client_can_activate_automatic: false,
-  business_summary: "",
-  products_services: "",
-  forbidden_promises: "",
-  required_questions: "",
-  escalation_notes: "",
-},
+    tone: "profesional, claro y vendedor",
+    industry: "marketing",
+    response_style: "directo",
+    primary_goal: "ventas",
+    business_hours_enabled: false,
+    human_escalation_enabled: true,
+    allow_followups: true,
+    client_can_activate_automatic: false,
+    business_summary: "",
+    products_services: "",
+    forbidden_promises: "",
+    required_questions: "",
+    escalation_notes: "",
+  },
 };
 
 const days: { key: DayKey; label: string; short: string }[] = [
@@ -174,14 +164,17 @@ function AgentSettingsLoading() {
 function SalesAIAgentSettingsPageInner() {
   const searchParams = useSearchParams();
 
-const urlBrandName = searchParams.get("brandName") || "";
-const urlBrandSlug = searchParams.get("brandSlug") || "";
+  const urlBrandName = searchParams.get("brandName") || "";
+  const urlBrandSlug = searchParams.get("brandSlug") || "";
 
-const initialBrandName =
-  urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+  const initialBrandName =
+    urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
 
-const [brandName, setBrandName] = useState(initialBrandName);
-  const [settings, setSettings] = useState<AgentSettings>(defaultSettings);
+  const [brandName, setBrandName] = useState(initialBrandName);
+  const [settings, setSettings] = useState<AgentSettings>({
+    ...defaultSettings,
+    brand_name: initialBrandName,
+  });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -189,12 +182,34 @@ const [brandName, setBrandName] = useState(initialBrandName);
   const [message, setMessage] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
+  useEffect(() => {
+    const nextBrandName =
+      urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
+
+    setBrandName(nextBrandName);
+    setSettings((current) => ({
+      ...current,
+      brand_name: nextBrandName,
+    }));
+  }, [urlBrandName, urlBrandSlug]);
+
+  const activeBrandSlug = useMemo(() => {
+    if (urlBrandSlug) return urlBrandSlug;
+
+    return toBrandSlug(brandName || urlBrandName || "Cometa Mkt");
+  }, [urlBrandSlug, brandName, urlBrandName]);
+
+  const brandQuery = useMemo(() => {
+    return `brandSlug=${encodeURIComponent(activeBrandSlug)}`;
+  }, [activeBrandSlug]);
+
   const status = useMemo(() => {
     if (settings.whatsapp_status === "connected") {
       return {
         label: "Activa",
         title: "Configuración activa",
-        helper: "Tu agente ya tiene configuración lista para operar cuando Cometa autorice WhatsApp.",
+        helper:
+          "Tu agente ya tiene configuración lista para operar cuando Cometa autorice WhatsApp.",
         tone: "green" as const,
       };
     }
@@ -206,7 +221,8 @@ const [brandName, setBrandName] = useState(initialBrandName);
       return {
         label: "En revisión",
         title: "Conexión solicitada",
-        helper: "Puedes configurar el agente mientras Cometa valida WhatsApp con Meta.",
+        helper:
+          "Puedes configurar el agente mientras Cometa valida WhatsApp con Meta.",
         tone: "blue" as const,
       };
     }
@@ -214,7 +230,8 @@ const [brandName, setBrandName] = useState(initialBrandName);
     return {
       label: "Observación",
       title: "Modo observación",
-      helper: "Puedes configurar el agente, pero Cometa controla la activación real.",
+      helper:
+        "Puedes configurar el agente, pero Cometa controla la activación real.",
       tone: "yellow" as const,
     };
   }, [settings.whatsapp_status, settings.client_connection_status]);
@@ -233,15 +250,14 @@ const [brandName, setBrandName] = useState(initialBrandName);
     setErrorMsg("");
 
     try {
-      const res = await fetch(
-        `/api/sales-ai/agent-settings?brandName=${encodeURIComponent(
-          brandName
-        )}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+      const params = new URLSearchParams();
+      params.set("brandName", brandName);
+      params.set("brandSlug", activeBrandSlug);
+
+      const res = await fetch(`/api/sales-ai/agent-settings?${params}`, {
+        method: "GET",
+        cache: "no-store",
+      });
 
       const data = await res.json();
 
@@ -255,18 +271,11 @@ const [brandName, setBrandName] = useState(initialBrandName);
     } finally {
       setLoading(false);
     }
-  }, [brandName]);
+  }, [brandName, activeBrandSlug]);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
-
-  useEffect(() => {
-  const nextBrandName =
-    urlBrandName || formatBrandNameFromSlug(urlBrandSlug) || "Cometa Mkt";
-
-  setBrandName(nextBrandName);
-}, [urlBrandName, urlBrandSlug]);
 
   async function saveSettings() {
     setSaving(true);
@@ -282,25 +291,26 @@ const [brandName, setBrandName] = useState(initialBrandName);
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-  brandName: settings.brand_name || brandName,
-  tone: settings.response_rules.tone,
-  businessHours: settings.business_hours,
-  allowFollowups: settings.followups_enabled,
-  humanEscalationEnabled: settings.human_escalation_enabled,
-  maxFollowups: settings.max_followups,
-  firstFollowupDelayMinutes: settings.first_followup_delay_minutes,
-  responseRules: settings.response_rules,
+          brandName,
+          brandSlug: activeBrandSlug,
+          tone: settings.response_rules.tone,
+          businessHours: settings.business_hours,
+          allowFollowups: settings.followups_enabled,
+          humanEscalationEnabled: settings.human_escalation_enabled,
+          maxFollowups: settings.max_followups,
+          firstFollowupDelayMinutes: settings.first_followup_delay_minutes,
+          responseRules: settings.response_rules,
 
-  industry: prefs.industry || "marketing",
-  responseStyle: prefs.response_style || "directo",
-  primaryGoal: prefs.primary_goal || "ventas",
+          industry: prefs.industry || "marketing",
+          responseStyle: prefs.response_style || "directo",
+          primaryGoal: prefs.primary_goal || "ventas",
 
-  businessSummary: prefs.business_summary || "",
-  productsServices: prefs.products_services || "",
-  forbiddenPromises: prefs.forbidden_promises || "",
-  requiredQuestions: prefs.required_questions || "",
-  escalationNotes: prefs.escalation_notes || "",
-}),
+          businessSummary: prefs.business_summary || "",
+          productsServices: prefs.products_services || "",
+          forbiddenPromises: prefs.forbidden_promises || "",
+          requiredQuestions: prefs.required_questions || "",
+          escalationNotes: prefs.escalation_notes || "",
+        }),
       });
 
       const data = await res.json();
@@ -411,16 +421,23 @@ const [brandName, setBrandName] = useState(initialBrandName);
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#f7fafc] text-[#081535]">
       <div className="flex min-h-screen">
-        <LeftRail />
+        <LeftRail
+          brandName={brandName}
+          brandSlug={activeBrandSlug}
+          brandQuery={brandQuery}
+        />
 
         <div className="min-w-0 flex-1 px-4 py-5 lg:px-5 xl:px-6">
           <div className="mx-auto w-full max-w-[1480px] space-y-4">
             <header className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
               <HeroCard
-  brandName={settings.brand_name || brandName}
-  onSave={saveSettings}
-  saving={saving || loading}
-/>
+                brandName={brandName}
+                brandSlug={activeBrandSlug}
+                brandQuery={brandQuery}
+                onSave={saveSettings}
+                saving={saving || loading}
+              />
+
               <SummaryPanel
                 status={status}
                 settings={settings}
@@ -450,27 +467,36 @@ const [brandName, setBrandName] = useState(initialBrandName);
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <FieldGroup label="Nombre del negocio">
                     <input
-                      value={settings.brand_name}
-                      onChange={(e) => {
-                        updateSimpleField("brand_name", e.target.value);
-                        setBrandName(e.target.value);
-                      }}
-                      className="input"
+                      value={brandName}
+                      readOnly
+                      className="input cursor-default bg-[#f8fbff]"
                       placeholder="Ej. Cometa Mkt"
                     />
+                    <p className="mt-2 text-xs font-bold text-[#7a889d]">
+                      La marca está bloqueada por el acceso asignado al usuario.
+                    </p>
                   </FieldGroup>
 
                   <FieldGroup label="Industria">
                     <select
-  className="input"
-  value={settings.client_agent_preferences.industry || "marketing"}
-  onChange={(e) => updatePreference("industry", e.target.value)}
->
+                      className="input"
+                      value={
+                        settings.client_agent_preferences.industry ||
+                        "marketing"
+                      }
+                      onChange={(e) =>
+                        updatePreference("industry", e.target.value)
+                      }
+                    >
                       <option value="marketing">Marketing y publicidad</option>
                       <option value="moda">Moda / retail</option>
-                      <option value="servicios">Servicios profesionales</option>
+                      <option value="servicios">
+                        Servicios profesionales
+                      </option>
                       <option value="salud">Salud / clínica</option>
-                      <option value="alimentos">Alimentos / restaurante</option>
+                      <option value="alimentos">
+                        Alimentos / restaurante
+                      </option>
                       <option value="otro">Otro</option>
                     </select>
                   </FieldGroup>
@@ -478,7 +504,9 @@ const [brandName, setBrandName] = useState(initialBrandName);
 
                 <FieldGroup label="Descripción breve de tu negocio">
                   <textarea
-                    value={settings.client_agent_preferences.business_summary || ""}
+                    value={
+                      settings.client_agent_preferences.business_summary || ""
+                    }
                     onChange={(e) =>
                       updatePreference("business_summary", e.target.value)
                     }
@@ -496,7 +524,9 @@ const [brandName, setBrandName] = useState(initialBrandName);
                 <FieldGroup label="Tono de comunicación">
                   <select
                     value={settings.response_rules.tone}
-                    onChange={(e) => updateResponseRule("tone", e.target.value)}
+                    onChange={(e) =>
+                      updateResponseRule("tone", e.target.value)
+                    }
                     className="input"
                   >
                     <option value="profesional, claro y vendedor">
@@ -517,10 +547,15 @@ const [brandName, setBrandName] = useState(initialBrandName);
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <FieldGroup label="Estilo de respuesta">
                     <select
-  className="input"
-  value={settings.client_agent_preferences.response_style || "directo"}
-  onChange={(e) => updatePreference("response_style", e.target.value)}
->
+                      className="input"
+                      value={
+                        settings.client_agent_preferences.response_style ||
+                        "directo"
+                      }
+                      onChange={(e) =>
+                        updatePreference("response_style", e.target.value)
+                      }
+                    >
                       <option value="directo">Directo y persuasivo</option>
                       <option value="consultivo">Consultivo</option>
                       <option value="breve">Breve y práctico</option>
@@ -530,10 +565,15 @@ const [brandName, setBrandName] = useState(initialBrandName);
 
                   <FieldGroup label="Objetivo principal">
                     <select
-  className="input"
-  value={settings.client_agent_preferences.primary_goal || "ventas"}
-  onChange={(e) => updatePreference("primary_goal", e.target.value)}
->
+                      className="input"
+                      value={
+                        settings.client_agent_preferences.primary_goal ||
+                        "ventas"
+                      }
+                      onChange={(e) =>
+                        updatePreference("primary_goal", e.target.value)
+                      }
+                    >
                       <option value="ventas">Generar ventas</option>
                       <option value="calificar">Calificar prospectos</option>
                       <option value="agendar">Agendar citas</option>
@@ -590,22 +630,28 @@ const [brandName, setBrandName] = useState(initialBrandName);
                     <input
                       type="time"
                       value={settings.business_hours.monday.open || "09:00"}
-                      onChange={(e) => updateGeneralTime("open", e.target.value)}
+                      onChange={(e) =>
+                        updateGeneralTime("open", e.target.value)
+                      }
                       className="input"
                     />
-                    <span className="text-sm font-black text-[#7a889d]">a</span>
+                    <span className="text-sm font-black text-[#7a889d]">
+                      a
+                    </span>
                     <input
                       type="time"
                       value={settings.business_hours.monday.close || "18:00"}
-                      onChange={(e) => updateGeneralTime("close", e.target.value)}
+                      onChange={(e) =>
+                        updateGeneralTime("close", e.target.value)
+                      }
                       className="input"
                     />
                   </div>
                 </FieldGroup>
 
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">
-                  Fuera de este horario, el agente podrá responder con un mensaje
-                  automático de disponibilidad.
+                  Fuera de este horario, el agente podrá responder con un
+                  mensaje automático de disponibilidad.
                 </div>
               </Card>
 
@@ -616,12 +662,16 @@ const [brandName, setBrandName] = useState(initialBrandName);
               >
                 <FieldGroup label="Lista de productos o servicios">
                   <textarea
-                    value={settings.client_agent_preferences.products_services || ""}
+                    value={
+                      settings.client_agent_preferences.products_services || ""
+                    }
                     onChange={(e) =>
                       updatePreference("products_services", e.target.value)
                     }
                     className="input min-h-[140px]"
-                    placeholder={"Ej.\nGestión de redes sociales\nCampañas publicitarias\nAutomatización con IA\nGeneración de leads"}
+                    placeholder={
+                      "Ej.\nGestión de redes sociales\nCampañas publicitarias\nAutomatización con IA\nGeneración de leads"
+                    }
                   />
                 </FieldGroup>
 
@@ -666,7 +716,9 @@ const [brandName, setBrandName] = useState(initialBrandName);
 
                 <RangeRow
                   label="Primer seguimiento después de"
-                  value={Math.round(settings.first_followup_delay_minutes / 60)}
+                  value={Math.round(
+                    settings.first_followup_delay_minutes / 60
+                  )}
                   min={1}
                   max={72}
                   suffix="horas"
@@ -707,7 +759,9 @@ const [brandName, setBrandName] = useState(initialBrandName);
 
                 <FieldGroup label="Casos especiales para pedir humano">
                   <textarea
-                    value={settings.client_agent_preferences.escalation_notes || ""}
+                    value={
+                      settings.client_agent_preferences.escalation_notes || ""
+                    }
                     onChange={(e) =>
                       updatePreference("escalation_notes", e.target.value)
                     }
@@ -730,7 +784,8 @@ const [brandName, setBrandName] = useState(initialBrandName);
                       Reglas de conversación
                     </h2>
                     <p className="mt-1 text-sm font-semibold leading-5 text-[#5b6a84]">
-                      Establece límites y reglas que el agente debe seguir siempre.
+                      Establece límites y reglas que el agente debe seguir
+                      siempre.
                     </p>
                   </div>
                 </div>
@@ -815,8 +870,9 @@ const [brandName, setBrandName] = useState(initialBrandName);
                   i
                 </span>
                 <p>
-                  El cliente configura cómo debe vender el agente. Cometa mantiene
-                  protegida la conexión técnica, permisos y activación real de WhatsApp.
+                  El cliente configura cómo debe vender el agente. Cometa
+                  mantiene protegida la conexión técnica, permisos y activación
+                  real de WhatsApp.
                 </p>
               </div>
             </div>
@@ -829,20 +885,23 @@ const [brandName, setBrandName] = useState(initialBrandName);
 
 function HeroCard({
   brandName,
+  brandSlug,
+  brandQuery,
   onSave,
   saving,
 }: {
   brandName: string;
+  brandSlug: string;
+  brandQuery: string;
   onSave: () => void;
   saving: boolean;
 }) {
-  const brandQuery = `brandName=${encodeURIComponent(brandName)}`;
   return (
     <section className="relative overflow-hidden rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)] lg:p-7">
       <div className="relative z-10">
         <div className="inline-flex items-center gap-2 rounded-full border border-[#cfeef6] bg-[#effcff] px-4 py-2 text-xs font-black tracking-wide text-[#0798b8] shadow-sm">
           <span className="h-2.5 w-2.5 rounded-full bg-[#12bfe8]" />
-          SALES AI
+          SALES AI · {brandName}
         </div>
 
         <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight text-[#081535] lg:text-[46px] lg:leading-[1.04]">
@@ -851,8 +910,8 @@ function HeroCard({
 
         <p className="mt-4 max-w-3xl text-base font-semibold leading-7 text-[#5b6a84]">
           Personaliza cómo SALES AI debe hablar, responder y vender por tu
-          negocio. Estos ajustes ayudan al agente a representar tu marca y cerrar
-          más ventas.
+          negocio. Estos ajustes ayudan al agente a representar tu marca y
+          cerrar más ventas.
         </p>
 
         <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -875,14 +934,21 @@ function HeroCard({
 
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-  href={`/sales-ai?${brandQuery}`}
+            href={`/brand/${encodeURIComponent(brandSlug)}`}
             className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
           >
-            ← Dashboard
+            ← Brand OS
           </Link>
 
           <Link
-  href={`/sales-ai/connect?${brandQuery}`}
+            href={`/sales-ai?${brandQuery}`}
+            className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
+          >
+            Dashboard
+          </Link>
+
+          <Link
+            href={`/sales-ai/connect?${brandQuery}`}
             className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#324159] shadow-sm transition hover:bg-[#f8fbff]"
           >
             Conexión WhatsApp
@@ -1246,11 +1312,19 @@ function normalizeSettings(data: any): AgentSettings {
   };
 }
 
-function LeftRail() {
+function LeftRail({
+  brandName,
+  brandSlug,
+  brandQuery,
+}: {
+  brandName: string;
+  brandSlug: string;
+  brandQuery: string;
+}) {
   return (
     <aside className="sticky top-0 hidden h-screen w-[108px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white px-4 py-5 shadow-[8px_0_28px_rgba(15,23,42,0.03)] xl:flex">
       <Link
-        href="/sales-ai"
+        href={`/brand/${encodeURIComponent(brandSlug)}`}
         className="flex flex-col items-center justify-center text-center"
       >
         <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[#effcff] text-[#08a9c6]">
@@ -1260,26 +1334,51 @@ function LeftRail() {
       </Link>
 
       <nav className="mt-7 flex w-full flex-1 flex-col items-center gap-3">
-        <RailLink href="/sales-ai" label="AI" icon={<IconStar />} />
-        <RailLink href="/sales-ai/inbox" label="IN" icon={<IconInbox />} />
-        <RailLink href="/sales-ai/connect" label="WA" icon={<IconWhatsApp />} />
-        <RailLink href="/sales-ai/agent-settings" label="AG" icon={<IconUsers />} active />
+        <RailLink href={`/sales-ai?${brandQuery}`} label="AI" icon={<IconStar />} />
+        <RailLink
+          href={`/sales-ai/inbox?${brandQuery}`}
+          label="IN"
+          icon={<IconInbox />}
+        />
+        <RailLink
+          href={`/sales-ai/connect?${brandQuery}`}
+          label="WA"
+          icon={<IconWhatsApp />}
+        />
+        <RailLink
+          href={`/sales-ai/agent-settings?${brandQuery}`}
+          label="AG"
+          icon={<IconUsers />}
+          active
+        />
 
         <div className="my-3 h-px w-full bg-[#e4edf5]" />
 
-        <RailLink href="/sales-ai/analytics" label="AN" icon={<IconBars />} />
-        <RailLink href="/sales-ai/settings" label="AJ" icon={<IconGear />} />
-        <RailLink href="/sales-ai/help" label="AY" icon={<IconHelp />} />
+        <RailLink
+          href={`/sales-ai/learning?${brandQuery}`}
+          label="LE"
+          icon={<IconBars />}
+        />
+        <RailLink
+          href={`/sales-ai/settings?${brandQuery}`}
+          label="AJ"
+          icon={<IconGear />}
+        />
+        <RailLink
+          href={`/sales-ai/help?${brandQuery}`}
+          label="AY"
+          icon={<IconHelp />}
+        />
       </nav>
 
       <div className="w-full text-center">
         <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#081535] text-lg font-black text-white shadow-[0_14px_30px_rgba(8,21,53,0.22)]">
-          CM
+          {getInitials(brandName)}
           <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#12bfe8]" />
         </div>
 
         <p className="mt-2 truncate text-xs font-black text-[#081535]">
-          Cometa Mkt
+          {brandName}
         </p>
       </div>
     </aside>
@@ -1312,6 +1411,41 @@ function RailLink({
   );
 }
 
+function toBrandSlug(value: string) {
+  return String(value || "cometa-mkt")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatBrandNameFromSlug(slug: string) {
+  return String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLowerCase();
+
+      if (lower === "mkt") return "Mkt";
+      if (lower === "ai") return "AI";
+      if (lower === "os") return "OS";
+      if (lower === "lr") return "LR";
+
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ")
+    .trim();
+}
+
+function getInitials(name: string) {
+  const words = String(name || "Cometa OS").split(" ").filter(Boolean);
+  const first = words[0]?.[0] || "C";
+  const second = words[1]?.[0] || words[0]?.[1] || "O";
+  return `${first}${second}`.toUpperCase();
+}
+
 /* Icons */
 
 function IconCometa() {
@@ -1339,8 +1473,18 @@ function IconBot() {
       <rect x="30" y="38" width="60" height="44" rx="20" fill="#081535" />
       <circle cx="48" cy="60" r="5" fill="#12bfe8" />
       <circle cx="72" cy="60" r="5" fill="#12bfe8" />
-      <path d="M50 72c6 5 14 5 20 0" stroke="#12bfe8" strokeWidth="4" strokeLinecap="round" />
-      <path d="M60 25v12" stroke="#12bfe8" strokeWidth="5" strokeLinecap="round" />
+      <path
+        d="M50 72c6 5 14 5 20 0"
+        stroke="#12bfe8"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M60 25v12"
+        stroke="#12bfe8"
+        strokeWidth="5"
+        strokeLinecap="round"
+      />
       <circle cx="60" cy="22" r="5" fill="#12bfe8" />
     </svg>
   );
@@ -1349,7 +1493,12 @@ function IconBot() {
 function IconStar() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path
+        d="M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1357,8 +1506,18 @@ function IconStar() {
 function IconInbox() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M4 7h16v10H4V7Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M4 14h4l2 3h4l2-3h4" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path
+        d="M4 7h16v10H4V7Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 14h4l2 3h4l2-3h4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1366,8 +1525,17 @@ function IconInbox() {
 function IconWhatsApp() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 3a8.5 8.5 0 0 0-7.1 13.2L4 21l4.9-1.1A8.5 8.5 0 1 0 12 3Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M9 8.5c.4 2.4 2.1 5 5.6 6.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M12 3a8.5 8.5 0 0 0-7.1 13.2L4 21l4.9-1.1A8.5 8.5 0 1 0 12 3Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M9 8.5c.4 2.4 2.1 5 5.6 6.4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1375,7 +1543,12 @@ function IconWhatsApp() {
 function IconBars() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M5 20V10m7 10V4m7 16v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M5 20V10m7 10V4m7 16v-7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1383,8 +1556,17 @@ function IconBars() {
 function IconGear() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M19 13.2v-2.4l-2.1-.5c-.2-.6-.4-1.1-.7-1.6l1.1-1.8-1.7-1.7-1.8 1.1c-.5-.3-1-.5-1.6-.7L11.8 3H9.4l-.5 2.1c-.6.2-1.1.4-1.6.7L5.5 4.7 3.8 6.4l1.1 1.8c-.3.5-.5 1-.7 1.6L2 10.2v2.4l2.1.5c.2.6.4 1.1.7 1.6l-1.1 1.8 1.7 1.7 1.8-1.1c.5.3 1 .5 1.6.7l.5 2.1h2.4l.5-2.1c.6-.2 1.1-.4 1.6-.7l1.8 1.1 1.7-1.7-1.1-1.8c.3-.5.5-1 .7-1.6l2.1-.5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path
+        d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M19 13.2v-2.4l-2.1-.5c-.2-.6-.4-1.1-.7-1.6l1.1-1.8-1.7-1.7-1.8 1.1c-.5-.3-1-.5-1.6-.7L11.8 3H9.4l-.5 2.1c-.6.2-1.1.4-1.6.7L5.5 4.7 3.8 6.4l1.1 1.8c-.3.5-.5 1-.7 1.6L2 10.2v2.4l2.1.5c.2.6.4 1.1.7 1.6l-1.1 1.8 1.7 1.7 1.8-1.1c.5.3 1 .5 1.6.7l.5 2.1h2.4l.5-2.1c.6-.2 1.1-.4 1.6-.7l1.8 1.1 1.7-1.7-1.1-1.8c.3-.5.5-1 .7-1.6l2.1-.5Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1392,8 +1574,17 @@ function IconGear() {
 function IconHelp() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M9.8 9a2.3 2.3 0 1 1 3.7 1.8c-.9.6-1.5 1.1-1.5 2.2m0 3h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M9.8 9a2.3 2.3 0 1 1 3.7 1.8c-.9.6-1.5 1.1-1.5 2.2m0 3h.01"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1401,7 +1592,12 @@ function IconHelp() {
 function IconBusiness() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M4 21V5l8-2 8 2v16M8 9h1m-1 4h1m-1 4h1m6-8h1m-1 4h1m-1 4h1M10 21v-4h4v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M4 21V5l8-2 8 2v16M8 9h1m-1 4h1m-1 4h1m6-8h1m-1 4h1m-1 4h1M10 21v-4h4v4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1409,8 +1605,17 @@ function IconBusiness() {
 function IconRobot() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M7 8h10a3 3 0 0 1 3 3v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5a3 3 0 0 1 3-3Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 8V4m-4 8h.01M16 12h.01M9 16h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M7 8h10a3 3 0 0 1 3 3v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5a3 3 0 0 1 3-3Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
+      <path
+        d="M12 8V4m-4 8h.01M16 12h.01M9 16h6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1418,8 +1623,17 @@ function IconRobot() {
 function IconClock() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M12 7v5l3 2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
     </svg>
   );
 }
@@ -1427,8 +1641,18 @@ function IconClock() {
 function IconBag() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M6 8h12l1 13H5L6 8Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M9 8a3 3 0 0 1 6 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M6 8h12l1 13H5L6 8Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 8a3 3 0 0 1 6 0"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1436,10 +1660,30 @@ function IconBag() {
 function IconFollowUp() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M4 12a8 8 0 0 1 14-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M18 3v4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M20 12a8 8 0 0 1-14 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M6 21v-4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M4 12a8 8 0 0 1 14-5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M18 3v4h-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M20 12a8 8 0 0 1-14 5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6 21v-4h4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1447,8 +1691,18 @@ function IconFollowUp() {
 function IconUsers() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M3 20c.5-3.3 2.4-5 5-5s4.5 1.7 5 5m0 0c.4-2.4 1.7-3.9 3.8-4.4 2.1.3 3.6 1.8 4.2 4.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M3 20c.5-3.3 2.4-5 5-5s4.5 1.7 5 5m0 0c.4-2.4 1.7-3.9 3.8-4.4 2.1.3 3.6 1.8 4.2 4.4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -1456,7 +1710,12 @@ function IconUsers() {
 function IconShield() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path
+        d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1464,7 +1723,12 @@ function IconShield() {
 function IconMessage() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M4 5h16v11H8l-4 4V5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path
+        d="M4 5h16v11H8l-4 4V5Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -1472,8 +1736,17 @@ function IconMessage() {
 function IconSave() {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M5 4h12l2 2v14H5V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M8 4v6h8V4M8 20v-6h8v6" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M5 4h12l2 2v14H5V4Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 4v6h8V4M8 20v-6h8v6"
+        stroke="currentColor"
+        strokeWidth="2"
+      />
     </svg>
   );
 }
