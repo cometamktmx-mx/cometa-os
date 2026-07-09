@@ -358,7 +358,7 @@ HORARIO:
 ${JSON.stringify(businessHours, null, 2)}
 
 INSTRUCCIÓN:
-Prioriza esta configuración cuando respondas. Si el cliente escribió productos, servicios, reglas o preguntas obligatorias, úsalas antes de responder de forma genérica.
+Prioriza esta configuración. Si aquí hay productos, servicios, reglas, estilo, tono o preguntas obligatorias, úsalos antes que cualquier respuesta genérica.
 `;
 }
 
@@ -392,7 +392,7 @@ function buildFallbackFollowUpMessage({
     return `Hola, solo para dar seguimiento. ¿Me puedes compartir ${missingInfo} para orientarte mejor?`;
   }
 
-  return "Hola, solo para dar seguimiento. ¿Te gustaría que avancemos con más información o prefieres que te ayude a resolver alguna duda específica?";
+  return "Hola, solo para dar seguimiento. ¿Te gustaría que te comparta la mejor opción según lo que estás buscando?";
 }
 
 async function validateLeadBelongsToBrand(leadId: string, brandName: string) {
@@ -502,12 +502,6 @@ export async function POST(req: Request) {
     const realWhatsappAllowedBySettings = canSendRealWhatsapp(runtimeSettings);
     const realWhatsappLockReasons = explainWhatsappSendLock(runtimeSettings);
 
-    /**
-     * Seguridad:
-     * No aceptamos agentMode desde el body para activar automático.
-     * El modo real sale de sales_ai_settings.
-     * Además, las simulaciones siempre quedan en observation.
-     */
     const finalAgentMode =
       finalSource === "whatsapp_simulation"
         ? "observation"
@@ -528,10 +522,10 @@ export async function POST(req: Request) {
     const salesKnowledgeContext = buildSalesKnowledgeContext(knowledgeBase);
 
     const clientAgentConfiguration =
-  await getClientAgentConfiguration(finalBrandName);
+      await getClientAgentConfiguration(finalBrandName);
 
-const clientAgentConfigurationContext =
-  buildClientAgentConfigurationContext(clientAgentConfiguration);
+    const clientAgentConfigurationContext =
+      buildClientAgentConfigurationContext(clientAgentConfiguration);
 
     console.log("SALES AI playbook cargado:", {
       brandName: salesPlaybook.brandName,
@@ -554,12 +548,12 @@ const clientAgentConfigurationContext =
     });
 
     console.log("SALES AI configuración cliente cargada:", {
-  brandName: finalBrandName,
-  hasClientConfiguration: Boolean(clientAgentConfiguration),
-  preferences:
-    clientAgentConfiguration?.client_agent_preferences || null,
-  responseRules: clientAgentConfiguration?.response_rules || null,
-});
+      brandName: finalBrandName,
+      hasClientConfiguration: Boolean(clientAgentConfiguration),
+      preferences:
+        clientAgentConfiguration?.client_agent_preferences || null,
+      responseRules: clientAgentConfiguration?.response_rules || null,
+    });
 
     console.log("SALES AI runtime settings:", {
       brandName: finalBrandName,
@@ -635,31 +629,41 @@ const clientAgentConfigurationContext =
     const recentContext = await getRecentContext(finalLeadId);
 
     const systemPrompt = `
-Eres SALES AI, el agente comercial 24/7 de Cometa OS.
+Eres SALES AI, el agente comercial de WhatsApp de la marca "${finalBrandName}".
 
-Tu trabajo NO es sonar como chatbot.
-Tu trabajo es actuar como un vendedor digital real: entender, calificar, responder, guiar la venta y preparar el siguiente paso.
+Tu trabajo es vender mejor, no sonar como chatbot.
+Actúas como un asesor comercial humano: entiendes el dolor, conectas con la necesidad real, respondes claro y haces avanzar la conversación.
 
-OBJETIVO PRINCIPAL:
-1. Entender qué quiere el prospecto.
-2. Usar el conocimiento real de la marca.
-3. Calificar solo lo que haga falta.
-4. Recomendar productos, servicios, lotes, paquetes o rutas de compra cuando haya información suficiente.
-5. Hacer una respuesta útil, corta y lista para WhatsApp.
-6. No inventar precios, stock, promociones, tiempos, garantías ni condiciones.
-7. Escalar a humano solo cuando sea necesario.
+MISIÓN:
+Convertir conversaciones de WhatsApp en oportunidades reales.
+No solo contestas preguntas: diagnosticas intención, reduces fricción, calificas al prospecto y propones el siguiente paso más lógico.
 
-JERARQUÍA DE INFORMACIÓN:
-1. Reglas comerciales y restricciones de Knowledge Base.
-2. Catálogo, precios, FAQs y políticas cargadas en Knowledge Base.
-3. Playbook comercial de la marca.
-4. Historial reciente del lead.
-5. Análisis previo del lead.
-6. Razonamiento comercial general.
+REGLA DE ORO:
+Cada respuesta debe lograr al menos una de estas cosas:
+1. Aclarar una duda importante.
+2. Acercar al prospecto a compra, cita, pedido, cotización o diagnóstico.
+3. Calificar con una sola pregunta útil.
+4. Desbloquear una objeción.
+5. Llevar a humano cuando realmente haga falta.
 
-Si hay conflicto entre Knowledge Base y Playbook, gana Knowledge Base.
-Si falta información crítica, pregunta de forma concreta.
-Si no hay información suficiente del negocio, no respondas genérico: haz una pregunta comercial inteligente para avanzar.
+IDENTIDAD Y ADAPTACIÓN POR MARCA:
+- Responde SIEMPRE como la marca "${finalBrandName}".
+- Si la marca es Cometa, Cometa Mkt, Cometa Agencia, Cometa OS o similar, puedes hablar de contenido, campañas, diagnóstico, ventas por WhatsApp, seguimiento comercial y Cometa OS.
+- Si la marca NO es Cometa, NO vendas Cometa OS ni servicios de agencia. Representa únicamente los productos, servicios, tono y reglas de esa marca.
+- No mezcles información entre marcas.
+- No inventes que una marca ofrece algo si no está en Knowledge Base, Playbook, configuración del cliente o contexto de conversación.
+
+JERARQUÍA DE VERDAD:
+1. Reglas comerciales, restricciones y políticas de Knowledge Base.
+2. Catálogo, precios, FAQs, disponibilidad y condiciones cargadas en Knowledge Base.
+3. Configuración personalizada del cliente.
+4. Playbook comercial de la marca.
+5. Historial reciente del lead.
+6. Análisis previo del lead.
+7. Razonamiento comercial general.
+
+Si hay conflicto entre fuentes, gana la fuente de mayor jerarquía.
+Si falta información crítica, pregunta solo lo mínimo necesario.
 
 ${salesKnowledgeContext}
 
@@ -667,33 +671,79 @@ ${salesPlaybookContext}
 
 ${clientAgentConfigurationContext}
 
-ESTILO DE RESPUESTA PARA WHATSAPP:
-- Escribe como una persona de ventas real.
-- Máximo 2 a 4 frases.
-- Sin párrafos largos.
-- Sin sonar robótico.
-- Sin explicar que eres IA.
-- Sin decir "estoy aquí para ayudarte" como frase genérica.
-- Evita respuestas tipo: "¿Qué tipo de productos o servicios te interesan?" salvo que realmente no haya contexto.
-- Haz una sola pregunta principal por mensaje.
-- Si el cliente saluda con "hola", responde cálido y avanza rápido con una pregunta útil.
-- Si el cliente pregunta precio, pide el dato mínimo necesario para cotizar si no hay precio exacto autorizado.
-- Si hay catálogo o precios autorizados, usa esa información.
-- Si el cliente muestra intención de compra, reduce preguntas y acerca al cierre.
-- Si hay mayoreo/menudeo, pregunta si busca mayoreo o menudeo solo cuando sea relevante.
-- Si hay ciudad/envío, pregunta ciudad solo si afecta cotización, cobertura o envío.
+CÓMO DEBE PENSAR SALES AI:
+Antes de escribir, identifica internamente:
+- Qué quiere realmente el prospecto.
+- En qué etapa está: curiosidad, comparación, intención, objeción, compra, seguimiento o humano.
+- Qué dato falta para avanzar.
+- Qué objeción o fricción existe.
+- Qué siguiente paso comercial conviene.
+- Qué NO se debe prometer.
+
+No expliques este razonamiento al cliente. Úsalo para decidir.
+
+ESTILO WHATSAPP:
+- Español natural, claro y vendedor.
+- Máximo 2 a 4 frases cortas.
+- Sin sonar corporativo.
+- Sin sonar a soporte genérico.
+- Sin frases vacías como "estoy aquí para ayudarte".
+- Sin repetir demasiado el nombre de la marca.
+- Sin bullets salvo que el cliente pida lista.
+- Sin emojis por defecto.
+- Una sola pregunta principal al final, salvo que no haga falta preguntar.
+- Si el cliente está caliente, no lo llenes de preguntas: acerca al siguiente paso.
+- Si el cliente está confundido, simplifica.
+- Si el cliente está comparando, diferencia con claridad.
+- Si el cliente tiene objeción, valida brevemente y responde con lógica comercial.
 - Si el cliente ya dio un dato, no lo vuelvas a pedir.
+- Si no hay suficiente información, pregunta lo que más ayude a vender.
+
+PROHIBIDO:
+- No sonar como "Entiendo que puede ser frustrante..." de forma genérica.
+- No decir "revisemos juntos" sin explicar valor concreto.
+- No responder "¿sobre qué producto te gustaría saber?" si el prospecto ya dio contexto.
+- No inventar precios, stock, promociones, tiempos, descuentos, garantías ni condiciones.
+- No decir que eres IA.
+- No dar explicaciones técnicas internas.
+- No pedir muchos datos a la vez.
+- No prometer resultados garantizados.
+- No cerrar pedidos si requieren validación humana.
+
+CUANDO EL CLIENTE HABLA DE WHATSAPP, VENTAS O MENSAJES SIN CIERRE:
+Si la marca es Cometa o agencia:
+- Conecta el dolor con seguimiento, velocidad de respuesta, objeciones, pauta/contenido y conversión.
+- Explica Cometa OS como solución comercial, no como software técnico.
+- Pregunta algo que califique: qué vende, cuántos mensajes recibe, si el problema es generar mensajes o cerrar los que ya llegan.
+Ejemplo de tono:
+"Sí, justo ahí suele perderse mucho dinero. Si ya recibes mensajes pero no cierras, el problema normalmente no es solo publicar más, sino el seguimiento, la rapidez de respuesta y cómo se manejan las objeciones. En Cometa trabajamos contenido, campañas y Cometa OS para mejorar ese proceso. ¿Qué vendes y cuántos mensajes recibes aproximadamente al día?"
+
+CUANDO EL CLIENTE PIDE PRECIO:
+- Si hay precio autorizado, dilo claro.
+- Si no hay precio, pide el dato mínimo para cotizar.
+- No evadas, pero tampoco inventes.
+- Puedes decir: "Para darte una opción real y no algo al aire..."
+
+CUANDO EL CLIENTE DICE "ESTÁ CARO":
+- No te disculpes.
+- Reencuadra valor.
+- Pregunta por objetivo, volumen, necesidad o comparación.
+- Si es Cometa, conecta precio con ventas, seguimiento, conversión y pérdida de oportunidades.
+
+CUANDO EL CLIENTE QUIERE EMPEZAR:
+- Pide el siguiente dato mínimo.
+- Si requiere humano, marca requires_human=true.
+- Si puede avanzar, propone diagnóstico, cita, cotización, catálogo, ubicación o pedido según la marca.
 
 REGLAS DE SEGURIDAD:
 - No confirmes pagos.
 - No prometas stock exacto si no aparece confirmado.
 - No prometas envío mismo día si no hay regla autorizada.
 - No inventes descuentos.
-- No cierres pedidos si requieren validación humana.
-- No pidas muchos datos al mismo tiempo.
+- No confirmes apartados, pedidos, garantías, devoluciones ni facturación sin regla autorizada.
 - No escales a humano por defecto.
 
-CUÁNDO ESCALAR A HUMANO:
+ESCALAR A HUMANO SOLO SI:
 - El cliente quiere pagar o enviar comprobante.
 - El cliente pide descuento especial.
 - El cliente solicita stock exacto no confirmado.
@@ -701,6 +751,7 @@ CUÁNDO ESCALAR A HUMANO:
 - El cliente pide factura, garantía, devolución o tema legal.
 - La Knowledge Base marca requires_human_confirmation.
 - Responder implicaría inventar información.
+- El cliente pide explícitamente hablar con una persona.
 
 MODO DEL AGENTE:
 - observation: genera decisión y respuesta recomendada, pero no envía.
@@ -722,14 +773,15 @@ CONFIGURACIÓN ACTUAL:
 - real_whatsapp_lock_reasons: ${realWhatsappLockReasons.join(", ") || "none"}
 
 CRITERIOS DE DECISIÓN:
-- action debe ser "send_reply" si conviene responder ahora.
-- action debe ser "schedule_followup" si el cliente dijo que lo revisa, no responde o necesita seguimiento.
-- action debe ser "escalate_to_human" solo si hay bloqueo real.
-- requires_human debe ser false salvo que exista una regla clara para escalar.
+- action = "send_reply" si conviene responder ahora.
+- action = "schedule_followup" si ya se respondió y conviene seguimiento posterior.
+- action = "wait" si no conviene responder todavía.
+- action = "escalate_to_human" solo si hay bloqueo real.
+- requires_human debe ser false salvo que exista una regla clara.
 - confidence_score debe ir de 0 a 100.
 - follow_up_delay_minutes debe ser 0 si no aplica.
 - detected_missing_info debe listar solo datos realmente necesarios.
-- decision_reason debe explicar qué dato, regla, FAQ, playbook o contexto usaste.
+- decision_reason debe explicar brevemente qué dato, regla, FAQ, playbook o contexto usaste.
 
 IMPORTANTE:
 Aunque el modo sea observation o supervised, sí debes generar agent_reply cuando la mejor acción sea responder.
@@ -758,6 +810,9 @@ Devuelve EXCLUSIVAMENTE JSON válido con esta estructura:
 MARCA:
 ${finalBrandName}
 
+SLUG:
+${accessValidation.brandSlug}
+
 MODO ACTUAL DEL AGENTE:
 ${finalAgentMode}
 
@@ -781,24 +836,27 @@ ${finalConversationText}
 """
 
 TAREA:
-Decide qué debe hacer SALES AI como vendedor digital.
+Decide qué debe hacer SALES AI como vendedor digital de "${finalBrandName}".
 
 Prioridad:
-1. Responder útil y concreto.
-2. Usar Knowledge Base, catálogo, FAQs y reglas si existen.
-3. Si falta información, preguntar solo lo más importante.
-4. Evitar respuestas genéricas.
-5. No inventar datos.
-6. No escalar si puedes avanzar con una pregunta segura.
-7. Si el modo es supervised, prepara una respuesta lista para que una persona la apruebe.
+1. Responder como humano comercial, no como chatbot.
+2. Conectar con el dolor real del prospecto.
+3. Usar Knowledge Base, configuración del cliente, catálogo, FAQs, reglas y playbook.
+4. Si falta información, preguntar solo el dato más importante para avanzar.
+5. Si el prospecto ya mostró intención, acercarlo al siguiente paso.
+6. No inventar información.
+7. No mezclar marcas.
+8. Si el modo es supervised, prepara una respuesta lista para aprobación humana.
 
 La respuesta agent_reply debe sentirse lista para enviarse por WhatsApp.
+Debe ser clara, breve, comercial y natural.
+
 Devuelve únicamente JSON válido.
 `;
 
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.2,
+      temperature: 0.45,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -822,40 +880,40 @@ Devuelve únicamente JSON válido.
 
     const normalizedDecision = normalizeDecision(decision, finalAgentMode);
 
-const fallbackFollowUpMessage = buildFallbackFollowUpMessage({
-  decision: normalizedDecision,
-});
+    const fallbackFollowUpMessage = buildFallbackFollowUpMessage({
+      decision: normalizedDecision,
+    });
 
-const plannedFollowUpMessage =
-  normalizedDecision.follow_up_message || fallbackFollowUpMessage;
+    const plannedFollowUpMessage =
+      normalizedDecision.follow_up_message || fallbackFollowUpMessage;
 
-const shouldPlanFollowUpCandidate =
-  followupsAllowedBySettings &&
-  finalAgentMode !== "paused" &&
-  Boolean(plannedFollowUpMessage) &&
-  normalizedDecision.requires_human !== true &&
-  ["send_reply", "schedule_followup"].includes(normalizedDecision.action) &&
-  !isTerminalOrHumanStage(normalizedDecision.lead_stage);
+    const shouldPlanFollowUpCandidate =
+      followupsAllowedBySettings &&
+      finalAgentMode !== "paused" &&
+      Boolean(plannedFollowUpMessage) &&
+      normalizedDecision.requires_human !== true &&
+      ["send_reply", "schedule_followup"].includes(normalizedDecision.action) &&
+      !isTerminalOrHumanStage(normalizedDecision.lead_stage);
 
-const effectiveFollowUpDelayMinutes = shouldPlanFollowUpCandidate
-  ? clampNumber(
-      normalizedDecision.follow_up_delay_minutes ||
-        runtimeSettings.first_followup_delay_minutes ||
-        1440,
-      1,
-      10080
-    )
-  : 0;
+    const effectiveFollowUpDelayMinutes = shouldPlanFollowUpCandidate
+      ? clampNumber(
+          normalizedDecision.follow_up_delay_minutes ||
+            runtimeSettings.first_followup_delay_minutes ||
+            1440,
+          1,
+          10080
+        )
+      : 0;
 
-normalizedDecision.follow_up_message = shouldPlanFollowUpCandidate
-  ? plannedFollowUpMessage
-  : normalizedDecision.follow_up_message;
+    normalizedDecision.follow_up_message = shouldPlanFollowUpCandidate
+      ? plannedFollowUpMessage
+      : normalizedDecision.follow_up_message;
 
-normalizedDecision.follow_up_delay_minutes = effectiveFollowUpDelayMinutes;
+    normalizedDecision.follow_up_delay_minutes = effectiveFollowUpDelayMinutes;
 
-const nextFollowUpAt = shouldPlanFollowUpCandidate
-  ? getNextFollowUpAt(effectiveFollowUpDelayMinutes)
-  : null;
+    const nextFollowUpAt = shouldPlanFollowUpCandidate
+      ? getNextFollowUpAt(effectiveFollowUpDelayMinutes)
+      : null;
 
     const canPrepareRealSend =
       finalAgentMode === "automatic" &&
@@ -926,19 +984,19 @@ const nextFollowUpAt = shouldPlanFollowUpCandidate
             escalationRules: salesPlaybook.escalationRules,
           },
           client_agent_configuration: clientAgentConfiguration
-  ? {
-      response_rules: clientAgentConfiguration.response_rules || {},
-      client_agent_preferences:
-        clientAgentConfiguration.client_agent_preferences || {},
-      business_hours: clientAgentConfiguration.business_hours || {},
-      followups_enabled: clientAgentConfiguration.followups_enabled,
-      human_escalation_enabled:
-        clientAgentConfiguration.human_escalation_enabled,
-      max_followups: clientAgentConfiguration.max_followups,
-      first_followup_delay_minutes:
-        clientAgentConfiguration.first_followup_delay_minutes,
-    }
-  : null,
+            ? {
+                response_rules: clientAgentConfiguration.response_rules || {},
+                client_agent_preferences:
+                  clientAgentConfiguration.client_agent_preferences || {},
+                business_hours: clientAgentConfiguration.business_hours || {},
+                followups_enabled: clientAgentConfiguration.followups_enabled,
+                human_escalation_enabled:
+                  clientAgentConfiguration.human_escalation_enabled,
+                max_followups: clientAgentConfiguration.max_followups,
+                first_followup_delay_minutes:
+                  clientAgentConfiguration.first_followup_delay_minutes,
+              }
+            : null,
           knowledge_base: {
             brandName: knowledgeBase.brandName,
             counts: {
@@ -1024,13 +1082,13 @@ const nextFollowUpAt = shouldPlanFollowUpCandidate
             max_followups: runtimeSettings.max_followups,
           },
           client_agent_configuration: clientAgentConfiguration
-  ? {
-      response_rules: clientAgentConfiguration.response_rules || {},
-      client_agent_preferences:
-        clientAgentConfiguration.client_agent_preferences || {},
-      business_hours: clientAgentConfiguration.business_hours || {},
-    }
-  : null,
+            ? {
+                response_rules: clientAgentConfiguration.response_rules || {},
+                client_agent_preferences:
+                  clientAgentConfiguration.client_agent_preferences || {},
+                business_hours: clientAgentConfiguration.business_hours || {},
+              }
+            : null,
           playbook_id: salesPlaybook.id || null,
           knowledge_base_counts: {
             knowledgeSources: knowledgeBase.knowledgeSources.length,
@@ -1055,20 +1113,20 @@ const nextFollowUpAt = shouldPlanFollowUpCandidate
     }
 
     const existingFollowupsCount = await getExistingFollowupCount(finalLeadId);
-const existingPendingFollowupsCount =
-  await getExistingPendingFollowupCount(finalLeadId);
+    const existingPendingFollowupsCount =
+      await getExistingPendingFollowupCount(finalLeadId);
 
-const maxFollowups = Number(runtimeSettings.max_followups || 3);
+    const maxFollowups = Number(runtimeSettings.max_followups || 3);
 
-const shouldCreateFollowUp =
-  followupsAllowedBySettings &&
-  finalAgentMode !== "paused" &&
-  existingFollowupsCount < maxFollowups &&
-  existingPendingFollowupsCount === 0 &&
-  Boolean(normalizedDecision.follow_up_message) &&
-  Boolean(nextFollowUpAt) &&
-  normalizedDecision.requires_human !== true &&
-  !isTerminalOrHumanStage(normalizedDecision.lead_stage);
+    const shouldCreateFollowUp =
+      followupsAllowedBySettings &&
+      finalAgentMode !== "paused" &&
+      existingFollowupsCount < maxFollowups &&
+      existingPendingFollowupsCount === 0 &&
+      Boolean(normalizedDecision.follow_up_message) &&
+      Boolean(nextFollowUpAt) &&
+      normalizedDecision.requires_human !== true &&
+      !isTerminalOrHumanStage(normalizedDecision.lead_stage);
 
     if (shouldCreateFollowUp) {
       const { error: followupError } = await supabase
@@ -1090,6 +1148,7 @@ const shouldCreateFollowUp =
         followupsAllowedBySettings,
         finalAgentMode,
         existingFollowupsCount,
+        existingPendingFollowupsCount,
         maxFollowups,
         nextFollowUpAt,
         requiresHuman: normalizedDecision.requires_human,
@@ -1126,13 +1185,13 @@ const shouldCreateFollowUp =
       realWhatsappAllowedBySettings,
       realWhatsappLockReasons,
       followups: {
-  allowed: followupsAllowedBySettings,
-  created: shouldCreateFollowUp,
-  existingFollowupsCount,
-  existingPendingFollowupsCount,
-  maxFollowups,
-  nextFollowUpAt,
-},
+        allowed: followupsAllowedBySettings,
+        created: shouldCreateFollowUp,
+        existingFollowupsCount,
+        existingPendingFollowupsCount,
+        maxFollowups,
+        nextFollowUpAt,
+      },
       playbook: {
         id: salesPlaybook.id,
         brandName: salesPlaybook.brandName,

@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -109,6 +110,11 @@ type SendStatus = {
   message: string;
 };
 
+type LoadInboxOptions = {
+  silent?: boolean;
+  source?: "initial" | "manual" | "poll" | "send";
+};
+
 const fallbackBrand: BrandContext = {
   id: null,
   slug: "",
@@ -141,6 +147,9 @@ export default function SalesAIInboxPage() {
 function SalesAIInboxInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const loadInProgressRef = useRef(false);
+  const latestInboxSignatureRef = useRef("");
 
   const urlBrandSlug = searchParams.get("brandSlug") || "";
   const urlBrandName = searchParams.get("brandName") || "";
@@ -183,6 +192,11 @@ function SalesAIInboxInner() {
   const [selectedLeadId, setSelectedLeadId] = useState("");
 
   const [loading, setLoading] = useState(true);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [liveMessage, setLiveMessage] = useState("Inbox en vivo");
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+
   const [systemMessage, setSystemMessage] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -202,171 +216,238 @@ function SalesAIInboxInner() {
     }
   }, [hasBrandContext, router]);
 
-  const loadInbox = useCallback(async () => {
-    try {
-      setLoading(true);
-      setSystemMessage("");
+  const loadInbox = useCallback(
+    async (options: LoadInboxOptions = {}) => {
+      if (loadInProgressRef.current) return;
 
-      if (!hasBrandContext) {
-        setBrand(fallbackBrand);
-        setMetrics(fallbackMetrics);
-        setRuntimeSettings(null);
-        setLeads([]);
-        setMessages([]);
-        setAgentRuns([]);
-        setSelectedLeadId("");
-        setSystemMessage(
-          "Falta brandSlug en la URL. Por seguridad no se cargó ninguna marca por default."
-        );
-        return;
-      }
+      const isSilent = Boolean(options.silent);
+      const source = options.source || (isSilent ? "poll" : "manual");
 
-      const query = requestedBrandSlug
-        ? `?brandSlug=${encodeURIComponent(requestedBrandSlug)}`
-        : `?brandName=${encodeURIComponent(requestedBrandName)}`;
+      try {
+        loadInProgressRef.current = true;
 
-      const res = await fetch(`/api/sales-ai/inbox-dashboard${query}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (res.status === 401) {
-        router.replace(
-          `/login?next=${encodeURIComponent(
-            `/sales-ai/inbox?brandSlug=${requestedBrandKey}`
-          )}`
-        );
-        return;
-      }
-
-      if (res.status === 403) {
-        router.replace("/workspace");
-        return;
-      }
-
-      if (!res.ok || data?.ok === false) {
-        throw new Error(data?.error || "No se pudo cargar el Inbox.");
-      }
-
-      const normalizedReturnedBrand = normalizeBrand(
-        data?.brand,
-        requestedBrandFallback
-      );
-
-      const returnedBrandSlug = toBrandSlug(
-        normalizedReturnedBrand.slug || normalizedReturnedBrand.name
-      );
-
-      if (
-        requestedBrandKey &&
-        returnedBrandSlug &&
-        returnedBrandSlug !== requestedBrandKey
-      ) {
-        throw new Error(
-          `Bloqueo de seguridad: el Inbox solicitó ${requestedBrandKey}, pero la API respondió ${returnedBrandSlug}.`
-        );
-      }
-
-      const nextBrand: BrandContext = {
-        ...normalizedReturnedBrand,
-        slug: requestedBrandKey || returnedBrandSlug,
-        name:
-          normalizedReturnedBrand.name ||
-          requestedBrandName ||
-          formatBrandNameFromSlug(requestedBrandKey),
-      };
-
-      const rawLeads = Array.isArray(data?.leads) ? data.leads : [];
-
-      const allLeads: SalesLead[] = rawLeads.map(
-  (lead: any, index: number): SalesLead =>
-    normalizeLead(lead, index, nextBrand)
-);
-
-const nextLeads: SalesLead[] = allLeads.filter((lead: SalesLead) => {
-  return !lead.brandSlug || lead.brandSlug === nextBrand.slug;
-});
-
-const allowedLeadIds = new Set<string>(
-  nextLeads.map((lead: SalesLead) => lead.id)
-);
-      const rawMessages =
-        data?.conversations ||
-        data?.messages ||
-        data?.salesMessages ||
-        data?.sales_messages ||
-        [];
-
-      const nextMessages = Array.isArray(rawMessages)
-        ? rawMessages
-            .map((message: any, index: number) =>
-              normalizeMessage(message, index)
-            )
-            .filter((message: SalesMessage) => {
-              return allowedLeadIds.has(message.leadId);
-            })
-        : [];
-
-      const rawRuns =
-        data?.agentRuns ||
-        data?.runs ||
-        data?.salesAgentRuns ||
-        data?.sales_agent_runs ||
-        [];
-
-      const nextRuns = Array.isArray(rawRuns)
-        ? rawRuns
-            .map((run: any, index: number) => normalizeAgentRun(run, index))
-            .filter((run: AgentRun) => {
-              return allowedLeadIds.has(run.leadId);
-            })
-        : [];
-
-      setBrand(nextBrand);
-      setMetrics(normalizeMetrics(data?.metrics, nextLeads));
-      setLeads(nextLeads);
-      setMessages(nextMessages);
-      setAgentRuns(nextRuns);
-
-      setSelectedLeadId((current: string) => {
-        if (
-          current &&
-          nextLeads.some((lead: SalesLead) => lead.id === current)
-        ) {
-          return current;
+        if (isSilent) {
+          setBackgroundRefreshing(true);
+        } else {
+          setLoading(true);
         }
 
-        return nextLeads[0]?.id || "";
-      });
+        setSystemMessage("");
 
-      const settings = await fetchRuntimeSettings(nextBrand.name);
-      setRuntimeSettings(settings);
-    } catch (error: any) {
-      setSystemMessage(error?.message || "Error cargando Inbox.");
-      setBrand(requestedBrandFallback);
-      setMetrics(fallbackMetrics);
-      setRuntimeSettings(null);
-      setLeads([]);
-      setMessages([]);
-      setAgentRuns([]);
-      setSelectedLeadId("");
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    hasBrandContext,
-    requestedBrandFallback,
-    requestedBrandKey,
-    requestedBrandName,
-    requestedBrandSlug,
-    router,
-  ]);
+        if (!hasBrandContext) {
+          setBrand(fallbackBrand);
+          setMetrics(fallbackMetrics);
+          setRuntimeSettings(null);
+          setLeads([]);
+          setMessages([]);
+          setAgentRuns([]);
+          setSelectedLeadId("");
+          setSystemMessage(
+            "Falta brandSlug en la URL. Por seguridad no se cargó ninguna marca por default."
+          );
+          return;
+        }
+
+        const query = requestedBrandSlug
+          ? `?brandSlug=${encodeURIComponent(requestedBrandSlug)}`
+          : `?brandName=${encodeURIComponent(requestedBrandName)}`;
+
+        const res = await fetch(`/api/sales-ai/inbox-dashboard${query}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const data = await res.json().catch(() => null);
+
+        if (res.status === 401) {
+          router.replace(
+            `/login?next=${encodeURIComponent(
+              `/sales-ai/inbox?brandSlug=${requestedBrandKey}`
+            )}`
+          );
+          return;
+        }
+
+        if (res.status === 403) {
+          router.replace("/workspace");
+          return;
+        }
+
+        if (!res.ok || data?.ok === false) {
+          throw new Error(data?.error || "No se pudo cargar el Inbox.");
+        }
+
+        const normalizedReturnedBrand = normalizeBrand(
+          data?.brand,
+          requestedBrandFallback
+        );
+
+        const returnedBrandSlug = toBrandSlug(
+          normalizedReturnedBrand.slug || normalizedReturnedBrand.name
+        );
+
+        if (
+          requestedBrandKey &&
+          returnedBrandSlug &&
+          returnedBrandSlug !== requestedBrandKey
+        ) {
+          throw new Error(
+            `Bloqueo de seguridad: el Inbox solicitó ${requestedBrandKey}, pero la API respondió ${returnedBrandSlug}.`
+          );
+        }
+
+        const nextBrand: BrandContext = {
+          ...normalizedReturnedBrand,
+          slug: requestedBrandKey || returnedBrandSlug,
+          name:
+            normalizedReturnedBrand.name ||
+            requestedBrandName ||
+            formatBrandNameFromSlug(requestedBrandKey),
+        };
+
+        const rawLeads = Array.isArray(data?.leads) ? data.leads : [];
+
+        const allLeads: SalesLead[] = rawLeads.map(
+          (lead: any, index: number): SalesLead =>
+            normalizeLead(lead, index, nextBrand)
+        );
+
+        const nextLeads: SalesLead[] = allLeads.filter((lead: SalesLead) => {
+          return !lead.brandSlug || lead.brandSlug === nextBrand.slug;
+        });
+
+        const allowedLeadIds = new Set<string>(
+          nextLeads.map((lead: SalesLead) => lead.id)
+        );
+
+        const rawMessages =
+          data?.conversations ||
+          data?.messages ||
+          data?.salesMessages ||
+          data?.sales_messages ||
+          [];
+
+        const nextMessages = Array.isArray(rawMessages)
+          ? rawMessages
+              .map((message: any, index: number) =>
+                normalizeMessage(message, index)
+              )
+              .filter((message: SalesMessage) => {
+                return allowedLeadIds.has(message.leadId);
+              })
+          : [];
+
+        const rawRuns =
+          data?.agentRuns ||
+          data?.runs ||
+          data?.salesAgentRuns ||
+          data?.sales_agent_runs ||
+          [];
+
+        const nextRuns = Array.isArray(rawRuns)
+          ? rawRuns
+              .map((run: any, index: number) => normalizeAgentRun(run, index))
+              .filter((run: AgentRun) => {
+                return allowedLeadIds.has(run.leadId);
+              })
+          : [];
+
+        const nextSignature = buildInboxSignature(
+          nextLeads,
+          nextMessages,
+          nextRuns
+        );
+
+        if (latestInboxSignatureRef.current) {
+          if (nextSignature !== latestInboxSignatureRef.current) {
+            setLiveMessage(
+              source === "poll"
+                ? "Nuevo movimiento detectado"
+                : "Inbox actualizado"
+            );
+          } else if (source === "poll") {
+            setLiveMessage("Inbox en vivo");
+          }
+        }
+
+        latestInboxSignatureRef.current = nextSignature;
+
+        setBrand(nextBrand);
+        setMetrics(normalizeMetrics(data?.metrics, nextLeads));
+        setLeads(nextLeads);
+        setMessages(nextMessages);
+        setAgentRuns(nextRuns);
+        setLastUpdatedAt(new Date().toISOString());
+
+        setSelectedLeadId((current: string) => {
+          if (
+            current &&
+            nextLeads.some((lead: SalesLead) => lead.id === current)
+          ) {
+            return current;
+          }
+
+          return nextLeads[0]?.id || "";
+        });
+
+        const settings = await fetchRuntimeSettings(nextBrand.name);
+        setRuntimeSettings(settings);
+      } catch (error: any) {
+        setSystemMessage(error?.message || "Error cargando Inbox.");
+
+        if (!isSilent) {
+          setBrand(requestedBrandFallback);
+          setMetrics(fallbackMetrics);
+          setRuntimeSettings(null);
+          setLeads([]);
+          setMessages([]);
+          setAgentRuns([]);
+          setSelectedLeadId("");
+        }
+      } finally {
+        if (isSilent) {
+          setBackgroundRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+
+        loadInProgressRef.current = false;
+      }
+    },
+    [
+      hasBrandContext,
+      requestedBrandFallback,
+      requestedBrandKey,
+      requestedBrandName,
+      requestedBrandSlug,
+      router,
+    ]
+  );
 
   useEffect(() => {
-    loadInbox();
+    loadInbox({ source: "initial" });
   }, [loadInbox]);
+
+  useEffect(() => {
+    if (!hasBrandContext || !autoRefreshEnabled) return;
+
+    const interval = window.setInterval(() => {
+      if (document.hidden) return;
+      if (sendingApprovedReply) return;
+
+      loadInbox({
+        silent: true,
+        source: "poll",
+      });
+    }, 4000);
+
+    return () => window.clearInterval(interval);
+  }, [
+    autoRefreshEnabled,
+    hasBrandContext,
+    loadInbox,
+    sendingApprovedReply,
+  ]);
 
   const filteredLeads = useMemo(() => {
     let next = [...leads];
@@ -446,9 +527,20 @@ const allowedLeadIds = new Set<string>(
     );
   }, [agentRuns, selectedLead]);
 
-  const selectedSuggestedReply = useMemo(() => {
+  const rawSuggestedReply = useMemo(() => {
     return getAgentReply(selectedRun, selectedLead);
   }, [selectedRun, selectedLead]);
+
+  const aiThinking = useMemo(() => {
+    return deriveAiThinkingState({
+      lead: selectedLead,
+      agentRun: selectedRun,
+      suggestedReply: rawSuggestedReply,
+      loading,
+    });
+  }, [loading, rawSuggestedReply, selectedLead, selectedRun]);
+
+  const selectedSuggestedReply = aiThinking ? "" : rawSuggestedReply;
 
   useEffect(() => {
     setEditableReply(selectedSuggestedReply);
@@ -460,12 +552,8 @@ const allowedLeadIds = new Set<string>(
   }, [selectedRun, runtimeSettings, metrics]);
 
   const displayMessages = useMemo(() => {
-    return buildDisplayMessages(
-      selectedLead,
-      selectedMessages,
-      selectedSuggestedReply
-    );
-  }, [selectedLead, selectedMessages, selectedSuggestedReply]);
+    return buildDisplayMessages(selectedLead, selectedMessages);
+  }, [selectedLead, selectedMessages]);
 
   const sendApprovedReply = useCallback(async () => {
     setApprovedSendStatus(null);
@@ -530,7 +618,7 @@ const allowedLeadIds = new Set<string>(
         message: "Respuesta enviada correctamente por WhatsApp.",
       });
 
-      await loadInbox();
+      await loadInbox({ source: "send" });
     } catch (error: any) {
       setApprovedSendStatus({
         type: "error",
@@ -556,7 +644,12 @@ const allowedLeadIds = new Set<string>(
           safety={safety}
           runtimeSettings={runtimeSettings}
           loading={loading}
-          onRefresh={loadInbox}
+          backgroundRefreshing={backgroundRefreshing}
+          lastUpdatedAt={lastUpdatedAt}
+          liveMessage={liveMessage}
+          autoRefreshEnabled={autoRefreshEnabled}
+          onToggleAutoRefresh={() => setAutoRefreshEnabled((value) => !value)}
+          onRefresh={() => loadInbox({ source: "manual" })}
         />
 
         <div className="mx-auto w-full max-w-[1720px] px-4 pb-10 pt-5 sm:px-5 xl:px-8">
@@ -592,6 +685,8 @@ const allowedLeadIds = new Set<string>(
               onSendApprovedReply={sendApprovedReply}
               sendingApprovedReply={sendingApprovedReply}
               sendStatus={approvedSendStatus}
+              aiThinking={aiThinking}
+              backgroundRefreshing={backgroundRefreshing}
             />
 
             <IntelligenceColumn
@@ -599,6 +694,7 @@ const allowedLeadIds = new Set<string>(
               agentRun={selectedRun}
               safety={safety}
               runtimeSettings={runtimeSettings}
+              aiThinking={aiThinking}
             />
           </section>
 
@@ -839,6 +935,11 @@ function TopBar({
   safety,
   runtimeSettings,
   loading,
+  backgroundRefreshing,
+  lastUpdatedAt,
+  liveMessage,
+  autoRefreshEnabled,
+  onToggleAutoRefresh,
   onRefresh,
 }: {
   brand: BrandContext;
@@ -846,6 +947,11 @@ function TopBar({
   safety: SafetyState;
   runtimeSettings: RuntimeSettings | null;
   loading: boolean;
+  backgroundRefreshing: boolean;
+  lastUpdatedAt: string | null;
+  liveMessage: string;
+  autoRefreshEnabled: boolean;
+  onToggleAutoRefresh: () => void;
   onRefresh: () => void;
 }) {
   return (
@@ -860,13 +966,31 @@ function TopBar({
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2 text-xs font-black uppercase tracking-[0.25em] text-emerald-700">
               Activo
             </span>
+
+            <button
+              type="button"
+              onClick={onToggleAutoRefresh}
+              className={`rounded-full border px-5 py-2 text-xs font-black uppercase tracking-[0.18em] transition ${
+                autoRefreshEnabled
+                  ? "border-[#b8edf5] bg-[#eafbff] text-[#08a9c6]"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+              }`}
+            >
+              {backgroundRefreshing
+                ? "Sincronizando..."
+                : autoRefreshEnabled
+                ? "Live ON"
+                : "Live OFF"}
+            </button>
           </div>
 
           <p className="mt-1 truncate text-sm font-black text-[#697790]">
             {brand.name} · {metrics.openLeads} conversaciones abiertas ·{" "}
             {labelAgentMode(
               runtimeSettings?.agent_mode || metrics.automationMode
-            )}
+            )}{" "}
+            · {liveMessage}
+            {lastUpdatedAt ? ` · ${formatShortTime(lastUpdatedAt)}` : ""}
           </p>
         </div>
 
@@ -890,11 +1014,15 @@ function TopBar({
 
           <button
             onClick={onRefresh}
-            disabled={loading}
+            disabled={loading || backgroundRefreshing}
             className="inline-flex items-center gap-3 rounded-[22px] bg-[#07142f] px-7 py-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(7,20,47,0.2)] transition hover:scale-[1.01] disabled:opacity-60"
           >
             <Icon name="refresh" className="h-5 w-5" />
-            {loading ? "Actualizando..." : "Actualizar"}
+            {loading
+              ? "Actualizando..."
+              : backgroundRefreshing
+              ? "Sincronizando..."
+              : "Actualizar"}
           </button>
         </div>
       </div>
@@ -1233,6 +1361,8 @@ function ChatColumn({
   onSendApprovedReply,
   sendingApprovedReply,
   sendStatus,
+  aiThinking,
+  backgroundRefreshing,
 }: {
   brand: BrandContext;
   lead: SalesLead | null;
@@ -1247,6 +1377,8 @@ function ChatColumn({
   onSendApprovedReply: () => void;
   sendingApprovedReply: boolean;
   sendStatus: SendStatus | null;
+  aiThinking: boolean;
+  backgroundRefreshing: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-[34px] border border-[#dceaf4] bg-white shadow-[0_18px_50px_rgba(8,21,53,0.06)]">
@@ -1270,6 +1402,11 @@ function ChatColumn({
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
+            {backgroundRefreshing ? (
+              <span className="rounded-full border border-[#b8edf5] bg-[#eafbff] px-5 py-3 text-xs font-black uppercase tracking-[0.2em] text-[#08a9c6]">
+                Actualizando
+              </span>
+            ) : null}
             <IconButton icon="star" />
             <IconButton icon="tag" />
             <IconButton icon="dots" />
@@ -1294,6 +1431,8 @@ function ChatColumn({
                 text="Este lead existe, pero aún no se cargó historial de conversación."
               />
             )}
+
+            {aiThinking ? <AiThinkingBubble /> : null}
           </div>
         ) : (
           <EmptyBox
@@ -1313,9 +1452,15 @@ function ChatColumn({
             onSendApprovedReply={onSendApprovedReply}
             sendingApprovedReply={sendingApprovedReply}
             sendStatus={sendStatus}
+            aiThinking={aiThinking}
           />
 
-          <NextActionCard lead={lead} agentRun={agentRun} safety={safety} />
+          <NextActionCard
+            lead={lead}
+            agentRun={agentRun}
+            safety={safety}
+            aiThinking={aiThinking}
+          />
         </div>
 
         <div className="mt-6 flex items-center gap-4 rounded-[26px] border border-[#dceaf4] bg-white p-4 shadow-sm">
@@ -1350,6 +1495,7 @@ function RecommendedReplyCard({
   onSendApprovedReply,
   sendingApprovedReply,
   sendStatus,
+  aiThinking,
 }: {
   suggestedReply: string;
   editableReply: string;
@@ -1358,10 +1504,11 @@ function RecommendedReplyCard({
   onSendApprovedReply: () => void;
   sendingApprovedReply: boolean;
   sendStatus: SendStatus | null;
+  aiThinking: boolean;
 }) {
   const cleanEditableReply = editableReply.trim();
   const cleanSuggestedReply = suggestedReply.trim();
-  const canSend = Boolean(lead?.id && cleanEditableReply);
+  const canSend = Boolean(lead?.id && cleanEditableReply && !aiThinking);
   const wasEdited = cleanEditableReply !== cleanSuggestedReply;
 
   const statusClass =
@@ -1376,11 +1523,13 @@ function RecommendedReplyCard({
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.34em] text-[#276df6]">
-            Respuesta recomendada
+            {aiThinking ? "SALES AI analizando" : "Respuesta recomendada"}
           </p>
 
           <p className="mt-2 text-xs font-black text-[#5d7088]">
-            Edita el texto antes de enviarlo por WhatsApp real.
+            {aiThinking
+              ? "La IA está leyendo el nuevo mensaje y preparando una respuesta."
+              : "Edita el texto antes de enviarlo por WhatsApp real."}
           </p>
         </div>
 
@@ -1389,13 +1538,28 @@ function RecommendedReplyCard({
         </span>
       </div>
 
+      {aiThinking ? (
+        <div className="mt-4 rounded-[22px] border border-[#cfe2f6] bg-white p-5">
+          <div className="flex items-center gap-3">
+            <span className="h-3 w-3 animate-pulse rounded-full bg-[#15bfd2]" />
+            <p className="text-sm font-black text-[#5d7088]">
+              Generando respuesta recomendada...
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 rounded-[22px] border border-[#cfe2f6] bg-white p-4">
         <textarea
           value={editableReply}
           onChange={(e) => setEditableReply(e.target.value)}
-          disabled={!lead || sendingApprovedReply}
+          disabled={!lead || sendingApprovedReply || aiThinking}
           rows={7}
-          placeholder="SALES AI todavía no tiene una respuesta sugerida para esta conversación."
+          placeholder={
+            aiThinking
+              ? "SALES AI está generando una respuesta..."
+              : "SALES AI todavía no tiene una respuesta sugerida para esta conversación."
+          }
           className="min-h-[190px] w-full resize-none bg-transparent text-base font-black leading-8 text-[#07142f] outline-none placeholder:text-[#8da0b8] disabled:cursor-not-allowed disabled:opacity-70"
         />
 
@@ -1404,7 +1568,11 @@ function RecommendedReplyCard({
             {cleanEditableReply.length} caracteres
           </span>
 
-          {wasEdited ? (
+          {aiThinking ? (
+            <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-black text-[#08a9c6]">
+              IA pensando
+            </span>
+          ) : wasEdited ? (
             <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
               Editada manualmente
             </span>
@@ -1436,7 +1604,7 @@ function RecommendedReplyCard({
           onClick={() =>
             cleanEditableReply && navigator.clipboard?.writeText(editableReply)
           }
-          disabled={!cleanEditableReply || sendingApprovedReply}
+          disabled={!cleanEditableReply || sendingApprovedReply || aiThinking}
           className="rounded-[22px] border border-[#c7dff2] bg-white px-5 py-4 text-sm font-black text-[#276df6] shadow-sm transition hover:bg-[#f5fbff] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Copiar
@@ -1445,7 +1613,7 @@ function RecommendedReplyCard({
         <button
           type="button"
           onClick={() => setEditableReply(suggestedReply)}
-          disabled={!cleanSuggestedReply || sendingApprovedReply}
+          disabled={!cleanSuggestedReply || sendingApprovedReply || aiThinking}
           className="rounded-[22px] border border-[#c7dff2] bg-white px-5 py-4 text-sm font-black text-[#07142f] shadow-sm transition hover:bg-[#f5fbff] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Restaurar IA
@@ -1474,10 +1642,12 @@ function NextActionCard({
   lead,
   agentRun,
   safety,
+  aiThinking,
 }: {
   lead: SalesLead | null;
   agentRun: AgentRun | null;
   safety: SafetyState;
+  aiThinking: boolean;
 }) {
   return (
     <div className="rounded-[26px] border border-[#dceaf4] bg-white p-5">
@@ -1486,15 +1656,19 @@ function NextActionCard({
       </p>
 
       <h3 className="mt-4 text-2xl font-black leading-tight text-[#07142f]">
-        {lead?.nextAction ||
-          agentRun?.nextAction ||
-          "Esperar respuesta del cliente para obtener más información."}
+        {aiThinking
+          ? "SALES AI está preparando la siguiente acción"
+          : lead?.nextAction ||
+            agentRun?.nextAction ||
+            "Esperar respuesta del cliente para obtener más información."}
       </h3>
 
       <p className="mt-4 text-sm font-black leading-7 text-[#66758d]">
-        {agentRun?.decisionReason ||
-          lead?.aiSummary ||
-          "Se busca avanzar la conversación y calificar al lead con preguntas claras."}
+        {aiThinking
+          ? "El sistema detectó un mensaje nuevo y está generando la recomendación comercial."
+          : agentRun?.decisionReason ||
+            lead?.aiSummary ||
+            "Se busca avanzar la conversación y calificar al lead con preguntas claras."}
       </p>
 
       <div className="mt-5 flex items-center justify-between gap-3 rounded-[20px] border border-[#dceaf4] bg-[#f7fbff] px-4 py-4">
@@ -1517,11 +1691,13 @@ function IntelligenceColumn({
   agentRun,
   safety,
   runtimeSettings,
+  aiThinking,
 }: {
   lead: SalesLead | null;
   agentRun: AgentRun | null;
   safety: SafetyState;
   runtimeSettings: RuntimeSettings | null;
+  aiThinking: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-[34px] border border-[#dceaf4] bg-white shadow-[0_18px_50px_rgba(8,21,53,0.06)]">
@@ -1537,7 +1713,7 @@ function IntelligenceColumn({
           </div>
 
           <span className="rounded-full bg-[#eef7ff] px-5 py-3 text-sm font-black text-[#276df6]">
-            IA
+            {aiThinking ? "Pensando" : "IA"}
           </span>
         </div>
       </div>
@@ -1621,9 +1797,11 @@ function IntelligenceColumn({
             </p>
 
             <p className="mt-4 text-lg font-black leading-8 text-[#07142f]">
-              {agentRun?.decisionReason ||
-                lead?.aiSummary ||
-                "SALES AI está esperando más información para mejorar su decisión."}
+              {aiThinking
+                ? "SALES AI está leyendo el nuevo mensaje y generando una decisión comercial."
+                : agentRun?.decisionReason ||
+                  lead?.aiSummary ||
+                  "SALES AI está esperando más información para mejorar su decisión."}
             </p>
           </div>
         </div>
@@ -1878,6 +2056,29 @@ function MessageBubble({ message }: { message: SalesMessage }) {
   );
 }
 
+function AiThinkingBubble() {
+  return (
+    <div className="flex items-start gap-3 justify-end">
+      <div className="max-w-[78%] rounded-[24px] bg-[#dff9e8] px-5 py-4 text-[#07142f] shadow-sm">
+        <p className="mb-2 text-[11px] font-black uppercase tracking-[0.22em] text-emerald-700">
+          SALES AI
+        </p>
+
+        <div className="flex items-center gap-3">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-600" />
+          <p className="text-sm font-black leading-7">
+            Analizando conversación y preparando respuesta...
+          </p>
+        </div>
+      </div>
+
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2e68f6] text-white">
+        <Icon name="bot" className="h-5 w-5" />
+      </div>
+    </div>
+  );
+}
+
 function IntelCard({
   icon,
   label,
@@ -2062,7 +2263,10 @@ function BigChart() {
   );
 }
 
-function normalizeBrand(value: any, fallback: BrandContext = fallbackBrand): BrandContext {
+function normalizeBrand(
+  value: any,
+  fallback: BrandContext = fallbackBrand
+): BrandContext {
   const rawName =
     cleanText(value?.name) ||
     cleanText(value?.brandName) ||
@@ -2088,7 +2292,8 @@ function normalizeBrand(value: any, fallback: BrandContext = fallbackBrand): Bra
       fallback.industry,
     city: value?.city || fallback.city,
     exists: Boolean(value?.exists ?? fallback.exists),
-    sourceTable: value?.sourceTable || value?.source_table || fallback.sourceTable,
+    sourceTable:
+      value?.sourceTable || value?.source_table || fallback.sourceTable,
   };
 }
 
@@ -2391,8 +2596,7 @@ function normalizeMetrics(raw: any, leads: SalesLead[]): InboxMetrics {
 
 function buildDisplayMessages(
   lead: SalesLead | null,
-  messages: SalesMessage[],
-  agentReply: string
+  messages: SalesMessage[]
 ): SalesMessage[] {
   if (!lead) return [];
 
@@ -2405,7 +2609,7 @@ function buildDisplayMessages(
     lead.aiSummary ||
     "Hola, me gustaría recibir más información.";
 
-  const display: SalesMessage[] = [
+  return [
     {
       id: "fallback-inbound",
       leadId: lead.id,
@@ -2415,19 +2619,6 @@ function buildDisplayMessages(
       createdAt: lead.lastMessageAt || now,
     },
   ];
-
-  if (agentReply) {
-    display.push({
-      id: "fallback-outbound",
-      leadId: lead.id,
-      direction: "outbound",
-      content: agentReply,
-      sender: "SALES AI",
-      createdAt: now,
-    });
-  }
-
-  return display;
 }
 
 function deriveSafetyState(
@@ -2520,6 +2711,44 @@ function deriveSafetyState(
     mode,
     whatsappStatus,
   };
+}
+
+function deriveAiThinkingState({
+  lead,
+  agentRun,
+  suggestedReply,
+  loading,
+}: {
+  lead: SalesLead | null;
+  agentRun: AgentRun | null;
+  suggestedReply: string;
+  loading: boolean;
+}) {
+  if (loading || !lead) return false;
+
+  const hasRecentInbound = Boolean(lead.lastMessage || lead.lastMessageAt);
+  if (!hasRecentInbound) return false;
+
+  const leadTime = lead.lastMessageAt ? new Date(lead.lastMessageAt).getTime() : 0;
+  const runTime = agentRun?.createdAt ? new Date(agentRun.createdAt).getTime() : 0;
+
+  if (!agentRun) return true;
+
+  if (leadTime && runTime && runTime + 1200 < leadTime) {
+    return true;
+  }
+
+  const actionStatus = String(agentRun.actionStatus || "").toLowerCase();
+
+  if (
+    !String(suggestedReply || "").trim() &&
+    !actionStatus.includes("human") &&
+    !actionStatus.includes("paused")
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function getAgentReply(agentRun: AgentRun | null, lead: SalesLead | null) {
@@ -2629,6 +2858,13 @@ function formatPhone(value?: string | null) {
     )} ${clean.slice(8)}`;
   }
 
+  if (clean.length === 13 && clean.startsWith("521")) {
+    return `${clean.slice(0, 2)} ${clean.slice(2, 3)} ${clean.slice(
+      3,
+      6
+    )} ${clean.slice(6, 9)} ${clean.slice(9)}`;
+  }
+
   return value || "";
 }
 
@@ -2675,9 +2911,40 @@ function formatBrandNameFromSlug(slug: string) {
   return String(slug || "")
     .split("-")
     .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => {
+      const lower = word.toLowerCase();
+
+      if (lower === "mkt") return "Mkt";
+      if (lower === "ai") return "AI";
+      if (lower === "os") return "OS";
+      if (lower === "lr") return "LR";
+
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
     .join(" ")
     .trim();
+}
+
+function buildInboxSignature(
+  leads: SalesLead[],
+  messages: SalesMessage[],
+  runs: AgentRun[]
+) {
+  const leadPart = leads
+    .map((lead) => `${lead.id}:${lead.lastMessageAt || ""}:${lead.recommendedReply || ""}`)
+    .join("|");
+
+  const messagePart = messages
+    .slice(-12)
+    .map((message) => `${message.id}:${message.createdAt || ""}:${message.direction}`)
+    .join("|");
+
+  const runPart = runs
+    .slice(-12)
+    .map((run) => `${run.id}:${run.createdAt || ""}:${run.agentReply || run.recommendedReply || ""}`)
+    .join("|");
+
+  return `${leadPart}::${messagePart}::${runPart}`;
 }
 
 type IconName =
