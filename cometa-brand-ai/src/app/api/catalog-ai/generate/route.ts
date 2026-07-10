@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+
+/**
+ * La generación de imágenes puede superar los 120 segundos.
+ * Vercel permitirá que esta función trabaje hasta 300 segundos.
+ */
+export const maxDuration = 300;
 
 const OPENAI_IMAGE_EDIT_URL = "https://api.openai.com/v1/images/edits";
+
+/**
+ * Detenemos la llamada unos segundos antes del límite de Vercel
+ * para poder devolver un error entendible en lugar de que Vercel
+ * termine abruptamente la función.
+ */
+const OPENAI_REQUEST_TIMEOUT_MS = 280_000;
 
 const MAX_IMAGE_SIZE_MB = 25;
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
@@ -15,10 +27,18 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
-function getStringValue(formData: FormData, key: string, fallback = "") {
+const ALLOWED_IMAGE_QUALITIES = new Set(["low", "medium", "high"]);
+
+function getStringValue(
+  formData: FormData,
+  key: string,
+  fallback = "",
+): string {
   const value = formData.get(key);
 
-  if (typeof value !== "string") return fallback;
+  if (typeof value !== "string") {
+    return fallback;
+  }
 
   return value.trim();
 }
@@ -34,7 +54,7 @@ function isFile(value: FormDataEntryValue | null): value is File {
   );
 }
 
-function sanitizeFilename(filename: string, fallback: string) {
+function sanitizeFilename(filename: string, fallback: string): string {
   const cleanName = String(filename || fallback)
     .replace(/[^\w.\-]+/g, "-")
     .replace(/-+/g, "-")
@@ -43,7 +63,7 @@ function sanitizeFilename(filename: string, fallback: string) {
   return cleanName || fallback;
 }
 
-function validateImageFile(file: File, label: string) {
+function validateImageFile(file: File, label: string): void {
   if (!file || file.size <= 0) {
     throw new Error(`${label} está vacía o no se pudo leer.`);
   }
@@ -63,7 +83,7 @@ function validateImageFile(file: File, label: string) {
   }
 }
 
-function getOpenAIErrorMessage(rawText: string) {
+function getOpenAIErrorMessage(rawText: string): string {
   try {
     const parsed = JSON.parse(rawText);
 
@@ -77,6 +97,18 @@ function getOpenAIErrorMessage(rawText: string) {
   }
 }
 
+function getImageQuality(): string {
+  const configuredQuality = (
+    process.env.OPENAI_IMAGE_QUALITY || "high"
+  ).toLowerCase();
+
+  if (ALLOWED_IMAGE_QUALITIES.has(configuredQuality)) {
+    return configuredQuality;
+  }
+
+  return "high";
+}
+
 async function appendImageToOpenAIForm({
   openAIFormData,
   file,
@@ -85,7 +117,7 @@ async function appendImageToOpenAIForm({
   openAIFormData: FormData;
   file: File;
   fallbackName: string;
-}) {
+}): Promise<void> {
   const arrayBuffer = await file.arrayBuffer();
 
   const blob = new Blob([arrayBuffer], {
@@ -97,20 +129,36 @@ async function appendImageToOpenAIForm({
   openAIFormData.append("image[]", blob, filename);
 }
 
-function buildFinalPrompt(prompt: string) {
+function buildFinalPrompt(prompt: string): string {
   const cleanPrompt = prompt.trim();
 
   const fallbackPrompt =
-    "haz una imagen de 1080x1350px juntando ambas fotos, en fondo blanco claro de estudio, ambas fotos en un mismo fondo, sin modificar la ropa, no cambies el color de la ropa, la idea es enfocar el short, recorta la cabeza, solo enfoca al short y al detalle.";
+    "Haz una imagen de 1080x1350px juntando ambas fotos, en fondo blanco claro de estudio, ambas fotos en un mismo fondo, sin modificar la ropa, no cambies el color de la ropa. La idea es enfocar el short, recorta la cabeza y enfoca únicamente el short y sus detalles.";
 
   const mainPrompt = cleanPrompt || fallbackPrompt;
 
   return `${mainPrompt}
 
-Evita que parezca collage dividido. No agregues línea vertical, separador, marco, borde, paneles ni división entre las dos fotos. Debe verse como una sola fotografía de estudio limpia y premium. Mantén la ropa y los colores originales.`;
+INSTRUCCIONES OBLIGATORIAS:
+- Utiliza las dos fotografías proporcionadas como referencias.
+- Conserva fielmente la prenda, su forma, textura, costuras, diseño y color.
+- No cambies el cuerpo ni las características importantes del producto.
+- Crea una sola composición fotográfica vertical con proporción 4:5.
+- Utiliza un fondo blanco claro, limpio y uniforme de estudio profesional.
+- Evita que parezca un collage dividido.
+- No agregues línea vertical, separador, marco, borde, paneles ni divisiones.
+- Las dos vistas deben integrarse naturalmente dentro de una sola fotografía.
+- No agregues texto, logotipos, etiquetas, accesorios ni prendas nuevas.
+- El resultado debe verse limpio, comercial, realista y premium.`;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
+
   try {
     const apiKey = process.env.OPENAI_API_KEY;
 
@@ -121,9 +169,16 @@ export async function POST(request: NextRequest) {
           error:
             "Falta configurar OPENAI_API_KEY en .env.local o en las variables de Vercel.",
         },
-        { status: 500 },
+        {
+          status: 500,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
       );
     }
+
+    console.info("[Catalog AI] Recibiendo solicitud de generación.");
 
     const formData = await request.formData();
 
@@ -136,7 +191,12 @@ export async function POST(request: NextRequest) {
           ok: false,
           error: "Debes enviar imageA e imageB como archivos.",
         },
-        { status: 400 },
+        {
+          status: 400,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
       );
     }
 
@@ -144,25 +204,52 @@ export async function POST(request: NextRequest) {
     validateImageFile(imageB, "Foto 2");
 
     const brandSlug = getStringValue(formData, "brandSlug");
-    const batchName = getStringValue(formData, "batchName", "Catalog AI");
+    const batchName = getStringValue(
+      formData,
+      "batchName",
+      "Catalog AI",
+    );
     const userPrompt = getStringValue(formData, "prompt");
 
-    const imageModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
+    const imageModel =
+      process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-2";
+
+    const imageQuality = getImageQuality();
+
+    const isGptImage2 = imageModel.startsWith("gpt-image-2");
+
+    const imageSize =
+      process.env.OPENAI_IMAGE_SIZE?.trim() ||
+      (isGptImage2 ? "1088x1360" : "1024x1536");
+
     const prompt = buildFinalPrompt(userPrompt);
+
+    console.info("[Catalog AI] Preparando solicitud para OpenAI.", {
+      model: imageModel,
+      quality: imageQuality,
+      size: imageSize,
+      imageASizeBytes: imageA.size,
+      imageBSizeBytes: imageB.size,
+      brandSlug,
+      batchName,
+    });
 
     const openAIFormData = new FormData();
 
     openAIFormData.append("model", imageModel);
     openAIFormData.append("prompt", prompt);
-    openAIFormData.append("quality", "high");
+    openAIFormData.append("quality", imageQuality);
     openAIFormData.append("output_format", "png");
     openAIFormData.append("background", "auto");
     openAIFormData.append("moderation", "auto");
+    openAIFormData.append("size", imageSize);
 
-    if (imageModel.startsWith("gpt-image-2")) {
-      openAIFormData.append("size", "1088x1360");
-    } else {
-      openAIFormData.append("size", "1024x1536");
+    /**
+     * gpt-image-2 ya procesa automáticamente las referencias
+     * con alta fidelidad. Para modelos anteriores sí enviamos
+     * explícitamente input_fidelity.
+     */
+    if (!isGptImage2) {
       openAIFormData.append("input_fidelity", "high");
     }
 
@@ -178,61 +265,195 @@ export async function POST(request: NextRequest) {
       fallbackName: "catalog-image-2.png",
     });
 
-    const openAIResponse = await fetch(OPENAI_IMAGE_EDIT_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: openAIFormData,
+    const abortController = new AbortController();
+
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, OPENAI_REQUEST_TIMEOUT_MS);
+
+    let openAIResponse: Response;
+
+    try {
+      console.info("[Catalog AI] Iniciando generación con OpenAI.");
+
+      openAIResponse = await fetch(OPENAI_IMAGE_EDIT_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: openAIFormData,
+        signal: abortController.signal,
+        cache: "no-store",
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const openAIDurationMs = Date.now() - startedAt;
+
+    const requestId =
+      openAIResponse.headers.get("x-request-id") || "";
+
+    console.info("[Catalog AI] OpenAI respondió.", {
+      status: openAIResponse.status,
+      requestId,
+      durationMs: openAIDurationMs,
     });
 
-    const requestId = openAIResponse.headers.get("x-request-id") || "";
     const responseText = await openAIResponse.text();
 
     if (!openAIResponse.ok) {
       const message = getOpenAIErrorMessage(responseText);
+
+      console.error("[Catalog AI] OpenAI rechazó la solicitud.", {
+        status: openAIResponse.status,
+        requestId,
+        message,
+        durationMs: Date.now() - startedAt,
+      });
 
       return NextResponse.json(
         {
           ok: false,
           error: message,
           requestId,
+          durationMs: Date.now() - startedAt,
         },
-        { status: openAIResponse.status },
+        {
+          status: openAIResponse.status,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
       );
     }
 
-    const data = JSON.parse(responseText);
-    const b64Image = data?.data?.[0]?.b64_json || "";
+    let data: {
+      data?: Array<{
+        b64_json?: string;
+      }>;
+      usage?: unknown;
+    };
 
-    if (!b64Image) {
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error(
+        "[Catalog AI] OpenAI respondió con un formato JSON inválido.",
+        {
+          requestId,
+          responseLength: responseText.length,
+        },
+      );
+
       return NextResponse.json(
         {
           ok: false,
           error:
-            "OpenAI respondió correctamente, pero no regresó b64_json de imagen.",
+            "OpenAI respondió, pero el servidor no pudo interpretar el resultado.",
           requestId,
-          raw: data,
+          durationMs: Date.now() - startedAt,
         },
-        { status: 502 },
+        {
+          status: 502,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    const b64Image = data?.data?.[0]?.b64_json || "";
+
+    if (!b64Image) {
+      console.error(
+        "[Catalog AI] OpenAI no regresó una imagen en b64_json.",
+        {
+          requestId,
+          durationMs: Date.now() - startedAt,
+        },
+      );
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "OpenAI respondió correctamente, pero no regresó la imagen generada.",
+          requestId,
+          durationMs: Date.now() - startedAt,
+        },
+        {
+          status: 502,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
       );
     }
 
     const outputImageUrl = `data:image/png;base64,${b64Image}`;
+    const durationMs = Date.now() - startedAt;
 
-    return NextResponse.json({
-      ok: true,
-      outputImageUrl,
-      imageUrl: outputImageUrl,
-      brandSlug,
-      batchName,
-      model: imageModel,
+    console.info("[Catalog AI] Imagen generada correctamente.", {
       requestId,
-      usage: data?.usage || null,
-      sentPrompt: prompt,
+      model: imageModel,
+      quality: imageQuality,
+      size: imageSize,
+      durationMs,
+      outputBase64Length: b64Image.length,
     });
+
+    return NextResponse.json(
+      {
+        ok: true,
+        outputImageUrl,
+        imageUrl: outputImageUrl,
+        brandSlug,
+        batchName,
+        model: imageModel,
+        quality: imageQuality,
+        size: imageSize,
+        requestId,
+        usage: data?.usage || null,
+        sentPrompt: prompt,
+        durationMs,
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error) {
-    console.error("Catalog AI generate error:", error);
+    const durationMs = Date.now() - startedAt;
+
+    if (isAbortError(error)) {
+      console.error(
+        "[Catalog AI] La generación superó el tiempo interno permitido.",
+        {
+          durationMs,
+        },
+      );
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "La imagen tardó demasiado en generarse. Inténtalo nuevamente o cambia temporalmente la calidad a medium.",
+          code: "OPENAI_IMAGE_TIMEOUT",
+          durationMs,
+        },
+        {
+          status: 504,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    console.error("[Catalog AI] Error al generar la imagen:", error);
 
     return NextResponse.json(
       {
@@ -241,8 +462,14 @@ export async function POST(request: NextRequest) {
           error instanceof Error
             ? error.message
             : "No se pudo generar la imagen de catálogo.",
+        durationMs,
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   }
 }
