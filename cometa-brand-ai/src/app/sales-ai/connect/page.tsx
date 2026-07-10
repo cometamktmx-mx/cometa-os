@@ -1,36 +1,113 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+
+type ConnectionStatus =
+  | "not_connected"
+  | "pending"
+  | "connected"
+  | "pending_review"
+  | "active"
+  | "paused"
+  | "error"
+  | "revoked";
+
+type AvailableBrand = {
+  slug: string;
+  name: string;
+};
 
 type ClientConnection = {
+  brand_slug: string;
   brand_name: string;
+
   agent_mode: string;
   whatsapp_status: string;
   whatsapp_phone_number: string | null;
+
   client_connection_status: string;
   client_requested_phone_number: string | null;
   client_connection_notes: string | null;
   client_requested_at: string | null;
+
   client_agent_preferences: {
     tone: string;
     business_hours_enabled: boolean;
     human_escalation_enabled: boolean;
     allow_followups: boolean;
     client_can_activate_automatic: boolean;
+
+    business_summary?: string;
+    products_services?: string;
+    forbidden_promises?: string;
+    required_questions?: string;
+    escalation_notes?: string;
   };
+
+  connection_status: ConnectionStatus;
+  webhook_status: string;
+  verified_name: string | null;
+
+  receive_enabled: boolean;
+  agent_enabled: boolean;
+  real_send_enabled: boolean;
+
+  connected_at: string | null;
+  approved_at: string | null;
+  paused_at: string | null;
+  revoked_at: string | null;
+
+  last_webhook_at: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+
+  last_error: string | null;
+  last_error_code: string | null;
+
+  updated_at: string | null;
+};
+
+type ConnectApiResponse = {
+  ok: boolean;
+  error?: string;
+  detail?: string;
+
+  user?: {
+    id: string;
+    email: string | null;
+    isAdmin: boolean;
+  };
+
+  brand?: AvailableBrand;
+  availableBrands?: AvailableBrand[];
+  connection?: ClientConnection;
+
+  message?: string;
+  action?: string;
 };
 
 const defaultConnection: ClientConnection = {
-  brand_name: "Cometa Mkt",
+  brand_slug: "",
+  brand_name: "Marca",
+
   agent_mode: "observation",
   whatsapp_status: "pending_verification",
   whatsapp_phone_number: null,
+
   client_connection_status: "not_requested",
   client_requested_phone_number: null,
   client_connection_notes: null,
   client_requested_at: null,
+
   client_agent_preferences: {
     tone: "profesional, claro y vendedor",
     business_hours_enabled: false,
@@ -38,208 +115,312 @@ const defaultConnection: ClientConnection = {
     allow_followups: true,
     client_can_activate_automatic: false,
   },
+
+  connection_status: "not_connected",
+  webhook_status: "not_connected",
+  verified_name: null,
+
+  receive_enabled: false,
+  agent_enabled: false,
+  real_send_enabled: false,
+
+  connected_at: null,
+  approved_at: null,
+  paused_at: null,
+  revoked_at: null,
+
+  last_webhook_at: null,
+  last_inbound_at: null,
+  last_outbound_at: null,
+
+  last_error: null,
+  last_error_code: null,
+
+  updated_at: null,
 };
 
 export default function SalesAIConnectPage() {
-  const [brandName, setBrandName] = useState("Cometa Mkt");
-  const [requestedPhoneNumber, setRequestedPhoneNumber] = useState("");
-  const [connectionNotes, setConnectionNotes] = useState("");
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <SalesAIConnectContent />
+    </Suspense>
+  );
+}
+
+function SalesAIConnectContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const requestedBrandSlug = searchParams.get("brand")?.trim() || "";
+
   const [connection, setConnection] =
     useState<ClientConnection>(defaultConnection);
 
+  const [availableBrands, setAvailableBrands] = useState<AvailableBrand[]>([]);
+  const [selectedBrandSlug, setSelectedBrandSlug] =
+    useState(requestedBrandSlug);
+
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const [requestedPhoneNumber, setRequestedPhoneNumber] = useState("");
+  const [connectionNotes, setConnectionNotes] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
 
   const [message, setMessage] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const statusMeta = useMemo(
+    () => getConnectionStatusMeta(connection),
+    [connection]
+  );
 
   const phoneDisplay =
-    connection.client_requested_phone_number ||
     connection.whatsapp_phone_number ||
+    connection.client_requested_phone_number ||
     requestedPhoneNumber ||
-    "Sin número solicitado";
+    "Sin número conectado";
 
-  const isRequested =
+  const hasRealConnection =
+    connection.connection_status !== "not_connected" &&
+    connection.connection_status !== "revoked";
+
+  const isActive = connection.connection_status === "active";
+
+  const hasRequestedHelp =
     connection.client_connection_status === "requested" ||
-    connection.whatsapp_status === "connection_requested";
-
-  const isConnected = connection.whatsapp_status === "connected";
-
-  const state = useMemo(() => {
-    if (isConnected) {
-      return {
-        label: "WhatsApp conectado",
-        helper:
-          "Tu número ya está conectado. SALES AI puede operar según el modo autorizado por Cometa.",
-        tone: "green" as const,
-      };
-    }
-
-    if (isRequested) {
-      return {
-        label: "Solicitud recibida",
-        helper:
-          "Cometa revisará la conexión con Meta y preparará WhatsApp en modo observación.",
-        tone: "blue" as const,
-      };
-    }
-
-    if (connection.whatsapp_status === "error") {
-      return {
-        label: "Requiere revisión",
-        helper:
-          "Hay un detalle con la conexión. Cometa revisará la integración técnica.",
-        tone: "red" as const,
-      };
-    }
-
-    return {
-      label: "Pendiente de conexión",
-      helper:
-        "Solicita la conexión de WhatsApp. Cometa se encarga de la parte técnica.",
-      tone: "yellow" as const,
-    };
-  }, [connection.whatsapp_status, isConnected, isRequested]);
+    connection.client_connection_status === "change_requested";
 
   const loadConnection = useCallback(async () => {
-    setLoading(true);
-    setMessage("");
-    setErrorMsg("");
-
     try {
-      const res = await fetch(
-        `/api/sales-ai/connect-request?brandName=${encodeURIComponent(
-          brandName
-        )}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        }
-      );
+      setLoading(true);
+      setErrorMessage("");
 
-      const data = await res.json();
+      const query = requestedBrandSlug
+        ? `?brand=${encodeURIComponent(requestedBrandSlug)}`
+        : "";
 
-      if (!res.ok || !data.ok) {
-        throw new Error(data?.error || "No se pudo cargar la conexión.");
+      const response = await fetch(`/api/sales-ai/connect-request${query}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const json = (await response
+        .json()
+        .catch(() => null)) as ConnectApiResponse | null;
+
+      if (!response.ok || !json || json.ok === false) {
+        throw new Error(
+          json?.error ||
+            json?.detail ||
+            "No se pudo cargar la conexión de WhatsApp."
+        );
       }
 
-      const loaded = normalizeConnection(data.connection);
+      const loadedConnection = normalizeConnection(json.connection);
+      const resolvedBrandSlug =
+        json.brand?.slug || loadedConnection.brand_slug || "";
 
-      setConnection(loaded);
+      setConnection(loadedConnection);
+      setAvailableBrands(
+        Array.isArray(json.availableBrands) ? json.availableBrands : []
+      );
+      setSelectedBrandSlug(resolvedBrandSlug);
+      setIsAdmin(json.user?.isAdmin === true);
+
       setRequestedPhoneNumber(
-        loaded.client_requested_phone_number ||
-          loaded.whatsapp_phone_number ||
+        loadedConnection.client_requested_phone_number ||
+          loadedConnection.whatsapp_phone_number ||
           ""
       );
-      setConnectionNotes(loaded.client_connection_notes || "");
-    } catch (error: any) {
-      setErrorMsg(error?.message || "Error cargando conexión.");
+
+      setConnectionNotes(
+        loadedConnection.client_connection_notes || ""
+      );
+
+      if (!requestedBrandSlug && resolvedBrandSlug) {
+        router.replace(
+          `/sales-ai/connect?brand=${encodeURIComponent(
+            resolvedBrandSlug
+          )}`
+        );
+      }
+    } catch (error: unknown) {
+      setErrorMessage(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [brandName]);
+  }, [requestedBrandSlug, router]);
 
   useEffect(() => {
-    loadConnection();
+    void loadConnection();
   }, [loadConnection]);
 
-  async function submitRequest() {
-    setSaving(true);
-    setMessage("");
-    setErrorMsg("");
+  function changeBrand(nextBrandSlug: string) {
+    if (!nextBrandSlug || nextBrandSlug === selectedBrandSlug) {
+      return;
+    }
 
+    setMessage("");
+    setErrorMessage("");
+
+    router.push(
+      `/sales-ai/connect?brand=${encodeURIComponent(nextBrandSlug)}`
+    );
+  }
+
+  async function submitManualRequest() {
     try {
-      const res = await fetch("/api/sales-ai/connect-request", {
+      setSaving(true);
+      setMessage("");
+      setErrorMessage("");
+
+      if (!selectedBrandSlug) {
+        throw new Error("No hay una marca seleccionada.");
+      }
+
+      if (!requestedPhoneNumber.trim()) {
+        throw new Error(
+          "Agrega el número de WhatsApp que quieres conectar."
+        );
+      }
+
+      const response = await fetch("/api/sales-ai/connect-request", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          brandName,
+          brand: selectedBrandSlug,
           requestedPhoneNumber,
           connectionNotes,
+
+          tone:
+            connection.client_agent_preferences?.tone ||
+            "profesional, claro y vendedor",
+
+          businessHoursEnabled:
+            connection.client_agent_preferences
+              ?.business_hours_enabled === true,
+
+          humanEscalationEnabled:
+            connection.client_agent_preferences
+              ?.human_escalation_enabled !== false,
+
+          allowFollowups:
+            connection.client_agent_preferences?.allow_followups !==
+            false,
         }),
       });
 
-      const data = await res.json();
+      const json = (await response
+        .json()
+        .catch(() => null)) as ConnectApiResponse | null;
 
-      if (!res.ok || !data.ok) {
-        throw new Error(data?.error || "No se pudo guardar la solicitud.");
+      if (!response.ok || !json || json.ok === false) {
+        throw new Error(
+          json?.error ||
+            json?.detail ||
+            "No se pudo guardar la solicitud."
+        );
       }
 
-      const loaded = normalizeConnection(data.connection);
-      setConnection(loaded);
-      setMessage(
-        isRequested
-          ? "Solicitud actualizada. Cometa revisará la conexión técnica de WhatsApp."
-          : "Solicitud enviada. Cometa revisará la conexión técnica de WhatsApp."
+      const loadedConnection = normalizeConnection(json.connection);
+
+      setConnection(loadedConnection);
+      setRequestedPhoneNumber(
+        loadedConnection.client_requested_phone_number ||
+          loadedConnection.whatsapp_phone_number ||
+          ""
       );
-    } catch (error: any) {
-      setErrorMsg(error?.message || "Error guardando solicitud.");
+      setConnectionNotes(
+        loadedConnection.client_connection_notes || ""
+      );
+
+      setMessage(
+        json.message ||
+          "Solicitud recibida. Cometa revisará la conexión."
+      );
+    } catch (error: unknown) {
+      setErrorMessage(getErrorMessage(error));
     } finally {
       setSaving(false);
     }
   }
 
+  
+
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#f7fafc] text-[#081535]">
       <div className="flex min-h-screen">
-        <LeftRail />
+        <LeftRail brandSlug={selectedBrandSlug} />
 
         <div className="min-w-0 flex-1 px-4 py-5 lg:px-5 xl:px-6">
-          <div className="mx-auto w-full max-w-[1440px] space-y-4">
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
-              <HeroCard />
+          <div className="mx-auto w-full max-w-[1480px] space-y-5">
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+              <HeroCard
+                connection={connection}
+                availableBrands={availableBrands}
+                selectedBrandSlug={selectedBrandSlug}
+                isAdmin={isAdmin}
+                loading={loading}
+                onBrandChange={changeBrand}
+              />
+
               <StatusCard
-                label={state.label}
-                helper={state.helper}
+                status={statusMeta}
+                connection={connection}
                 phone={phoneDisplay}
-                tone={state.tone}
               />
             </section>
 
             {message ? (
-              <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-black text-emerald-700">
+              <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-black text-emerald-700">
                 {message}
               </div>
             ) : null}
 
-            {errorMsg ? (
-              <div className="rounded-[18px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
-                {errorMsg}
+            {errorMessage ? (
+              <div className="rounded-[22px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-black text-red-700">
+                {errorMessage}
               </div>
             ) : null}
 
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="min-w-0 space-y-4">
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+              <div className="min-w-0 space-y-5">
+                <MetaConnectionCard
+                  connection={connection}
+  status={statusMeta}
+  loading={loading}
+/>
+
                 <SalesChannelCard
+                  connection={connection}
                   phone={phoneDisplay}
-                  stateLabel={state.label}
-                  isRequested={isRequested}
-                  isConnected={isConnected}
-                  onRefresh={loadConnection}
                   loading={loading}
+                  onRefresh={loadConnection}
                 />
 
-                <UpdateRequestCard
-                  brandName={brandName}
-                  setBrandName={setBrandName}
+                <ManualRequestCard
+                  connection={connection}
                   requestedPhoneNumber={requestedPhoneNumber}
                   setRequestedPhoneNumber={setRequestedPhoneNumber}
                   connectionNotes={connectionNotes}
                   setConnectionNotes={setConnectionNotes}
-                  onSubmit={submitRequest}
                   saving={saving}
                   loading={loading}
-                  isRequested={isRequested}
+                  hasRealConnection={hasRealConnection}
+                  hasRequestedHelp={hasRequestedHelp}
+                  onSubmit={submitManualRequest}
                 />
               </div>
 
-              <div className="min-w-0 space-y-4">
-                <ChecklistCard
-                  isRequested={isRequested}
-                  isConnected={isConnected}
-                />
+              <div className="min-w-0 space-y-5">
+                <OperationalStatusCard connection={connection} />
+
+                <ConnectionTimeline connection={connection} />
 
                 <SecurityCard />
 
@@ -247,56 +428,147 @@ export default function SalesAIConnectPage() {
               </div>
             </section>
 
-            <div className="rounded-[18px] border border-[#cfeef6] bg-[#ecfbff] px-5 py-4 text-sm font-bold text-[#236276]">
+            <div className="rounded-[22px] border border-[#cfeef6] bg-[#ecfbff] px-5 py-4 text-sm font-bold text-[#236276]">
               <div className="flex items-start gap-3">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#12bfe8] text-white">
                   i
                 </span>
+
                 <p>
-                  Primero analizamos mensajes sin enviar respuestas reales.
-                  Después activamos el canal de forma controlada.
+                  Aunque el número quede conectado, los envíos reales solo
+                  pueden ser autorizados desde el panel administrativo de
+                  Cometa.
                 </p>
               </div>
             </div>
+
+            {isActive ? (
+              <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-800">
+                La conexión de esta marca está activa y aislada mediante su
+                propio identificador de WhatsApp.
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
+      <style jsx>{`
+  .input {
+    width: 100%;
+    border-radius: 1rem;
+    border: 1px solid #dfe8f3;
+    background: #f8fbff;
+    padding: 1rem;
+    color: #081535;
+    outline: none;
+    font-weight: 700;
+    transition: all 0.2s ease;
+  }
+
+  .input:focus {
+    border-color: #12bfe8;
+    box-shadow: 0 0 0 4px rgba(18, 191, 232, 0.12);
+    background: white;
+  }
+
+  .input:disabled {
+    background: #f1f5f9;
+  }
+`}</style>
     </main>
   );
 }
 
-function HeroCard() {
+function HeroCard({
+  connection,
+  availableBrands,
+  selectedBrandSlug,
+  isAdmin,
+  loading,
+  onBrandChange,
+}: {
+  connection: ClientConnection;
+  availableBrands: AvailableBrand[];
+  selectedBrandSlug: string;
+  isAdmin: boolean;
+  loading: boolean;
+  onBrandChange: (brandSlug: string) => void;
+}) {
+  const canSelectBrand = availableBrands.length > 1;
+
   return (
-    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)] lg:p-7">
-      <div className="inline-flex items-center gap-2 rounded-full border border-[#cfeef6] bg-[#effcff] px-4 py-2 text-xs font-black tracking-wide text-[#0798b8] shadow-sm">
+    <section className="rounded-[30px] border border-[#dfe8f3] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)] lg:p-8">
+      <div className="inline-flex items-center gap-2 rounded-full border border-[#cfeef6] bg-[#effcff] px-4 py-2 text-xs font-black tracking-wide text-[#0798b8]">
         <span className="h-2.5 w-2.5 rounded-full bg-[#12bfe8]" />
-        SALES AI <span className="text-[#8ccbd8]">·</span> WHATSAPP
+        SALES AI · WHATSAPP
       </div>
 
-      <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-tight text-[#081535] lg:text-[48px] lg:leading-[1.04] 2xl:text-[52px]">
+      <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-[-0.06em] text-[#081535] lg:text-[52px] lg:leading-[1.02]">
         Conecta WhatsApp a SALES AI
       </h1>
 
       <p className="mt-4 max-w-3xl text-base font-semibold leading-7 text-[#5b6a84]">
-        Activa el canal donde tus prospectos ya están preguntando. Cometa se
-        encarga de Meta, permisos, webhooks y validación técnica.
+        Conecta el número comercial de tu empresa. Cometa OS administra la
+        seguridad, los webhooks y la activación del agente.
       </p>
+
+      <div className="mt-6 rounded-[22px] border border-[#dfe8f3] bg-[#f8fbff] p-4">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#718097]">
+          Marca autorizada
+        </p>
+
+        {canSelectBrand ? (
+          <select
+            value={selectedBrandSlug}
+            onChange={(event) => onBrandChange(event.target.value)}
+            disabled={loading}
+            className="mt-2 w-full rounded-2xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#081535] outline-none transition focus:border-[#12bfe8]"
+          >
+            {availableBrands.map((brand) => (
+              <option key={brand.slug} value={brand.slug}>
+                {brand.name} · {brand.slug}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="mt-2">
+            <p className="text-xl font-black text-[#081535]">
+              {connection.brand_name}
+            </p>
+
+            <p className="mt-1 text-sm font-bold text-[#718097]">
+              {connection.brand_slug || selectedBrandSlug}
+            </p>
+          </div>
+        )}
+
+        {isAdmin ? (
+          <p className="mt-3 text-[10px] font-black uppercase tracking-[0.16em] text-[#08a9c6]">
+            Vista administrativa
+          </p>
+        ) : (
+          <p className="mt-3 text-xs font-bold text-[#718097]">
+            La marca se obtiene automáticamente desde tus permisos de acceso.
+          </p>
+        )}
+      </div>
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link
           href="/sales-ai"
-          className="inline-flex items-center justify-center gap-3 rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3.5 text-sm font-black text-[#17213c] shadow-sm transition hover:bg-[#f8fbff]"
+          className="inline-flex items-center justify-center rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#17213c] transition hover:bg-[#f8fbff]"
         >
-          <span className="text-lg">←</span>
-          Volver a SALES AI
+          ← Volver a SALES AI
         </Link>
 
         <Link
-          href="/sales-ai/agent-settings"
-          className="inline-flex items-center justify-center gap-3 rounded-2xl bg-[#08a9c6] px-5 py-3.5 text-sm font-black text-white shadow-[0_16px_36px_rgba(8,169,198,0.24)] transition hover:bg-[#0598b5]"
+          href={`/sales-ai/agent-settings${
+            selectedBrandSlug
+              ? `?brand=${encodeURIComponent(selectedBrandSlug)}`
+              : ""
+          }`}
+          className="inline-flex items-center justify-center rounded-2xl bg-[#081535] px-5 py-3 text-sm font-black text-white transition hover:bg-[#08a9c6]"
         >
-          Configurar agente
-          <span className="text-lg">→</span>
+          Configurar agente →
         </Link>
       </div>
     </section>
@@ -304,463 +576,313 @@ function HeroCard() {
 }
 
 function StatusCard({
-  label,
-  helper,
+  status,
+  connection,
   phone,
-  tone,
 }: {
-  label: string;
-  helper: string;
+  status: StatusMeta;
+  connection: ClientConnection;
   phone: string;
-  tone: "green" | "yellow" | "blue" | "red";
 }) {
-  const toneMap = {
-    green: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    yellow: "border-amber-200 bg-amber-50 text-amber-700",
-    blue: "border-[#a7eef6] bg-[#eafffc] text-[#087994]",
-    red: "border-red-200 bg-red-50 text-red-700",
-  };
-
   return (
     <section
-      className={`rounded-[28px] border p-6 shadow-[0_14px_40px_rgba(15,23,42,0.04)] ${toneMap[tone]}`}
+      className={`rounded-[30px] border p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)] ${status.containerClass}`}
     >
       <p className="text-xs font-black uppercase tracking-[0.22em] opacity-90">
-        Estado
+        Estado actual
       </p>
 
-      <h2 className="mt-3 text-3xl font-black tracking-tight">{label}</h2>
+      <h2 className="mt-3 text-3xl font-black tracking-[-0.05em]">
+        {status.label}
+      </h2>
 
-      <p className="mt-3 text-sm font-bold leading-6 opacity-90">{helper}</p>
+      <p className="mt-3 text-sm font-bold leading-6 opacity-90">
+        {status.helper}
+      </p>
 
-      <div className="mt-6 flex items-center justify-between rounded-3xl border border-[#9ee5f0] bg-white/75 p-5 shadow-sm">
-        <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#0aa6c4]">
-            Número
+      <div className="mt-6 rounded-[24px] border border-white/70 bg-white/80 p-5 shadow-sm">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#0aa6c4]">
+          WhatsApp
+        </p>
+
+        <p className="mt-2 break-words text-2xl font-black text-[#081535]">
+          {phone}
+        </p>
+
+        {connection.verified_name ? (
+          <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[#5b6a84]">
+            {connection.verified_name}
           </p>
-          <p className="mt-2 truncate text-2xl font-black text-[#081535]">
-            {phone}
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <MiniMetric
+          label="Webhook"
+          value={formatSimpleStatus(connection.webhook_status)}
+        />
+
+        <MiniMetric
+          label="Agente"
+          value={connection.agent_enabled ? "Activo" : "Apagado"}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MetaConnectionCard({
+  connection,
+  status,
+  loading,
+}: {
+  connection: ClientConnection;
+  status: StatusMeta;
+  loading: boolean;
+}) {
+  const hasConnection =
+    connection.connection_status !== "not_connected" &&
+    connection.connection_status !== "revoked";
+
+  return (
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#08a9c6]">
+            Conexión directa con Meta
+          </p>
+
+          <h2 className="mt-2 text-3xl font-black tracking-[-0.05em] text-[#081535]">
+            {hasConnection
+              ? "Tu WhatsApp está conectado"
+              : "Alta de Meta en revisión"}
+          </h2>
+
+          <p className="mt-3 text-sm font-semibold leading-6 text-[#5b6a84]">
+            {hasConnection
+              ? "Tu conexión actual continúa funcionando con los controles de seguridad de Cometa OS."
+              : "Cometa ya envió a Meta la verificación necesaria para habilitar la conexión automática de cuentas de WhatsApp. El proceso está pendiente de aprobación."}
           </p>
         </div>
 
-        <div className="ml-4 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#20c75a] text-white shadow-[0_12px_28px_rgba(32,199,90,0.24)] ring-4 ring-white">
-          <IconWhatsAppBubble />
+        <div className="min-w-[230px]">
+          <button
+            type="button"
+            disabled
+            className="inline-flex w-full items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-6 py-4 text-sm font-black text-amber-800 disabled:cursor-not-allowed"
+          >
+            {loading
+              ? "Consultando estado..."
+              : hasConnection
+                ? "Conexión administrada"
+                : "Meta en revisión"}
+          </button>
+
+          {!hasConnection ? (
+            <p className="mt-3 text-center text-xs font-bold leading-5 text-[#718097]">
+              No necesitas realizar ninguna acción por ahora.
+            </p>
+          ) : null}
         </div>
+      </div>
+
+      {!hasConnection ? (
+        <div className="mt-5 rounded-[22px] border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-black text-white">
+              !
+            </span>
+
+            <div>
+              <p className="text-sm font-black text-amber-900">
+                Incorporación automática temporalmente pendiente
+              </p>
+
+              <p className="mt-1 text-xs font-semibold leading-5 text-amber-800">
+                Mientras Meta termina la revisión, puedes enviar una solicitud
+                manual para que Cometa prepare la conexión de tu número.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <StatusPill label={status.label} tone={status.pillTone} />
+
+        <StatusPill
+          label={`Webhook: ${formatSimpleStatus(
+            connection.webhook_status
+          )}`}
+          tone={
+            connection.webhook_status === "active"
+              ? "green"
+              : "neutral"
+          }
+        />
+
+        <StatusPill
+          label={
+            connection.real_send_enabled
+              ? "Envío real autorizado"
+              : "Envío real bloqueado"
+          }
+          tone={connection.real_send_enabled ? "red" : "neutral"}
+        />
       </div>
     </section>
   );
 }
 
 function SalesChannelCard({
+  connection,
   phone,
-  stateLabel,
-  isRequested,
-  isConnected,
-  onRefresh,
   loading,
+  onRefresh,
 }: {
+  connection: ClientConnection;
   phone: string;
-  stateLabel: string;
-  isRequested: boolean;
-  isConnected: boolean;
-  onRefresh: () => void;
   loading: boolean;
+  onRefresh: () => Promise<void>;
 }) {
   return (
-    <section className="rounded-[26px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <h2 className="text-xl font-black text-[#081535]">Tu canal de ventas</h2>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[110px_minmax(0,1fr)_250px] lg:items-center">
-        <div className="flex h-[112px] items-center justify-center rounded-3xl border border-[#dfe8f3] bg-white shadow-[0_16px_35px_rgba(15,23,42,0.06)]">
-          <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-[#28cc4b] text-5xl font-black text-white shadow-[0_16px_30px_rgba(40,204,75,0.25)] ring-4 ring-[#eaffef]">
-            B
-            <span className="absolute -bottom-1 -left-1 h-6 w-6 rotate-[-25deg] rounded-sm bg-[#28cc4b]" />
-          </div>
-        </div>
-
-        <div className="min-w-0">
-          <h3 className="text-2xl font-black text-[#081535]">
-            WhatsApp Business
-          </h3>
-          <p className="mt-1 text-base font-bold text-[#5b6a84]">{phone}</p>
-
-          <div className="mt-4 space-y-2 text-sm font-bold text-[#4e5d77]">
-            <InfoLine
-              icon={<IconClock />}
-              iconClass="text-[#168fff]"
-              label="Estado:"
-              value={stateLabel}
-            />
-            <InfoLine
-              icon={<IconEye />}
-              iconClass="text-[#53647f]"
-              label="Modo:"
-              value={isConnected ? "Disponible" : "Observación"}
-            />
-            <InfoLine
-              icon={<IconLock />}
-              iconClass="text-[#ef314d]"
-              label="Envío real:"
-              value={
-                isConnected
-                  ? "Controlado por Cometa"
-                  : "Bloqueado por seguridad"
-              }
-            />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <p className="text-xs font-bold text-[#6a7890]">
-            Última actualización: hoy, 10:42 a. m.
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#718097]">
+            Canal de ventas
           </p>
 
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={loading}
-            className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#17213c] transition hover:bg-[#f8fbff] disabled:opacity-50"
-          >
-            <IconRefresh />
-            Actualizar solicitud
-          </button>
+          <h2 className="mt-2 text-2xl font-black text-[#081535]">
+            WhatsApp Business
+          </h2>
 
-          <Link
-            href="/sales-ai/agent-settings"
-            className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#dfe8f3] bg-white px-4 py-3 text-sm font-black text-[#17213c] transition hover:bg-[#f8fbff]"
-          >
-            <IconGearSmall />
-            Configuración del agente
-          </Link>
+          <p className="mt-2 text-lg font-black text-[#08a9c6]">
+            {phone}
+          </p>
         </div>
-      </div>
 
-      <ConnectionTimeline isRequested={isRequested} isConnected={isConnected} />
-    </section>
-  );
-}
-
-function ConnectionTimeline({
-  isRequested,
-  isConnected,
-}: {
-  isRequested: boolean;
-  isConnected: boolean;
-}) {
-  return (
-    <div className="mt-5 rounded-[22px] border border-[#dfe8f3] bg-white p-4">
-      <h3 className="text-lg font-black text-[#081535]">
-        Proceso de conexión
-      </h3>
-
-      <div className="mt-6 grid grid-cols-5 gap-1">
-        <TimelineStep
-          index="1"
-          title="Solicitud enviada"
-          status={isRequested || isConnected ? "Completado" : "Pendiente"}
-          variant={isRequested || isConnected ? "done" : "pending"}
-        />
-        <TimelineStep
-          index="2"
-          title="Validación técnica"
-          status={
-            isConnected ? "Completado" : isRequested ? "En progreso" : "Pendiente"
-          }
-          variant={isConnected ? "done" : isRequested ? "progress" : "pending"}
-        />
-        <TimelineStep
-          index="3"
-          title="Modo observación"
-          status={isConnected ? "Completado" : "Pendiente"}
-          variant={isConnected ? "done" : "pending"}
-        />
-        <TimelineStep
-          index="4"
-          title="Activación controlada"
-          status="Bloqueado"
-          variant="locked"
-        />
-        <TimelineStep
-          index="5"
-          title="WhatsApp real"
-          status="Bloqueado"
-          variant="locked"
-        />
-      </div>
-    </div>
-  );
-}
-
-function TimelineStep({
-  index,
-  title,
-  status,
-  variant,
-}: {
-  index: string;
-  title: string;
-  status: string;
-  variant: "done" | "progress" | "pending" | "locked";
-}) {
-  const dot =
-    variant === "done"
-      ? "bg-[#1cc857] text-white border-[#1cc857]"
-      : variant === "progress"
-      ? "bg-[#effcff] text-[#08a9c6] border-[#08a9c6]"
-      : "bg-white text-[#748197] border-[#d6e0eb]";
-
-  const line =
-    variant === "done"
-      ? "bg-[#1cc857]"
-      : variant === "progress"
-      ? "bg-[#08a9c6]"
-      : "bg-[#dfe8f3]";
-
-  const statusClass =
-    variant === "done"
-      ? "text-[#12a64a]"
-      : variant === "progress"
-      ? "text-[#08a9c6]"
-      : "text-[#748197]";
-
-  return (
-    <div className="relative text-center">
-      <div
-        className={`absolute left-1/2 top-4 h-[2px] w-full ${line} ${
-          index === "5" ? "hidden" : ""
-        }`}
-      />
-
-      <div className="relative z-10 mx-auto flex h-9 w-9 items-center justify-center rounded-full border-2 bg-white">
-        <div
-          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-black ${dot}`}
+        <button
+          type="button"
+          onClick={() => void onRefresh()}
+          disabled={loading}
+          className="rounded-2xl border border-[#dfe8f3] bg-white px-5 py-3 text-sm font-black text-[#17213c] transition hover:bg-[#f8fbff] disabled:opacity-50"
         >
-          {variant === "done" ? "✓" : variant === "locked" ? "🔒" : index}
+          {loading ? "Actualizando..." : "Actualizar estado"}
+        </button>
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <InfoBox
+          label="Última actualización"
+          value={formatDate(connection.updated_at)}
+        />
+
+        <InfoBox
+          label="Último webhook"
+          value={formatDate(connection.last_webhook_at)}
+        />
+
+        <InfoBox
+          label="Último mensaje recibido"
+          value={formatDate(connection.last_inbound_at)}
+        />
+
+        <InfoBox
+          label="Último mensaje enviado"
+          value={formatDate(connection.last_outbound_at)}
+        />
+      </div>
+
+      {connection.last_error ? (
+        <div className="mt-5 rounded-[22px] border border-red-200 bg-red-50 p-4">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
+            Requiere revisión
+          </p>
+
+          <p className="mt-2 text-sm font-black text-red-800">
+            {connection.last_error}
+          </p>
+
+          {connection.last_error_code ? (
+            <p className="mt-1 text-xs font-bold text-red-600">
+              Código: {connection.last_error_code}
+            </p>
+          ) : null}
         </div>
-      </div>
-
-      <p className="mt-3 text-sm font-black text-[#081535]">{index}</p>
-      <p className="mx-auto mt-1 max-w-[110px] text-xs font-black leading-4 text-[#17213c]">
-        {title}
-      </p>
-      <p className={`mt-1 text-[11px] font-black ${statusClass}`}>{status}</p>
-    </div>
-  );
-}
-
-function ChecklistCard({
-  isRequested,
-  isConnected,
-}: {
-  isRequested: boolean;
-  isConnected: boolean;
-}) {
-  return (
-    <section className="rounded-[26px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <h2 className="text-xl font-black text-[#081535]">
-        Checklist de conexión
-      </h2>
-
-      <div className="mt-4 overflow-hidden rounded-2xl border border-[#dfe8f3]">
-        <ChecklistRow
-          icon="check"
-          label="Número recibido"
-          status={isRequested || isConnected ? "Completado" : "Pendiente"}
-          statusClass={
-            isRequested || isConnected ? "text-[#12a64a]" : "text-[#748197]"
-          }
-        />
-        <ChecklistRow
-          icon="check"
-          label="Solicitud enviada a Cometa"
-          status={isRequested || isConnected ? "Completado" : "Pendiente"}
-          statusClass={
-            isRequested || isConnected ? "text-[#12a64a]" : "text-[#748197]"
-          }
-        />
-        <ChecklistRow
-          icon="clock"
-          label="Verificación de Meta"
-          status={
-            isConnected ? "Completado" : isRequested ? "En progreso" : "Pendiente"
-          }
-          statusClass={
-            isConnected
-              ? "text-[#12a64a]"
-              : isRequested
-              ? "text-[#168fff]"
-              : "text-[#748197]"
-          }
-        />
-        <ChecklistRow
-          icon="clock"
-          label="Modo observación"
-          status={isConnected ? "Completado" : "Pendiente"}
-          statusClass={isConnected ? "text-[#12a64a]" : "text-[#748197]"}
-        />
-        <ChecklistRow
-          icon="lock"
-          label="Envío automático"
-          status="Bloqueado"
-          statusClass="text-[#748197]"
-        />
-      </div>
+      ) : null}
     </section>
   );
 }
 
-function SecurityCard() {
-  return (
-    <section className="rounded-[26px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <div className="flex items-center gap-3">
-        <IconShield />
-        <h2 className="text-xl font-black text-[#081535]">Seguridad Cometa</h2>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-        <SecurityTile
-          icon={<IconShield />}
-          title="Tokens protegidos"
-          subtitle="por Cometa"
-        />
-        <SecurityTile
-          icon={<IconWebhook />}
-          title="Webhook configurado"
-          subtitle="por Cometa"
-        />
-        <SecurityTile
-          icon={<IconMeta />}
-          title="Meta validado"
-          subtitle="por Cometa"
-        />
-        <SecurityTile
-          icon={<IconPerson />}
-          title="Cliente solo"
-          subtitle="configura reglas"
-        />
-      </div>
-    </section>
-  );
-}
-
-function CapabilitiesCard() {
-  const items = [
-    {
-      icon: <IconMessage />,
-      title: "Recibir mensajes",
-      subtitle: "En tiempo real",
-    },
-    {
-      icon: <IconTarget />,
-      title: "Detectar intención",
-      subtitle: "de cada mensaje",
-    },
-    {
-      icon: <IconUsersSmall />,
-      title: "Calificar prospectos",
-      subtitle: "con IA",
-    },
-    {
-      icon: <IconSparkSmall />,
-      title: "Recomendar respuestas",
-      subtitle: "contextuales",
-    },
-    {
-      icon: <IconCalendar />,
-      title: "Programar seguimientos",
-      subtitle: "automáticos",
-    },
-    {
-      icon: <IconAlert />,
-      title: "Escalar casos sensibles",
-      subtitle: "a tu equipo",
-    },
-  ];
-
-  return (
-    <section className="rounded-[26px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <h2 className="text-xl font-black text-[#081535]">
-        Qué hará SALES AI conectado
-      </h2>
-
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-        {items.map((item) => (
-          <div
-            key={item.title}
-            className="flex items-center gap-3 rounded-2xl border border-[#dfe8f3] bg-white p-3"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#effcff] text-[#08a9c6]">
-              {item.icon}
-            </div>
-            <div>
-              <p className="text-sm font-black leading-4 text-[#081535]">
-                {item.title}
-              </p>
-              <p className="mt-1 text-xs font-bold text-[#5f6f88]">
-                {item.subtitle}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function UpdateRequestCard({
-  brandName,
-  setBrandName,
+function ManualRequestCard({
+  connection,
   requestedPhoneNumber,
   setRequestedPhoneNumber,
   connectionNotes,
   setConnectionNotes,
-  onSubmit,
   saving,
   loading,
-  isRequested,
+  hasRealConnection,
+  hasRequestedHelp,
+  onSubmit,
 }: {
-  brandName: string;
-  setBrandName: (value: string) => void;
+  connection: ClientConnection;
   requestedPhoneNumber: string;
   setRequestedPhoneNumber: (value: string) => void;
   connectionNotes: string;
   setConnectionNotes: (value: string) => void;
-  onSubmit: () => void;
   saving: boolean;
   loading: boolean;
-  isRequested: boolean;
+  hasRealConnection: boolean;
+  hasRequestedHelp: boolean;
+  onSubmit: () => void;
 }) {
   return (
-    <section className="rounded-[26px] border border-[#dfe8f3] bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.04)]">
-      <h2 className="text-xl font-black text-[#081535]">
-        {isRequested ? "Actualizar solicitud" : "Solicitar conexión"}
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#718097]">
+        Asistencia Cometa
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#081535]">
+        {hasRealConnection
+          ? "Solicitar cambio o revisión"
+          : "Solicitar conexión manual"}
       </h2>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_1.15fr]">
-        <FieldGroup label="Nombre del negocio">
+      <p className="mt-2 text-sm font-semibold leading-6 text-[#5b6a84]">
+        Esta opción sirve cuando prefieres que Cometa te acompañe durante la
+        conexión o necesitas cambiar el número registrado.
+      </p>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <FieldGroup label="Marca">
           <input
-            value={brandName}
-            onChange={(e) => setBrandName(e.target.value)}
-            className="input"
-            placeholder="Ej. Cometa Mkt"
+            value={connection.brand_name}
+            disabled
+            className="input cursor-not-allowed text-[#718097]"
           />
         </FieldGroup>
 
         <FieldGroup label="Número de WhatsApp">
           <input
             value={requestedPhoneNumber}
-            onChange={(e) => setRequestedPhoneNumber(e.target.value)}
+            onChange={(event) =>
+              setRequestedPhoneNumber(event.target.value)
+            }
             className="input"
-            placeholder="Ej. +52 445 123 4567"
+            placeholder="+52 445 123 4567"
           />
         </FieldGroup>
+      </div>
 
+      <div className="mt-4">
         <FieldGroup label="Notas para Cometa">
           <textarea
             value={connectionNotes}
-            onChange={(e) => setConnectionNotes(e.target.value)}
-            className="input min-h-[88px]"
-            placeholder="Escribe aquí cualquier detalle importante para la conexión..."
+            onChange={(event) => setConnectionNotes(event.target.value)}
+            className="input min-h-[110px] resize-y"
+            placeholder="Cuéntanos si el número ya utiliza WhatsApp Business, si está dentro de otro portafolio o si necesitas ayuda."
           />
         </FieldGroup>
       </div>
@@ -769,87 +891,394 @@ function UpdateRequestCard({
         type="button"
         onClick={onSubmit}
         disabled={saving || loading}
-        className="mt-4 inline-flex min-w-[210px] items-center justify-center gap-3 rounded-xl bg-[#08a9c6] px-5 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_rgba(8,169,198,0.22)] transition hover:bg-[#0598b5] disabled:opacity-50"
+        className="mt-5 inline-flex min-w-[240px] items-center justify-center rounded-2xl bg-[#081535] px-6 py-4 text-sm font-black text-white transition hover:bg-[#08a9c6] disabled:opacity-50"
       >
-        <IconSave />
         {saving
           ? "Guardando..."
-          : isRequested
-          ? "Guardar cambios"
-          : "Enviar solicitud"}
+          : hasRequestedHelp
+            ? "Actualizar solicitud"
+            : hasRealConnection
+              ? "Solicitar revisión"
+              : "Enviar solicitud a Cometa"}
       </button>
+
+      {connection.client_requested_at ? (
+        <p className="mt-3 text-xs font-bold text-[#718097]">
+          Última solicitud: {formatDate(connection.client_requested_at)}
+        </p>
+      ) : null}
     </section>
   );
 }
 
-function LeftRail() {
+function OperationalStatusCard({
+  connection,
+}: {
+  connection: ClientConnection;
+}) {
+  const rows = [
+    {
+      label: "Recepción de mensajes",
+      enabled: connection.receive_enabled,
+      helper: "Cometa OS puede procesar mensajes entrantes.",
+    },
+    {
+      label: "SALES AI",
+      enabled: connection.agent_enabled,
+      helper: "El agente puede analizar y decidir acciones.",
+    },
+    {
+      label: "Envíos reales",
+      enabled: connection.real_send_enabled,
+      helper: "Solo Cometa puede autorizar este permiso.",
+      danger: true,
+    },
+  ];
+
+  return (
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#718097]">
+        Operación
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#081535]">
+        Permisos actuales
+      </h2>
+
+      <div className="mt-5 grid gap-3">
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="rounded-[20px] border border-[#dfe8f3] bg-[#f8fbff] p-4"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-black text-[#081535]">
+                {row.label}
+              </p>
+
+              <span
+                className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${
+                  row.enabled
+                    ? row.danger
+                      ? "bg-red-100 text-red-700"
+                      : "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {row.enabled ? "Activo" : "Apagado"}
+              </span>
+            </div>
+
+            <p className="mt-2 text-xs font-semibold leading-5 text-[#718097]">
+              {row.helper}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ConnectionTimeline({
+  connection,
+}: {
+  connection: ClientConnection;
+}) {
+  const requested =
+    connection.client_connection_status === "requested" ||
+    connection.client_connection_status === "change_requested";
+
+  const technicalConnected =
+    connection.connection_status === "connected" ||
+    connection.connection_status === "pending_review" ||
+    connection.connection_status === "active" ||
+    connection.connection_status === "paused";
+
+  const approved =
+    connection.connection_status === "active" ||
+    connection.connection_status === "paused";
+
+  const automatic =
+    connection.connection_status === "active" &&
+    connection.real_send_enabled;
+
+  return (
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#718097]">
+        Proceso
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#081535]">
+        Etapas de conexión
+      </h2>
+
+      <div className="mt-5 grid gap-3">
+        <TimelineRow
+          index="1"
+          title="Solicitud o conexión iniciada"
+          completed={requested || technicalConnected}
+        />
+
+        <TimelineRow
+          index="2"
+          title="Cuenta de Meta vinculada"
+          completed={technicalConnected}
+        />
+
+        <TimelineRow
+          index="3"
+          title="Revisión de Cometa"
+          completed={approved}
+        />
+
+        <TimelineRow
+          index="4"
+          title="Recepción y observación"
+          completed={connection.receive_enabled}
+        />
+
+        <TimelineRow
+          index="5"
+          title="Envío automático autorizado"
+          completed={automatic}
+        />
+      </div>
+    </section>
+  );
+}
+
+function TimelineRow({
+  index,
+  title,
+  completed,
+}: {
+  index: string;
+  title: string;
+  completed: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-[20px] border border-[#dfe8f3] bg-[#f8fbff] p-3">
+      <span
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+          completed
+            ? "bg-emerald-500 text-white"
+            : "border border-[#d6e0eb] bg-white text-[#718097]"
+        }`}
+      >
+        {completed ? "✓" : index}
+      </span>
+
+      <div>
+        <p className="text-sm font-black text-[#081535]">{title}</p>
+
+        <p
+          className={`mt-1 text-xs font-bold ${
+            completed ? "text-emerald-600" : "text-[#718097]"
+          }`}
+        >
+          {completed ? "Completado" : "Pendiente"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SecurityCard() {
+  return (
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#08a9c6]">
+        Seguridad Cometa
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#081535]">
+        Datos técnicos protegidos
+      </h2>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+        <SecurityTile title="Tokens" subtitle="Ocultos al cliente" />
+        <SecurityTile title="Webhooks" subtitle="Administrados por Cometa" />
+        <SecurityTile title="Aislamiento" subtitle="Por número y marca" />
+        <SecurityTile title="Automatización" subtitle="Requiere aprobación" />
+      </div>
+    </section>
+  );
+}
+
+function CapabilitiesCard() {
+  const items = [
+    "Recibir mensajes en tiempo real",
+    "Detectar intención de compra",
+    "Calificar prospectos",
+    "Recomendar respuestas",
+    "Programar seguimientos",
+    "Escalar casos sensibles",
+  ];
+
+  return (
+    <section className="rounded-[28px] border border-[#dfe8f3] bg-white p-6 shadow-[0_16px_45px_rgba(15,23,42,0.04)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#718097]">
+        SALES AI
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#081535]">
+        Qué hará al conectarse
+      </h2>
+
+      <div className="mt-5 grid gap-3">
+        {items.map((item) => (
+          <div
+            key={item}
+            className="flex items-center gap-3 rounded-[18px] border border-[#dfe8f3] bg-[#f8fbff] p-3"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#effcff] text-sm font-black text-[#08a9c6]">
+              ✓
+            </span>
+
+            <p className="text-sm font-black text-[#081535]">{item}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LeftRail({ brandSlug }: { brandSlug: string }) {
+  const brandQuery = brandSlug
+    ? `?brand=${encodeURIComponent(brandSlug)}`
+    : "";
+
+  const links = [
+    {
+      href: `/sales-ai${brandQuery}`,
+      label: "AI",
+    },
+    {
+      href: `/sales-ai/inbox${brandQuery}`,
+      label: "IN",
+    },
+    {
+      href: `/sales-ai/connect${brandQuery}`,
+      label: "WA",
+      active: true,
+    },
+    {
+      href: `/sales-ai/agent-settings${brandQuery}`,
+      label: "AG",
+    },
+    {
+      href: `/sales-ai/analytics${brandQuery}`,
+      label: "AN",
+    },
+  ];
+
   return (
     <aside className="sticky top-0 hidden h-screen w-[108px] shrink-0 flex-col items-center border-r border-[#e4edf5] bg-white px-4 py-5 shadow-[8px_0_28px_rgba(15,23,42,0.03)] xl:flex">
       <Link
-        href="/sales-ai"
+        href="/workspace"
         className="flex flex-col items-center justify-center text-center"
       >
-        <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[#effcff] text-[#08a9c6]">
-          <IconCometa />
+        <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[#081535] text-sm font-black text-[#5ee8ff]">
+          OS
         </div>
-        <p className="mt-3 text-xs font-black text-[#081535]">COMETA OS</p>
+
+        <p className="mt-3 text-xs font-black text-[#081535]">
+          COMETA
+        </p>
       </Link>
 
       <nav className="mt-7 flex w-full flex-1 flex-col items-center gap-3">
-        <RailLink href="/sales-ai" label="AI" icon={<IconSpark />} />
-        <RailLink href="/sales-ai/inbox" label="IN" icon={<IconInbox />} />
-        <RailLink
-          href="/sales-ai/connect"
-          label="WA"
-          icon={<IconWhatsAppMini />}
-          active
-        />
-        <RailLink href="/sales-ai/agent-settings" label="AG" icon={<IconUsers />} />
-
-        <div className="my-3 h-px w-full bg-[#e4edf5]" />
-
-        <RailLink href="/sales-ai/analytics" label="AN" icon={<IconBars />} />
-        <RailLink href="/sales-ai/settings" label="AJ" icon={<IconGear />} />
-        <RailLink href="/sales-ai/help" label="AY" icon={<IconHelp />} />
+        {links.map((link) => (
+          <Link
+            key={link.label}
+            href={link.href}
+            className={`flex h-[54px] w-full items-center justify-center rounded-2xl text-xs font-black transition ${
+              link.active
+                ? "bg-[#08a9c6] text-white shadow-[0_14px_30px_rgba(8,169,198,0.22)]"
+                : "border border-[#dfe8f3] bg-white text-[#62718a] hover:bg-[#f8fbff] hover:text-[#08a9c6]"
+            }`}
+          >
+            {link.label}
+          </Link>
+        ))}
       </nav>
-
-      <div className="w-full text-center">
-        <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#081535] text-lg font-black text-white shadow-[0_14px_30px_rgba(8,21,53,0.22)]">
-          CM
-          <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#12bfe8]" />
-        </div>
-
-        <p className="mt-2 truncate text-xs font-black text-[#081535]">
-          Cometa Mkt
-        </p>
-      </div>
     </aside>
   );
 }
 
-function RailLink({
-  href,
+function MiniMetric({
   label,
-  icon,
-  active,
+  value,
 }: {
-  href: string;
   label: string;
-  icon: ReactNode;
-  active?: boolean;
+  value: string;
 }) {
   return (
-    <Link
-      href={href}
-      className={`flex h-[54px] w-full items-center justify-center gap-2 rounded-2xl text-xs font-black transition ${
-        active
-          ? "bg-[#08a9c6] text-white shadow-[0_14px_30px_rgba(8,169,198,0.22)]"
-          : "border border-[#dfe8f3] bg-white text-[#62718a] hover:bg-[#f8fbff] hover:text-[#08a9c6]"
-      }`}
+    <div className="rounded-[18px] border border-white/70 bg-white/70 p-3">
+      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#718097]">
+        {label}
+      </p>
+
+      <p className="mt-1 text-sm font-black text-[#081535]">{value}</p>
+    </div>
+  );
+}
+
+function InfoBox({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[20px] border border-[#dfe8f3] bg-[#f8fbff] p-4">
+      <p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#718097]">
+        {label}
+      </p>
+
+      <p className="mt-2 text-sm font-black leading-5 text-[#081535]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "green" | "yellow" | "red" | "blue" | "neutral";
+}) {
+  const toneClass = {
+    green: "bg-emerald-100 text-emerald-700",
+    yellow: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
+    blue: "bg-blue-100 text-blue-700",
+    neutral: "bg-slate-100 text-slate-600",
+  }[tone];
+
+  return (
+    <span
+      className={`rounded-full px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.14em] ${toneClass}`}
     >
-      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
       {label}
-    </Link>
+    </span>
+  );
+}
+
+function SecurityTile({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="rounded-[20px] border border-[#dfe8f3] bg-[#f8fbff] p-4">
+      <p className="text-sm font-black text-[#081535]">{title}</p>
+      <p className="mt-1 text-xs font-bold text-[#718097]">{subtitle}</p>
+    </div>
   );
 }
 
@@ -868,387 +1297,160 @@ function FieldGroup({
   );
 }
 
-function InfoLine({
-  icon,
-  iconClass,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  iconClass: string;
+function PageLoading() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f7fafc] px-5">
+      <div className="rounded-[30px] border border-[#dfe8f3] bg-white p-10 text-center shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
+        <p className="text-xl font-black text-[#081535]">
+          Cargando conexión…
+        </p>
+
+        <p className="mt-2 text-sm font-semibold text-[#718097]">
+          Validando tu marca y permisos.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+type StatusMeta = {
   label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className={iconClass}>{icon}</span>
-      <span className="text-[#6a7890]">{label}</span>
-      <span className="text-[#17213c]">{value}</span>
-    </div>
-  );
+  helper: string;
+  containerClass: string;
+  pillTone: "green" | "yellow" | "red" | "blue" | "neutral";
+};
+
+function getConnectionStatusMeta(
+  connection: ClientConnection
+): StatusMeta {
+  if (connection.connection_status === "active") {
+    return {
+      label: "WhatsApp conectado",
+      helper:
+        "La conexión está activa. Cometa controla la operación y los envíos reales.",
+      containerClass:
+        "border-emerald-200 bg-emerald-50 text-emerald-800",
+      pillTone: "green",
+    };
+  }
+
+  if (connection.connection_status === "paused") {
+    return {
+      label: "Conexión pausada",
+      helper:
+        "Cometa pausó temporalmente la operación de este número.",
+      containerClass:
+        "border-amber-200 bg-amber-50 text-amber-800",
+      pillTone: "yellow",
+    };
+  }
+
+  if (connection.connection_status === "error") {
+    return {
+      label: "Requiere revisión",
+      helper:
+        "La conexión tiene una alerta técnica que debe revisar Cometa.",
+      containerClass: "border-red-200 bg-red-50 text-red-800",
+      pillTone: "red",
+    };
+  }
+
+  if (connection.connection_status === "revoked") {
+    return {
+      label: "Conexión revocada",
+      helper:
+        "Este número debe volver a conectarse mediante Meta.",
+      containerClass:
+        "border-slate-300 bg-slate-100 text-slate-800",
+      pillTone: "neutral",
+    };
+  }
+
+  if (
+    connection.connection_status === "pending" ||
+    connection.connection_status === "connected" ||
+    connection.connection_status === "pending_review"
+  ) {
+    return {
+      label: "Pendiente de aprobación",
+      helper:
+        "La cuenta ya inició su conexión y está pendiente de revisión por Cometa.",
+      containerClass: "border-blue-200 bg-blue-50 text-blue-800",
+      pillTone: "blue",
+    };
+  }
+
+  if (
+    connection.client_connection_status === "requested" ||
+    connection.client_connection_status === "change_requested"
+  ) {
+    return {
+      label: "Solicitud recibida",
+      helper:
+        "Cometa recibió tu solicitud y revisará los datos del número.",
+      containerClass:
+        "border-cyan-200 bg-cyan-50 text-cyan-800",
+      pillTone: "blue",
+    };
+  }
+
+  return {
+    label: "Pendiente de conexión",
+    helper:
+      "Conecta tu cuenta de Meta o solicita asistencia al equipo Cometa.",
+    containerClass: "border-amber-200 bg-amber-50 text-amber-800",
+    pillTone: "yellow",
+  };
 }
 
-function ChecklistRow({
-  icon,
-  label,
-  status,
-  statusClass,
-}: {
-  icon: "check" | "clock" | "lock";
-  label: string;
-  status: string;
-  statusClass: string;
-}) {
-  return (
-    <div className="grid grid-cols-[30px_minmax(0,1fr)_86px] items-center border-b border-[#dfe8f3] px-3 py-3 last:border-b-0">
-      <div>
-        {icon === "check" ? (
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1cc857] text-xs font-black text-white">
-            ✓
-          </span>
-        ) : icon === "clock" ? (
-          <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[#168fff] text-[#168fff]">
-            <IconClock />
-          </span>
-        ) : (
-          <span className="flex h-6 w-6 items-center justify-center text-[#ef314d]">
-            <IconLock />
-          </span>
-        )}
-      </div>
-
-      <p className="truncate text-sm font-bold text-[#17213c]">{label}</p>
-      <p className={`text-right text-[11px] font-black ${statusClass}`}>
-        {status}
-      </p>
-    </div>
-  );
-}
-
-function SecurityTile({
-  icon,
-  title,
-  subtitle,
-}: {
-  icon: ReactNode;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-[#dfe8f3] bg-white p-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#effcff] text-[#168fff]">
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm font-black leading-4 text-[#081535]">{title}</p>
-        <p className="text-sm font-black leading-4 text-[#081535]">{subtitle}</p>
-      </div>
-    </div>
-  );
-}
-
-function normalizeConnection(data: any): ClientConnection {
+function normalizeConnection(
+  value: ClientConnection | undefined
+): ClientConnection {
   return {
     ...defaultConnection,
-    ...data,
+    ...(value || {}),
+
     client_agent_preferences: {
       ...defaultConnection.client_agent_preferences,
-      ...(data?.client_agent_preferences || {}),
+      ...(value?.client_agent_preferences || {}),
+      client_can_activate_automatic: false,
     },
   };
 }
 
-/* Icons */
+function formatSimpleStatus(value: string | null | undefined) {
+  const status = String(value || "").trim().toLowerCase();
 
-function IconCometa() {
-  return (
-    <svg viewBox="0 0 64 64" fill="none" className="h-10 w-10">
-      <path
-        d="M49.2 34.4c-2.5 9.2-12 14.6-21.2 12.1-9.2-2.5-14.6-12-12.1-21.2 2.5-9.2 12-14.6 21.2-12.1"
-        stroke="currentColor"
-        strokeWidth="7"
-        strokeLinecap="round"
-      />
-      <path
-        d="M39 14l12-6-5 12 12-1-10 8 9 6-13 1 2 12-9-9-10 8 4-13-12-4 13-4-3-12 10 7Z"
-        fill="currentColor"
-        opacity=".9"
-      />
-    </svg>
-  );
+  if (status === "active") return "Activo";
+  if (status === "pending") return "Pendiente";
+  if (status === "error") return "Error";
+  if (status === "disabled") return "Desactivado";
+  if (status === "not_connected") return "No conectado";
+
+  return status || "No disponible";
 }
 
-function IconWhatsAppBubble() {
-  return (
-    <svg viewBox="0 0 32 32" fill="none" className="h-7 w-7">
-      <path
-        d="M16 4C9.373 4 4 9.097 4 15.385c0 2.37.764 4.57 2.07 6.392L5 28l6.54-1.588A12.65 12.65 0 0 0 16 26.77c6.627 0 12-5.097 12-11.385C28 9.097 22.627 4 16 4Z"
-        fill="currentColor"
-      />
-      <path
-        d="M11.5 10.7c.3-.6.6-.7 1-.7h.7c.2 0 .5.1.7.5.2.5.8 2 .9 2.2.1.2.1.4 0 .6-.2.4-.4.6-.7.9-.1.2-.3.4-.1.7.3.5 1.1 1.8 2.3 2.8 1.6 1.3 2.9 1.7 3.3 1.9.3.1.6.1.8-.2.2-.3.9-1 1.1-1.4.3-.3.5-.3.9-.2.3.1 2.1 1 2.5 1.2.4.2.6.3.7.5.1.2.1 1.4-.4 2.4-.5.9-2.2 1.8-3 1.8-.8.1-1.8.1-4.1-.8-3.5-1.4-5.8-4.8-6-5.1-.2-.3-1.4-1.9-1.4-3.6 0-1.7.8-2.7 1.1-3.2Z"
-        fill="white"
-      />
-    </svg>
-  );
+function formatDate(value: string | null | undefined) {
+  if (!value) {
+    return "Sin actividad";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
-function IconSpark() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
 
-function IconInbox() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M4 7h16v10H4V7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 14h4l2 3h4l2-3h4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconWhatsAppMini() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M12 3a8.5 8.5 0 0 0-7.1 13.2L4 21l4.9-1.1A8.5 8.5 0 1 0 12 3Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <path
-        d="M9 8.5c.4 2.4 2.1 5 5.6 6.4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconUsers() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 0a3 3 0 1 0 0-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M3 20c.5-3.3 2.4-5 5-5s4.5 1.7 5 5m0 0c.4-2.4 1.7-3.9 3.8-4.4 2.1.3 3.6 1.8 4.2 4.4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconBars() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M5 20V10m7 10V4m7 16v-7"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconGear() {
-  return <IconGearSmall />;
-}
-
-function IconHelp() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <path
-        d="M9.8 9a2.3 2.3 0 1 1 3.7 1.8c-.9.6-1.5 1.1-1.5 2.2m0 3h.01"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconClock() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IconEye() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path
-        d="M3 12s3-5 9-5 9 5 9 5-3 5-9 5-9-5-9-5Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IconLock() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4">
-      <path d="M7 11V8a5 5 0 0 1 10 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M6 11h12v10H6V11Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconRefresh() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M20 12a8 8 0 0 1-14 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M4 12a8 8 0 0 1 14-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M18 3v4h-4M6 21v-4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconGearSmall() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path
-        d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <path
-        d="M19 13.2v-2.4l-2.1-.5c-.2-.6-.4-1.1-.7-1.6l1.1-1.8-1.7-1.7-1.8 1.1c-.5-.3-1-.5-1.6-.7L11.8 3H9.4l-.5 2.1c-.6.2-1.1.4-1.6.7L5.5 4.7 3.8 6.4l1.1 1.8c-.3.5-.5 1-.7 1.6L2 10.2v2.4l2.1.5c.2.6.4 1.1.7 1.6l-1.1 1.8 1.7 1.7 1.8-1.1c.5.3 1 .5 1.6.7l.5 2.1h2.4l.5-2.1c.6-.2 1.1-.4 1.6-.7l1.8 1.1 1.7-1.7-1.1-1.8c.3-.5.5-1 .7-1.6l2.1-.5Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function IconSave() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M5 4h12l2 2v14H5V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M8 4v6h8V4M8 20v-6h8v6" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IconShield() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 3 5 6v5c0 4.5 2.7 8.5 7 10 4.3-1.5 7-5.5 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconWebhook() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M8 7a4 4 0 1 1 4 4H8m8 6a4 4 0 1 1-4-4h4M8 7l8 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconMeta() {
-  return (
-    <svg viewBox="0 0 32 20" fill="none" className="h-5 w-8">
-      <path
-        d="M2 15c2.6-8 5.2-12 8.3-12 3 0 5 4.2 5.7 6 .7-1.8 2.7-6 5.7-6 3.1 0 5.7 4 8.3 12"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      <path
-        d="M2 15c1.8 3 4.2 3 6 0l4.5-8.2M30 15c-1.8 3-4.2 3-6 0l-4.5-8.2"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconPerson() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M4 21c.8-4.2 3.4-6 8-6s7.2 1.8 8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconMessage() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M4 5h16v11H8l-4 4V5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconTarget() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IconUsersSmall() {
-  return <IconUsers />;
-}
-
-function IconSparkSmall() {
-  return <IconSpark />;
-}
-
-function IconCalendar() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M5 5h14v16H5V5Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M8 3v4m8-4v4M5 10h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconAlert() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 7v7m0 3h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
+  return "Ocurrió un error inesperado.";
 }
