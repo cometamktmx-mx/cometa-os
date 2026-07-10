@@ -1,7 +1,11 @@
-import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import {
+  createDecipheriv,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { resolveBrandFromSupabase } from "@/lib/brand-resolver";
 import {
   canSendRealWhatsapp,
   explainWhatsappSendLock,
@@ -31,9 +35,6 @@ const webhookAppSecret =
 
 const enforceWebhookSignature =
   process.env.WHATSAPP_ENFORCE_SIGNATURE === "true";
-
-const defaultBrandSlug =
-  process.env.WHATSAPP_DEFAULT_BRAND_SLUG || "cometa-mkt";
 
 const automaticMinConfidence = normalizeEnvNumber(
   process.env.SALES_AI_AUTOMATIC_MIN_CONFIDENCE,
@@ -85,6 +86,33 @@ type AutomaticSafetyResult = {
   ok: boolean;
   reasons: string[];
   context: Record<string, any>;
+};
+
+type WebhookBrand = {
+  slug: string;
+  name: string;
+};
+
+type WhatsappConnection = {
+  id: string;
+  brandSlug: string;
+  brandName: string;
+  businessName: string;
+  clientId: string | null;
+  phoneNumberId: string;
+  displayPhoneNumber: string | null;
+  wabaId: string | null;
+  connectionStatus: string;
+  webhookStatus: string;
+  receiveEnabled: boolean;
+  agentEnabled: boolean;
+  allowRealSend: boolean;
+  tokenSource: string;
+  legacyAccessToken: string | null;
+  accessTokenCiphertext: string | null;
+  accessTokenIv: string | null;
+  accessTokenAuthTag: string | null;
+  tokenExpiresAt: string | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -155,7 +183,8 @@ export async function POST(request: NextRequest) {
 
     const entries = Array.isArray(body?.entry) ? body.entry : [];
 
-    let responseBrand = await resolveWebhookBrand();
+    let responseBrand: WebhookBrand | null = null;
+    let responseConnectionId: string | null = null;
     let processedMessages = 0;
     let processedStatuses = 0;
     let skippedDuplicateMessages = 0;
@@ -165,6 +194,9 @@ export async function POST(request: NextRequest) {
     let sentWhatsappMessages = 0;
     let failedWhatsappMessages = 0;
     let blockedAutomaticMessages = 0;
+    let unmatchedConnectionEvents = 0;
+    let blockedInboundMessages = 0;
+    let skippedAgentMessages = 0;
 
     for (const entry of entries) {
       const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -173,21 +205,61 @@ export async function POST(request: NextRequest) {
         const value = change?.value || {};
         const metadata = value?.metadata || {};
 
-        const phoneNumberId = metadata?.phone_number_id || null;
-        const displayPhoneNumber = metadata?.display_phone_number || null;
+        const phoneNumberId = cleanText(metadata?.phone_number_id) || null;
+        const displayPhoneNumber =
+          cleanText(metadata?.display_phone_number) || null;
 
-        const brand = await resolveWebhookBrand({
+        const connection = await resolveWhatsappConnection({
           phoneNumberId,
           displayPhoneNumber,
         });
 
-        responseBrand = brand;
+        if (!connection) {
+          unmatchedConnectionEvents += 1;
 
-        await supabase.from("whatsapp_webhook_events").insert({
-          id: randomUUID(),
-          brand_slug: brand.slug,
-          event_type: "whatsapp_webhook",
+          await saveUnmatchedWebhookEvent({
+            phoneNumberId,
+            displayPhoneNumber,
+            reason: phoneNumberId
+              ? "phone_number_id_not_registered"
+              : "missing_phone_number_id",
+            payload: {
+              object: body?.object || null,
+              entry_id: entry?.id || null,
+              field: change?.field || null,
+              change,
+            },
+          });
+
+          console.warn("WhatsApp webhook sin conexión registrada:", {
+            phoneNumberId,
+            displayPhoneNumber,
+            entryId: entry?.id || null,
+            field: change?.field || null,
+          });
+
+          continue;
+        }
+
+        const brand: WebhookBrand = {
+          slug: connection.brandSlug,
+          name: connection.brandName,
+        };
+
+        responseBrand = brand;
+        responseConnectionId = connection.id;
+
+        await saveWebhookEvent({
+          connectionId: connection.id,
+          brandSlug: brand.slug,
           payload: body,
+        });
+
+        await touchWhatsappConnection(connection.id, {
+          last_webhook_at: new Date().toISOString(),
+          webhook_status: "active",
+          last_error_code: null,
+          last_error: null,
         });
 
         const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
@@ -196,23 +268,30 @@ export async function POST(request: NextRequest) {
 
         const contactsByWaId = buildIncomingContactsByWaId(contacts);
 
-        for (const contact of contacts) {
-          const waId = String(contact?.wa_id || "").trim();
+        const canReceiveInbound =
+          connection.receiveEnabled &&
+          connection.connectionStatus !== "revoked";
 
-          if (!waId) continue;
+        if (canReceiveInbound) {
+          for (const contact of contacts) {
+            const waId = String(contact?.wa_id || "").trim();
 
-          await supabase.from("whatsapp_contacts").upsert(
-            {
-              brand_slug: brand.slug,
-              wa_id: waId,
-              phone: waId,
-              profile_name: contact?.profile?.name || null,
-              updated_at: new Date().toISOString(),
-            },
-            {
-              onConflict: "brand_slug,wa_id",
-            }
-          );
+            if (!waId) continue;
+
+            await supabase.from("whatsapp_contacts").upsert(
+              {
+                connection_id: connection.id,
+                brand_slug: brand.slug,
+                wa_id: waId,
+                phone: waId,
+                profile_name: contact?.profile?.name || null,
+                updated_at: new Date().toISOString(),
+              },
+              {
+                onConflict: "brand_slug,wa_id",
+              }
+            );
+          }
         }
 
         for (const message of messages) {
@@ -220,6 +299,21 @@ export async function POST(request: NextRequest) {
           const waId = String(message?.from || "").trim();
 
           if (!messageId || !waId) continue;
+
+          if (!canReceiveInbound) {
+            blockedInboundMessages += 1;
+
+            console.warn("Mensaje entrante bloqueado por conexión:", {
+              connectionId: connection.id,
+              brandSlug: brand.slug,
+              connectionStatus: connection.connectionStatus,
+              receiveEnabled: connection.receiveEnabled,
+              messageId,
+              waId,
+            });
+
+            continue;
+          }
 
           const contentText = extractMessageContent(message);
           const timestampText = message?.timestamp
@@ -234,6 +328,7 @@ export async function POST(request: NextRequest) {
 
           await supabase.from("whatsapp_contacts").upsert(
             {
+              connection_id: connection.id,
               brand_slug: brand.slug,
               wa_id: waId,
               phone: waId,
@@ -247,11 +342,13 @@ export async function POST(request: NextRequest) {
 
           await supabase.from("whatsapp_messages").upsert(
             {
+              connection_id: connection.id,
               brand_slug: brand.slug,
               message_id: messageId,
               wa_id: waId,
-              phone_number_id: phoneNumberId,
-              display_phone_number: displayPhoneNumber,
+              phone_number_id: connection.phoneNumberId,
+              display_phone_number:
+                displayPhoneNumber || connection.displayPhoneNumber,
               direction: "inbound",
               message_type: message?.type || "unknown",
               content_text: contentText,
@@ -267,6 +364,10 @@ export async function POST(request: NextRequest) {
 
           processedMessages += 1;
 
+          await touchWhatsappConnection(connection.id, {
+            last_inbound_at: timestampIso,
+          });
+
           const alreadyProcessedSalesMessage =
             await hasProcessedSalesMessage(messageId);
 
@@ -274,6 +375,7 @@ export async function POST(request: NextRequest) {
             skippedDuplicateMessages += 1;
 
             console.log("WhatsApp message duplicado. Se evita doble agente:", {
+              connectionId: connection.id,
               brandName: brand.name,
               brandSlug: brand.slug,
               messageId,
@@ -303,6 +405,7 @@ export async function POST(request: NextRequest) {
 
           const salesMessageOk = await createSalesMessage({
             brandName: brand.name,
+            brandSlug: brand.slug,
             leadId,
             waId,
             contactName,
@@ -314,6 +417,25 @@ export async function POST(request: NextRequest) {
 
           if (salesMessageOk) {
             createdSalesMessages += 1;
+          }
+
+          const connectionAllowsAgent =
+            connection.agentEnabled &&
+            connection.connectionStatus === "active";
+
+          if (!connectionAllowsAgent) {
+            skippedAgentMessages += 1;
+
+            console.log("SALES AI no ejecutado por control de conexión:", {
+              connectionId: connection.id,
+              brandSlug: brand.slug,
+              connectionStatus: connection.connectionStatus,
+              agentEnabled: connection.agentEnabled,
+              leadId,
+              messageId,
+            });
+
+            continue;
           }
 
           const runtimeSettings = await getSalesAiRuntimeSettings(brand.name);
@@ -353,13 +475,13 @@ export async function POST(request: NextRequest) {
               : "";
 
           const automaticSafety = await evaluateAutomaticWhatsappSafety({
+            connection,
             brandSlug: brand.slug,
             brandName: brand.name,
             leadId,
             waId,
             incomingText: contentText,
             agentReply,
-            phoneNumberId,
             agentResult,
             runtimeSettings,
             envAllowsWhatsappSend,
@@ -375,6 +497,7 @@ export async function POST(request: NextRequest) {
             blockedAutomaticMessages += 1;
 
             console.log("SALES AI WhatsApp automático bloqueado:", {
+              connectionId: connection.id,
               brandName: brand.name,
               brandSlug: brand.slug,
               leadId,
@@ -400,7 +523,7 @@ export async function POST(request: NextRequest) {
 
           if (shouldSendRealWhatsapp) {
             const whatsappSendResult = await sendWhatsappTextMessage({
-              phoneNumberId,
+              connection,
               to: waId,
               message: agentReply,
             });
@@ -409,22 +532,31 @@ export async function POST(request: NextRequest) {
               sentWhatsappMessages += 1;
 
               await saveOutboundWhatsappMessage({
+                connectionId: connection.id,
                 brandSlug: brand.slug,
                 brandName: brand.name,
                 leadId,
                 waId,
-                phoneNumberId,
-                displayPhoneNumber,
+                phoneNumberId: connection.phoneNumberId,
+                displayPhoneNumber:
+                  displayPhoneNumber || connection.displayPhoneNumber,
                 messageText: agentReply,
                 whatsappMessageId: whatsappSendResult.whatsappMessageId,
                 rawResponse: whatsappSendResult.data,
+              });
+
+              await touchWhatsappConnection(connection.id, {
+                last_outbound_at: new Date().toISOString(),
+                last_error_code: null,
+                last_error: null,
               });
 
               if (agentResult.runId) {
                 await safeUpdateById("sales_agent_runs", agentResult.runId, [
                   {
                     action_status: "sent_whatsapp",
-                    whatsapp_message_id: whatsappSendResult.whatsappMessageId,
+                    whatsapp_message_id:
+                      whatsappSendResult.whatsappMessageId,
                     executed_at: new Date().toISOString(),
                   },
                   {
@@ -439,6 +571,12 @@ export async function POST(request: NextRequest) {
                 "No se pudo enviar WhatsApp automático:",
                 whatsappSendResult.error
               );
+
+              await touchWhatsappConnection(connection.id, {
+                last_error_code:
+                  whatsappSendResult.errorCode || "whatsapp_send_failed",
+                last_error: whatsappSendResult.error,
+              });
 
               if (agentResult.runId) {
                 await safeUpdateById("sales_agent_runs", agentResult.runId, [
@@ -462,6 +600,7 @@ export async function POST(request: NextRequest) {
             : null;
 
           await supabase.from("whatsapp_message_statuses").insert({
+            connection_id: connection.id,
             brand_slug: brand.slug,
             message_id: messageId,
             recipient_id: status?.recipient_id || null,
@@ -479,10 +618,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       message: "Webhook recibido correctamente.",
-      brand: {
-        slug: responseBrand.slug,
-        name: responseBrand.name,
-      },
+      connectionId: responseConnectionId,
+      brand: responseBrand,
       processed: {
         messages: processedMessages,
         statuses: processedStatuses,
@@ -493,6 +630,9 @@ export async function POST(request: NextRequest) {
         sentWhatsappMessages,
         failedWhatsappMessages,
         blockedAutomaticMessages,
+        unmatchedConnectionEvents,
+        blockedInboundMessages,
+        skippedAgentMessages,
       },
     });
   } catch (error: any) {
@@ -508,68 +648,269 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function resolveWebhookBrand({
+async function resolveWhatsappConnection({
   phoneNumberId,
   displayPhoneNumber,
 }: {
   phoneNumberId?: string | null;
   displayPhoneNumber?: string | null;
-} = {}) {
-  try {
-    const normalizedPhoneNumberId = cleanText(phoneNumberId);
-    const normalizedDisplayPhoneNumber = cleanText(displayPhoneNumber);
+}): Promise<WhatsappConnection | null> {
+  const normalizedPhoneNumberId = cleanText(phoneNumberId);
+  const normalizedDisplayPhoneNumber = cleanText(displayPhoneNumber);
 
+  const selectColumns = [
+    "id",
+    "client_id",
+    "business_name",
+    "phone_number",
+    "phone_number_id",
+    "whatsapp_business_account_id",
+    "access_token",
+    "brand_slug",
+    "brand_name",
+    "waba_id",
+    "display_phone_number",
+    "connection_status",
+    "webhook_status",
+    "receive_enabled",
+    "agent_enabled",
+    "allow_real_send",
+    "token_source",
+    "access_token_ciphertext",
+    "access_token_iv",
+    "access_token_auth_tag",
+    "token_expires_at",
+  ].join(",");
+
+  try {
     if (normalizedPhoneNumberId) {
-      const { data: settingsByPhoneId, error } = await supabase
-        .from("sales_ai_settings")
-        .select("brand_name, whatsapp_phone_number_id")
-        .eq("whatsapp_phone_number_id", normalizedPhoneNumberId)
+      const { data, error } = await supabase
+        .from("whatsapp_connections")
+        .select(selectColumns)
+        .eq("phone_number_id", normalizedPhoneNumberId)
+        .limit(1)
         .maybeSingle();
 
-      if (!error && settingsByPhoneId?.brand_name) {
-        const brand = await resolveBrandFromSupabase(supabase, {
-          brandName: settingsByPhoneId.brand_name,
-        });
+      if (error) {
+        console.warn(
+          "resolveWhatsappConnection por phone_number_id:",
+          error.message
+        );
+      }
 
-        return {
-          slug: brand.slug || formatBrandSlug(settingsByPhoneId.brand_name),
-          name: brand.name || settingsByPhoneId.brand_name,
-        };
+      const connection = mapWhatsappConnection(data);
+
+      if (connection) {
+        return connection;
       }
     }
 
     if (normalizedDisplayPhoneNumber) {
-      const { data: settingsByDisplayPhone, error } = await supabase
-        .from("sales_ai_settings")
-        .select("brand_name, whatsapp_phone_number")
-        .eq("whatsapp_phone_number", normalizedDisplayPhoneNumber)
-        .maybeSingle();
+      const { data: byDisplayPhone, error: displayPhoneError } = await supabase
+        .from("whatsapp_connections")
+        .select(selectColumns)
+        .eq("display_phone_number", normalizedDisplayPhoneNumber)
+        .limit(2);
 
-      if (!error && settingsByDisplayPhone?.brand_name) {
-        const brand = await resolveBrandFromSupabase(supabase, {
-          brandName: settingsByDisplayPhone.brand_name,
-        });
+      if (displayPhoneError) {
+        console.warn(
+          "resolveWhatsappConnection por display_phone_number:",
+          displayPhoneError.message
+        );
+      }
 
-        return {
-          slug: brand.slug || formatBrandSlug(settingsByDisplayPhone.brand_name),
-          name: brand.name || settingsByDisplayPhone.brand_name,
-        };
+      if (Array.isArray(byDisplayPhone) && byDisplayPhone.length === 1) {
+        const connection = mapWhatsappConnection(byDisplayPhone[0]);
+
+        if (connection) {
+          return connection;
+        }
+      }
+
+      const { data: byLegacyPhone, error: legacyPhoneError } = await supabase
+        .from("whatsapp_connections")
+        .select(selectColumns)
+        .eq("phone_number", normalizedDisplayPhoneNumber)
+        .limit(2);
+
+      if (legacyPhoneError) {
+        console.warn(
+          "resolveWhatsappConnection por phone_number legado:",
+          legacyPhoneError.message
+        );
+      }
+
+      if (Array.isArray(byLegacyPhone) && byLegacyPhone.length === 1) {
+        const connection = mapWhatsappConnection(byLegacyPhone[0]);
+
+        if (connection) {
+          return connection;
+        }
+      }
+
+      const normalizedDigits = cleanPhone(normalizedDisplayPhoneNumber);
+
+      if (normalizedDigits) {
+        const { data: candidates, error: candidatesError } = await supabase
+          .from("whatsapp_connections")
+          .select(selectColumns)
+          .limit(500);
+
+        if (candidatesError) {
+          console.warn(
+            "resolveWhatsappConnection candidatos:",
+            candidatesError.message
+          );
+        }
+
+        const matches = Array.isArray(candidates)
+          ? candidates.filter((candidate: any) => {
+              const candidatePhones = [
+                candidate?.display_phone_number,
+                candidate?.phone_number,
+              ]
+                .map(cleanPhone)
+                .filter(Boolean);
+
+              return candidatePhones.includes(normalizedDigits);
+            })
+          : [];
+
+        if (matches.length === 1) {
+          const connection = mapWhatsappConnection(matches[0]);
+
+          if (connection) {
+            return connection;
+          }
+        }
       }
     }
+  } catch (error: any) {
+    console.error(
+      "resolveWhatsappConnection exception:",
+      error?.message || error
+    );
+  }
 
-    const brand = await resolveBrandFromSupabase(supabase, {
-      brandSlug: defaultBrandSlug,
+  return null;
+}
+
+function mapWhatsappConnection(row: any): WhatsappConnection | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const id = cleanText(row.id);
+  const phoneNumberId = cleanText(row.phone_number_id);
+  const businessName = cleanText(row.business_name);
+  const brandName = cleanText(row.brand_name) || businessName;
+  const brandSlug =
+    cleanText(row.brand_slug) || (brandName ? formatBrandSlug(brandName) : "");
+
+  if (!id || !phoneNumberId || !brandName || !brandSlug) {
+    console.warn("Conexión de WhatsApp incompleta. No se utilizará:", {
+      id: id || null,
+      phoneNumberId: phoneNumberId || null,
+      brandName: brandName || null,
+      brandSlug: brandSlug || null,
     });
 
-    return {
-      slug: brand.slug || defaultBrandSlug,
-      name: brand.name || formatBrandName(defaultBrandSlug),
-    };
-  } catch {
-    return {
-      slug: defaultBrandSlug,
-      name: formatBrandName(defaultBrandSlug),
-    };
+    return null;
+  }
+
+  return {
+    id,
+    brandSlug,
+    brandName,
+    businessName: businessName || brandName,
+    clientId: cleanText(row.client_id) || null,
+    phoneNumberId,
+    displayPhoneNumber:
+      cleanText(row.display_phone_number || row.phone_number) || null,
+    wabaId:
+      cleanText(row.waba_id || row.whatsapp_business_account_id) || null,
+    connectionStatus: cleanText(
+      row.connection_status || row.status || "pending_review"
+    ).toLowerCase(),
+    webhookStatus: cleanText(row.webhook_status || "pending").toLowerCase(),
+    receiveEnabled: row.receive_enabled !== false,
+    agentEnabled: row.agent_enabled === true,
+    allowRealSend: row.allow_real_send === true,
+    tokenSource: cleanText(row.token_source || "legacy_env").toLowerCase(),
+    legacyAccessToken: cleanText(row.access_token) || null,
+    accessTokenCiphertext: cleanText(row.access_token_ciphertext) || null,
+    accessTokenIv: cleanText(row.access_token_iv) || null,
+    accessTokenAuthTag: cleanText(row.access_token_auth_tag) || null,
+    tokenExpiresAt: cleanText(row.token_expires_at) || null,
+  };
+}
+
+async function saveWebhookEvent({
+  connectionId,
+  brandSlug,
+  payload,
+}: {
+  connectionId: string;
+  brandSlug: string;
+  payload: any;
+}) {
+  const { error } = await supabase.from("whatsapp_webhook_events").insert({
+    id: randomUUID(),
+    connection_id: connectionId,
+    brand_slug: brandSlug,
+    event_type: "whatsapp_webhook",
+    payload,
+  });
+
+  if (error) {
+    console.warn("No se pudo guardar whatsapp_webhook_events:", error.message);
+  }
+}
+
+async function saveUnmatchedWebhookEvent({
+  phoneNumberId,
+  displayPhoneNumber,
+  reason,
+  payload,
+}: {
+  phoneNumberId: string | null;
+  displayPhoneNumber: string | null;
+  reason: string;
+  payload: any;
+}) {
+  const { error } = await supabase.from("whatsapp_unmatched_events").insert({
+    id: randomUUID(),
+    phone_number_id: phoneNumberId,
+    display_phone_number: displayPhoneNumber,
+    event_type: "unknown_connection",
+    reason,
+    payload,
+  });
+
+  if (error) {
+    console.warn("No se pudo guardar whatsapp_unmatched_events:", error.message);
+  }
+}
+
+async function touchWhatsappConnection(
+  connectionId: string,
+  payload: Record<string, any>
+) {
+  try {
+    const { error } = await supabase
+      .from("whatsapp_connections")
+      .update(payload)
+      .eq("id", connectionId);
+
+    if (error) {
+      console.warn("touchWhatsappConnection:", error.message);
+      return false;
+    }
+
+    return true;
+  } catch (error: any) {
+    console.warn("touchWhatsappConnection exception:", error?.message);
+    return false;
   }
 }
 
@@ -590,11 +931,16 @@ async function createOrUpdateSalesLead({
   timestampIso: string;
   analysis: LeadAnalysis;
 }) {
-  const existingLead = await findExistingSalesLead(brandName, waId);
+  const existingLead = await findExistingSalesLead(
+    brandSlug,
+    brandName,
+    waId
+  );
 
   if (existingLead?.id) {
     await safeUpdateById("sales_leads", existingLead.id, [
       {
+        brand_slug: brandSlug,
         updated_at: new Date().toISOString(),
         last_message_at: timestampIso,
         ai_summary: analysis.aiSummary,
@@ -661,7 +1007,7 @@ async function createOrUpdateSalesLead({
       reply_suggestion: analysis.recommendedReply,
       requires_human: analysis.requiresHuman,
       requires_human_confirmation: analysis.requiresHuman,
-      tags: ["whatsapp", "piloto-cometa"],
+      tags: ["whatsapp", "cometa-os"],
       source: "whatsapp",
       last_message_at: timestampIso,
       created_at: timestampIso,
@@ -684,7 +1030,7 @@ async function createOrUpdateSalesLead({
       next_action: analysis.nextAction,
       recommended_reply: analysis.recommendedReply,
       requires_human: analysis.requiresHuman,
-      tags: ["whatsapp", "piloto-cometa"],
+      tags: ["whatsapp", "cometa-os"],
       created_at: timestampIso,
       updated_at: new Date().toISOString(),
     },
@@ -713,7 +1059,48 @@ async function createOrUpdateSalesLead({
   return null;
 }
 
-async function findExistingSalesLead(brandName: string, waId: string) {
+async function findExistingSalesLead(
+  brandSlug: string,
+  brandName: string,
+  waId: string
+) {
+  const targetPhone = cleanPhone(waId);
+
+  try {
+    const { data, error } = await supabase
+      .from("sales_leads")
+      .select("*")
+      .eq("brand_slug", brandSlug)
+      .limit(1000);
+
+    if (!error && Array.isArray(data)) {
+      const matchingLead = data.find((lead: any) => {
+        const phones = [
+          lead.phone,
+          lead.contact_phone,
+          lead.whatsapp,
+          lead.whatsapp_number,
+          lead.from_number,
+        ].map(cleanPhone);
+
+        return phones.includes(targetPhone);
+      });
+
+      if (matchingLead) {
+        return matchingLead;
+      }
+    }
+
+    if (error) {
+      console.warn("findExistingSalesLead por brand_slug:", error.message);
+    }
+  } catch (error: any) {
+    console.warn(
+      "findExistingSalesLead brand_slug exception:",
+      error?.message
+    );
+  }
+
   try {
     const { data, error } = await supabase
       .from("sales_leads")
@@ -723,13 +1110,11 @@ async function findExistingSalesLead(brandName: string, waId: string) {
 
     if (error || !Array.isArray(data)) {
       if (error) {
-        console.warn("findExistingSalesLead:", error.message);
+        console.warn("findExistingSalesLead por brand_name:", error.message);
       }
 
       return null;
     }
-
-    const targetPhone = cleanPhone(waId);
 
     return (
       data.find((lead: any) => {
@@ -753,6 +1138,7 @@ async function findExistingSalesLead(brandName: string, waId: string) {
 
 async function createSalesMessage({
   brandName,
+  brandSlug,
   leadId,
   waId,
   contactName,
@@ -762,6 +1148,7 @@ async function createSalesMessage({
   rawMessage,
 }: {
   brandName: string;
+  brandSlug: string;
   leadId: string;
   waId: string;
   contactName: string;
@@ -774,6 +1161,7 @@ async function createSalesMessage({
     {
       id: randomUUID(),
       brand_name: brandName,
+      brand_slug: brandSlug,
       lead_id: leadId,
       direction: "inbound",
       message_direction: "inbound",
@@ -887,25 +1275,25 @@ async function runSalesAiAgent(
 }
 
 async function evaluateAutomaticWhatsappSafety({
+  connection,
   brandSlug,
   brandName,
   leadId,
   waId,
   incomingText,
   agentReply,
-  phoneNumberId,
   agentResult,
   runtimeSettings,
   envAllowsWhatsappSend,
   settingsAllowWhatsappSend,
 }: {
+  connection: WhatsappConnection;
   brandSlug: string;
   brandName: string;
   leadId: string;
   waId: string;
   incomingText: string;
   agentReply: string;
-  phoneNumberId: string | null;
   agentResult: any;
   runtimeSettings: any;
   envAllowsWhatsappSend: boolean;
@@ -934,7 +1322,19 @@ async function evaluateAutomaticWhatsappSafety({
     );
   }
 
-  if (!phoneNumberId) {
+  if (connection.connectionStatus !== "active") {
+    reasons.push(`connection_status=${connection.connectionStatus}`);
+  }
+
+  if (!connection.agentEnabled) {
+    reasons.push("connection_agent_enabled=false");
+  }
+
+  if (!connection.allowRealSend) {
+    reasons.push("connection_allow_real_send=false");
+  }
+
+  if (!connection.phoneNumberId) {
     reasons.push("missing_phone_number_id");
   }
 
@@ -1009,6 +1409,12 @@ async function evaluateAutomaticWhatsappSafety({
     ok: reasons.length === 0,
     reasons,
     context: {
+      connectionId: connection.id,
+      connectionStatus: connection.connectionStatus,
+      webhookStatus: connection.webhookStatus,
+      connectionAgentEnabled: connection.agentEnabled,
+      connectionAllowRealSend: connection.allowRealSend,
+      tokenSource: connection.tokenSource,
       brandSlug,
       brandName,
       leadId,
@@ -1127,45 +1533,60 @@ async function hasProcessedSalesMessage(messageId: string) {
 }
 
 async function sendWhatsappTextMessage({
-  phoneNumberId,
+  connection,
   to,
   message,
 }: {
-  phoneNumberId: string;
+  connection: WhatsappConnection;
   to: string;
   message: string;
 }) {
-  const accessToken =
-    process.env.WHATSAPP_ACCESS_TOKEN ||
-    process.env.META_WHATSAPP_TOKEN ||
-    "";
+  if (connection.connectionStatus !== "active") {
+    return {
+      ok: false,
+      errorCode: "connection_not_active",
+      error: `La conexión ${connection.id} no está activa. Estado: ${connection.connectionStatus}`,
+    };
+  }
+
+  if (!connection.allowRealSend) {
+    return {
+      ok: false,
+      errorCode: "real_send_disabled",
+      error: "El envío real está desactivado para esta conexión.",
+    };
+  }
+
+  if (!connection.phoneNumberId) {
+    return {
+      ok: false,
+      errorCode: "missing_phone_number_id",
+      error: "Falta phoneNumberId para enviar WhatsApp.",
+    };
+  }
+
+  const tokenResult = resolveConnectionAccessToken(connection);
+
+  if (!tokenResult.ok) {
+    return {
+      ok: false,
+      errorCode: tokenResult.errorCode,
+      error: tokenResult.error,
+    };
+  }
 
   const graphApiVersion =
     process.env.WHATSAPP_GRAPH_API_VERSION ||
     process.env.META_GRAPH_API_VERSION ||
     "v25.0";
 
-  if (!accessToken) {
-    return {
-      ok: false,
-      error: "Falta WHATSAPP_ACCESS_TOKEN o META_WHATSAPP_TOKEN",
-    };
-  }
-
-  if (!phoneNumberId) {
-    return {
-      ok: false,
-      error: "Falta phoneNumberId para enviar WhatsApp",
-    };
-  }
-
   try {
     const res = await fetch(
-      `https://graph.facebook.com/${graphApiVersion}/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/${graphApiVersion}/${connection.phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${tokenResult.accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -1185,6 +1606,7 @@ async function sendWhatsappTextMessage({
     if (!res.ok) {
       return {
         ok: false,
+        errorCode: cleanText(data?.error?.code) || "meta_api_error",
         error: JSON.stringify(data || {}),
         data,
       };
@@ -1198,12 +1620,191 @@ async function sendWhatsappTextMessage({
   } catch (error: any) {
     return {
       ok: false,
+      errorCode: "whatsapp_fetch_error",
       error: error?.message || String(error),
     };
   }
 }
 
+function resolveConnectionAccessToken(connection: WhatsappConnection):
+  | {
+      ok: true;
+      accessToken: string;
+    }
+  | {
+      ok: false;
+      errorCode: string;
+      error: string;
+    } {
+  if (connection.tokenExpiresAt) {
+    const expirationTime = new Date(connection.tokenExpiresAt).getTime();
+
+    if (Number.isFinite(expirationTime) && expirationTime <= Date.now()) {
+      return {
+        ok: false,
+        errorCode: "access_token_expired",
+        error: "El token de WhatsApp de esta conexión está vencido.",
+      };
+    }
+  }
+
+  if (connection.tokenSource === "encrypted_db") {
+    try {
+      const accessToken = decryptConnectionAccessToken(connection);
+
+      if (!accessToken) {
+        return {
+          ok: false,
+          errorCode: "encrypted_token_empty",
+          error: "El token cifrado de la conexión está vacío.",
+        };
+      }
+
+      return {
+        ok: true,
+        accessToken,
+      };
+    } catch (error: any) {
+      return {
+        ok: false,
+        errorCode: "encrypted_token_decryption_failed",
+        error:
+          error?.message || "No se pudo descifrar el token de la conexión.",
+      };
+    }
+  }
+
+  if (connection.tokenSource === "system_user") {
+    const systemUserToken =
+      process.env.WHATSAPP_SYSTEM_USER_ACCESS_TOKEN?.trim() ||
+      process.env.META_SYSTEM_USER_ACCESS_TOKEN?.trim() ||
+      "";
+
+    if (!systemUserToken) {
+      return {
+        ok: false,
+        errorCode: "missing_system_user_token",
+        error:
+          "La conexión usa system_user, pero falta WHATSAPP_SYSTEM_USER_ACCESS_TOKEN.",
+      };
+    }
+
+    return {
+      ok: true,
+      accessToken: systemUserToken,
+    };
+  }
+
+  if (connection.tokenSource === "legacy_env") {
+    const legacyEnvToken =
+      process.env.WHATSAPP_ACCESS_TOKEN?.trim() ||
+      process.env.META_WHATSAPP_TOKEN?.trim() ||
+      connection.legacyAccessToken ||
+      "";
+
+    if (!legacyEnvToken) {
+      return {
+        ok: false,
+        errorCode: "missing_legacy_access_token",
+        error:
+          "Falta WHATSAPP_ACCESS_TOKEN o META_WHATSAPP_TOKEN para la conexión legacy_env.",
+      };
+    }
+
+    return {
+      ok: true,
+      accessToken: legacyEnvToken,
+    };
+  }
+
+  return {
+    ok: false,
+    errorCode: "unsupported_token_source",
+    error: `token_source no soportado: ${connection.tokenSource || "vacío"}`,
+  };
+}
+
+function decryptConnectionAccessToken(connection: WhatsappConnection) {
+  const encryptionKey = getWhatsappTokenEncryptionKey();
+
+  if (!connection.accessTokenCiphertext) {
+    throw new Error("Falta access_token_ciphertext.");
+  }
+
+  if (!connection.accessTokenIv) {
+    throw new Error("Falta access_token_iv.");
+  }
+
+  if (!connection.accessTokenAuthTag) {
+    throw new Error("Falta access_token_auth_tag.");
+  }
+
+  const iv = decodeStoredBuffer(connection.accessTokenIv);
+  const authTag = decodeStoredBuffer(connection.accessTokenAuthTag);
+  const ciphertext = decodeStoredBuffer(connection.accessTokenCiphertext);
+
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey, iv);
+  decipher.setAuthTag(authTag);
+
+  const decrypted = Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]);
+
+  return decrypted.toString("utf8").trim();
+}
+
+function getWhatsappTokenEncryptionKey() {
+  const rawKey =
+    process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY?.trim() ||
+    process.env.COMETA_ENCRYPTION_KEY?.trim() ||
+    "";
+
+  if (!rawKey) {
+    throw new Error(
+      "Falta WHATSAPP_TOKEN_ENCRYPTION_KEY para descifrar tokens de WhatsApp."
+    );
+  }
+
+  if (/^[a-f0-9]{64}$/i.test(rawKey)) {
+    return Buffer.from(rawKey, "hex");
+  }
+
+  try {
+    const base64Key = Buffer.from(rawKey, "base64");
+
+    if (base64Key.length === 32) {
+      return base64Key;
+    }
+  } catch {}
+
+  const utf8Key = Buffer.from(rawKey, "utf8");
+
+  if (utf8Key.length === 32) {
+    return utf8Key;
+  }
+
+  throw new Error(
+    "WHATSAPP_TOKEN_ENCRYPTION_KEY debe representar exactamente 32 bytes."
+  );
+}
+
+function decodeStoredBuffer(value: string) {
+  const clean = cleanText(value);
+
+  if (!clean) {
+    return Buffer.alloc(0);
+  }
+
+  if (/^[a-f0-9]+$/i.test(clean) && clean.length % 2 === 0) {
+    return Buffer.from(clean, "hex");
+  }
+
+  return Buffer.from(clean, "base64");
+}
+
 async function saveOutboundWhatsappMessage({
+  connectionId,
   brandSlug,
   brandName,
   leadId,
@@ -1214,6 +1815,7 @@ async function saveOutboundWhatsappMessage({
   whatsappMessageId,
   rawResponse,
 }: {
+  connectionId: string;
   brandSlug: string;
   brandName: string;
   leadId: string;
@@ -1228,6 +1830,7 @@ async function saveOutboundWhatsappMessage({
 
   await safeInsertWithFallback("whatsapp_messages", [
     {
+      connection_id: connectionId,
       brand_slug: brandSlug,
       message_id: whatsappMessageId || randomUUID(),
       wa_id: waId,
@@ -1241,6 +1844,7 @@ async function saveOutboundWhatsappMessage({
       status: "sent",
     },
     {
+      connection_id: connectionId,
       brand_slug: brandSlug,
       message_id: whatsappMessageId || randomUUID(),
       wa_id: waId,
@@ -1254,6 +1858,7 @@ async function saveOutboundWhatsappMessage({
     {
       id: randomUUID(),
       brand_name: brandName,
+      brand_slug: brandSlug,
       lead_id: leadId,
       direction: "outbound",
       message_direction: "outbound",
@@ -1687,14 +2292,6 @@ function truncateText(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
 
   return `${value.slice(0, maxLength)}...`;
-}
-
-function formatBrandName(slug: string) {
-  return String(slug || "Brand OS")
-    .split("-")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 }
 
 function clamp(value: number, min: number, max: number) {
