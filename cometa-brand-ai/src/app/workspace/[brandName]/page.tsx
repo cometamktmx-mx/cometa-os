@@ -1,14 +1,60 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
 import Sidebar from "@/app/Sidebar";
 import EvidencePanel from "@/components/EvidencePanel";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE!;
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
+
+type WhatsappConnectionStatus =
+  | "not_connected"
+  | "pending"
+  | "connected"
+  | "pending_review"
+  | "active"
+  | "paused"
+  | "error"
+  | "revoked";
+
+type WhatsappConnectionSummary = {
+  displayPhoneNumber: string | null;
+  connectionStatus: WhatsappConnectionStatus;
+  webhookStatus: string;
+  receiveEnabled: boolean;
+  agentEnabled: boolean;
+  realSendEnabled: boolean;
+  updatedAt: string | null;
+  lastInboundAt: string | null;
+};
+
+type WhatsappConnectionRow = {
+  display_phone_number?: string | null;
+  phone_number?: string | null;
+  connection_status?: string | null;
+  status?: string | null;
+  webhook_status?: string | null;
+  webhook_verified?: boolean | null;
+  receive_enabled?: boolean | null;
+  agent_enabled?: boolean | null;
+  allow_real_send?: boolean | null;
+  updated_at?: string | null;
+  connected_at?: string | null;
+  last_inbound_at?: string | null;
+};
 
 function slugifyLocal(value: string) {
   return String(value || "")
@@ -17,6 +63,222 @@ function slugifyLocal(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function parseCsv(value?: string | null) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isEnvironmentAdmin(user: {
+  id?: string | null;
+  email?: string | null;
+}) {
+  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
+  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
+
+  const email = String(user.email || "").trim().toLowerCase();
+  const id = String(user.id || "").trim().toLowerCase();
+
+  return adminEmails.includes(email) || adminUserIds.includes(id);
+}
+
+async function getUserProfile(userId: string) {
+  const byUserId = await supabaseAdmin
+    .from("user_profiles")
+    .select("id,user_id,email,role,status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!byUserId.error && byUserId.data) {
+    return byUserId.data;
+  }
+
+  const byId = await supabaseAdmin
+    .from("user_profiles")
+    .select("id,user_id,email,role,status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!byId.error && byId.data) {
+    return byId.data;
+  }
+
+  return null;
+}
+
+async function requireWorkspaceAccess(brandSlug: string) {
+  const workspacePath = `/workspace/${encodeURIComponent(brandSlug)}`;
+  const cookieStore = await cookies();
+
+  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll() {
+        // En Server Components solo necesitamos leer la sesión.
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error,
+  } = await supabaseAuth.auth.getUser();
+
+  if (error || !user) {
+    redirect(`/login?next=${encodeURIComponent(workspacePath)}`);
+  }
+
+  if (isEnvironmentAdmin(user)) {
+    return {
+      userId: user.id,
+      isAdmin: true,
+    };
+  }
+
+  const profile = await getUserProfile(user.id);
+  const profileRole = String(profile?.role || "").toLowerCase();
+  const profileStatus = String(profile?.status || "inactive").toLowerCase();
+
+  if (profileRole === "admin" && profileStatus === "active") {
+    return {
+      userId: user.id,
+      isAdmin: true,
+    };
+  }
+
+  if (profileStatus !== "active") {
+    redirect(`/access-denied?from=${encodeURIComponent(workspacePath)}`);
+  }
+
+  const { data: access, error: accessError } = await supabaseAdmin
+    .from("user_brand_access")
+    .select("id,access_role,status")
+    .eq("user_id", user.id)
+    .eq("brand_slug", brandSlug)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+
+  if (accessError || !access) {
+    redirect(`/access-denied?from=${encodeURIComponent(workspacePath)}`);
+  }
+
+  return {
+    userId: user.id,
+    isAdmin: false,
+  };
+}
+
+function cleanText(value: unknown) {
+  if (value === null || value === undefined) return "";
+
+  return String(value).trim();
+}
+
+function normalizeWhatsappStatus(value: unknown): WhatsappConnectionStatus {
+  const status = cleanText(value).toLowerCase();
+
+  const allowed: WhatsappConnectionStatus[] = [
+    "not_connected",
+    "pending",
+    "connected",
+    "pending_review",
+    "active",
+    "paused",
+    "error",
+    "revoked",
+  ];
+
+  if (allowed.includes(status as WhatsappConnectionStatus)) {
+    return status as WhatsappConnectionStatus;
+  }
+
+  return status ? "pending_review" : "not_connected";
+}
+
+async function getWhatsappConnection(
+  brandSlug: string
+): Promise<WhatsappConnectionSummary> {
+  const emptyConnection: WhatsappConnectionSummary = {
+    displayPhoneNumber: null,
+    connectionStatus: "not_connected",
+    webhookStatus: "not_connected",
+    receiveEnabled: false,
+    agentEnabled: false,
+    realSendEnabled: false,
+    updatedAt: null,
+    lastInboundAt: null,
+  };
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_connections")
+      .select(`
+        display_phone_number,
+        phone_number,
+        connection_status,
+        status,
+        webhook_status,
+        webhook_verified,
+        receive_enabled,
+        agent_enabled,
+        allow_real_send,
+        updated_at,
+        connected_at,
+        last_inbound_at
+      `)
+      .eq("brand_slug", brandSlug)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("workspace whatsapp connection:", error.message);
+      return emptyConnection;
+    }
+
+    if (!data) {
+      return emptyConnection;
+    }
+
+    const row = data as unknown as WhatsappConnectionRow;
+
+    const connectionStatus = normalizeWhatsappStatus(
+      row.connection_status || row.status
+    );
+
+    return {
+      displayPhoneNumber:
+        cleanText(row.display_phone_number) ||
+        cleanText(row.phone_number) ||
+        null,
+
+      connectionStatus,
+
+      webhookStatus:
+        cleanText(row.webhook_status) ||
+        (row.webhook_verified === true ? "active" : "pending"),
+
+      receiveEnabled: row.receive_enabled === true,
+      agentEnabled: row.agent_enabled === true,
+      realSendEnabled: row.allow_real_send === true,
+
+      updatedAt: row.updated_at || row.connected_at || null,
+      lastInboundAt: row.last_inbound_at || null,
+    };
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : String(error || "");
+
+    console.warn("workspace whatsapp connection exception:", message);
+
+    return emptyConnection;
+  }
 }
 
 function getScore(memory: any) {
@@ -69,7 +331,8 @@ function getNextAction({
   if (!memory?.business_memory) {
     return {
       label: "Construir NOVA",
-      description: "ORION está listo. Ahora falta construir la memoria comercial.",
+      description:
+        "ORION está listo. Ahora falta construir la memoria comercial.",
       href: `/nova/${memory?.brand_analysis_id}`,
       status: "ready",
     };
@@ -147,8 +410,8 @@ function getStatusLabel(status: string) {
   return status || "Pendiente";
 }
 
-function formatDate(value: string) {
-  if (!value) return "";
+function formatDate(value?: string | null) {
+  if (!value) return "Sin actividad";
 
   try {
     return new Date(value).toLocaleString("es-MX", {
@@ -158,8 +421,102 @@ function formatDate(value: string) {
       minute: "2-digit",
     });
   } catch {
-    return "";
+    return "Sin actividad";
   }
+}
+
+function formatSimpleStatus(value?: string | null) {
+  const status = cleanText(value).toLowerCase();
+
+  if (status === "active") return "Activo";
+  if (status === "pending") return "Pendiente";
+  if (status === "error") return "Error";
+  if (status === "disabled") return "Desactivado";
+  if (status === "not_connected") return "No conectado";
+
+  return status || "No disponible";
+}
+
+function getWhatsappCardMeta(connection: WhatsappConnectionSummary) {
+  if (connection.connectionStatus === "active") {
+    return {
+      eyebrow: "Canal activo",
+      title: "WhatsApp conectado",
+      description:
+        "El número está aislado por marca y Cometa OS puede recibir, analizar y operar mensajes según los permisos autorizados.",
+      statusLabel: "Activo",
+      statusClass: "bg-emerald-100 text-emerald-700",
+      panelClass: "border-emerald-200 bg-emerald-50",
+      cta: "Administrar conexión",
+    };
+  }
+
+  if (connection.connectionStatus === "paused") {
+    return {
+      eyebrow: "Canal pausado",
+      title: "WhatsApp temporalmente pausado",
+      description:
+        "La conexión existe, pero su operación fue pausada desde el panel administrativo de Cometa.",
+      statusLabel: "Pausado",
+      statusClass: "bg-amber-100 text-amber-700",
+      panelClass: "border-amber-200 bg-amber-50",
+      cta: "Revisar conexión",
+    };
+  }
+
+  if (connection.connectionStatus === "error") {
+    return {
+      eyebrow: "Revisión necesaria",
+      title: "WhatsApp requiere atención",
+      description:
+        "Detectamos una alerta técnica. Abre el centro de conexión para revisar el estado y solicitar asistencia.",
+      statusLabel: "Error",
+      statusClass: "bg-rose-100 text-rose-700",
+      panelClass: "border-rose-200 bg-rose-50",
+      cta: "Solicitar revisión",
+    };
+  }
+
+  if (connection.connectionStatus === "revoked") {
+    return {
+      eyebrow: "Conexión revocada",
+      title: "WhatsApp debe reconectarse",
+      description:
+        "La conexión anterior fue revocada. El número necesitará una nueva autorización de Meta.",
+      statusLabel: "Revocado",
+      statusClass: "bg-slate-200 text-slate-700",
+      panelClass: "border-slate-200 bg-slate-100",
+      cta: "Reconectar WhatsApp",
+    };
+  }
+
+  if (
+    connection.connectionStatus === "pending" ||
+    connection.connectionStatus === "connected" ||
+    connection.connectionStatus === "pending_review"
+  ) {
+    return {
+      eyebrow: "Conexión en proceso",
+      title: "WhatsApp pendiente de aprobación",
+      description:
+        "La conexión ya fue iniciada y está pendiente de validación o activación controlada por Cometa.",
+      statusLabel: "En revisión",
+      statusClass: "bg-blue-100 text-blue-700",
+      panelClass: "border-blue-200 bg-blue-50",
+      cta: "Ver estado",
+    };
+  }
+
+  return {
+    eyebrow: "SALES AI · WhatsApp",
+    title: "Conecta el canal de ventas",
+    description:
+      "Vincula el WhatsApp comercial de esta marca para recibir prospectos, detectar intención y dar seguimiento desde SALES AI.",
+    statusLabel: "No conectado",
+    statusClass: "bg-slate-100 text-slate-600",
+    panelClass: "border-cyan-200 bg-cyan-50",
+    cta: "Conectar WhatsApp",
+  };
 }
 
 function AgentStatusCard({
@@ -190,8 +547,8 @@ function AgentStatusCard({
               active
                 ? "bg-slate-950 text-white"
                 : locked
-                ? "bg-slate-100 text-slate-400"
-                : "bg-blue-50 text-blue-700"
+                  ? "bg-slate-100 text-slate-400"
+                  : "bg-blue-50 text-blue-700"
             }`}
           >
             {icon}
@@ -213,8 +570,8 @@ function AgentStatusCard({
             active
               ? "bg-emerald-100 text-emerald-700"
               : locked
-              ? "bg-slate-100 text-slate-400"
-              : "bg-blue-100 text-blue-700"
+                ? "bg-slate-100 text-slate-400"
+                : "bg-blue-100 text-blue-700"
           }`}
         >
           {active ? "✓" : locked ? "🔒" : "○"}
@@ -244,6 +601,189 @@ function AgentStatusCard({
   );
 }
 
+function WhatsappConnectionCard({
+  connection,
+  brandSlug,
+}: {
+  connection: WhatsappConnectionSummary;
+  brandSlug: string;
+}) {
+  const meta = getWhatsappCardMeta(connection);
+  const isConnected = connection.connectionStatus === "active";
+
+  return (
+    <section className="overflow-hidden rounded-[38px] border border-white bg-white shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_390px]">
+        <div className="p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-cyan-700">
+                {meta.eyebrow}
+              </p>
+
+              <h2 className="mt-3 text-4xl font-black tracking-[-0.07em] text-slate-950">
+                {meta.title}
+              </h2>
+
+              <p className="mt-4 text-sm font-semibold leading-7 text-slate-600">
+                {meta.description}
+              </p>
+            </div>
+
+            <span
+              className={`shrink-0 rounded-full px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${meta.statusClass}`}
+            >
+              {meta.statusLabel}
+            </span>
+          </div>
+
+          <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <WhatsappMiniMetric
+              label="Número"
+              value={connection.displayPhoneNumber || "Sin número"}
+            />
+
+            <WhatsappMiniMetric
+              label="Webhook"
+              value={formatSimpleStatus(connection.webhookStatus)}
+            />
+
+            <WhatsappMiniMetric
+              label="SALES AI"
+              value={connection.agentEnabled ? "Activo" : "Apagado"}
+            />
+
+            <WhatsappMiniMetric
+              label="Envío real"
+              value={connection.realSendEnabled ? "Autorizado" : "Bloqueado"}
+              danger={connection.realSendEnabled}
+            />
+          </div>
+
+          <div className="mt-7 flex flex-wrap items-center gap-4">
+            <Link
+              href={`/sales-ai/connect?brand=${encodeURIComponent(brandSlug)}`}
+              className="inline-flex min-h-14 items-center justify-center rounded-2xl bg-slate-950 px-7 text-sm font-black text-white transition hover:bg-cyan-700"
+            >
+              {meta.cta} →
+            </Link>
+
+            <Link
+              href={`/sales-ai/inbox?brand=${encodeURIComponent(brandSlug)}`}
+              className={`inline-flex min-h-14 items-center justify-center rounded-2xl border px-7 text-sm font-black transition ${
+                isConnected
+                  ? "border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100"
+                  : "pointer-events-none border-slate-200 bg-slate-100 text-slate-400"
+              }`}
+              aria-disabled={!isConnected}
+            >
+              Abrir inbox
+            </Link>
+          </div>
+        </div>
+
+        <div
+          className={`border-t p-8 xl:border-l xl:border-t-0 ${meta.panelClass}`}
+        >
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+            Estado operativo
+          </p>
+
+          <div className="mt-5 grid gap-3">
+            <OperationalRow
+              label="Recepción de mensajes"
+              enabled={connection.receiveEnabled}
+            />
+
+            <OperationalRow
+              label="Análisis de SALES AI"
+              enabled={connection.agentEnabled}
+            />
+
+            <OperationalRow
+              label="Respuestas reales"
+              enabled={connection.realSendEnabled}
+              danger
+            />
+          </div>
+
+          <div className="mt-5 rounded-[22px] border border-white/80 bg-white/70 p-4">
+            <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Última actualización
+            </p>
+
+            <p className="mt-2 text-sm font-black text-slate-900">
+              {formatDate(connection.updatedAt)}
+            </p>
+
+            <p className="mt-4 text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
+              Último mensaje recibido
+            </p>
+
+            <p className="mt-2 text-sm font-black text-slate-900">
+              {formatDate(connection.lastInboundAt)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WhatsappMiniMetric({
+  label,
+  value,
+  danger,
+}: {
+  label: string;
+  value: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+      <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">
+        {label}
+      </p>
+
+      <p
+        className={`mt-2 break-words text-sm font-black ${
+          danger ? "text-rose-700" : "text-slate-950"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function OperationalRow({
+  label,
+  enabled,
+  danger,
+}: {
+  label: string;
+  enabled: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-[20px] border border-white/80 bg-white/70 p-4">
+      <p className="text-sm font-black text-slate-900">{label}</p>
+
+      <span
+        className={`rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${
+          enabled
+            ? danger
+              ? "bg-rose-100 text-rose-700"
+              : "bg-emerald-100 text-emerald-700"
+            : "bg-slate-200 text-slate-600"
+        }`}
+      >
+        {enabled ? "Activo" : "Apagado"}
+      </span>
+    </div>
+  );
+}
+
 function Timeline({ events }: { events: any[] }) {
   if (!events || events.length === 0) {
     return (
@@ -260,6 +800,7 @@ function Timeline({ events }: { events: any[] }) {
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-600">
             COSMOS Memory
           </p>
+
           <h2 className="mt-2 text-3xl font-black tracking-[-0.06em]">
             Activity Timeline
           </h2>
@@ -430,7 +971,9 @@ export default async function BrandWorkspace({
   const decodedBrandName = decodeURIComponent(brandName);
   const requestedBrandSlug = slugifyLocal(decodedBrandName);
 
-  const { data: memoryBySlug } = await supabase
+  await requireWorkspaceAccess(requestedBrandSlug);
+
+  const { data: memoryBySlug } = await supabaseAdmin
     .from("cosmos_memory")
     .select("*")
     .eq("brand_slug", requestedBrandSlug)
@@ -441,7 +984,7 @@ export default async function BrandWorkspace({
   let memory = memoryBySlug;
 
   if (!memory) {
-    const { data: memoryByName } = await supabase
+    const { data: memoryByName } = await supabaseAdmin
       .from("cosmos_memory")
       .select("*")
       .ilike("brand_name", decodedBrandName)
@@ -455,18 +998,26 @@ export default async function BrandWorkspace({
   const brandSlug = memory?.brand_slug || requestedBrandSlug;
   const displayBrandName = memory?.brand_name || decodedBrandName;
 
-  const { data: evidences } = await supabase
-    .from("brand_evidence")
-    .select("*")
-    .ilike("brand_name", displayBrandName)
-    .order("created_at", { ascending: false });
+  const [
+    { data: evidences },
+    { data: signalsBySlug },
+    whatsappConnection,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("brand_evidence")
+      .select("*")
+      .ilike("brand_name", displayBrandName)
+      .order("created_at", { ascending: false }),
 
-  const { data: signalsBySlug } = await supabaseAdmin
-    .from("agent_notifications")
-    .select("*")
-    .eq("brand_slug", brandSlug)
-    .order("created_at", { ascending: false })
-    .limit(9);
+    supabaseAdmin
+      .from("agent_notifications")
+      .select("*")
+      .eq("brand_slug", brandSlug)
+      .order("created_at", { ascending: false })
+      .limit(9),
+
+    getWhatsappConnection(brandSlug),
+  ]);
 
   let agentSignals = signalsBySlug || [];
 
@@ -493,6 +1044,9 @@ export default async function BrandWorkspace({
   const hasMercury = Boolean(getMercuryMemory(memory));
   const hasSales = Boolean(getSalesMemory(memory));
   const hasPulse = Boolean(getPulseMemory(memory));
+
+  const hasWhatsapp = whatsappConnection.connectionStatus === "active";
+  const salesAiActive = hasSales || whatsappConnection.agentEnabled;
 
   const activeMemories = [
     hasOrion,
@@ -524,11 +1078,19 @@ export default async function BrandWorkspace({
               <div>
                 <div className="mb-6 flex flex-wrap gap-3">
                   <BadgeDark>Brand OS</BadgeDark>
+
                   <BadgeDark tone="cyan">Command Center</BadgeDark>
+
                   <BadgeDark tone={agentSignals.length ? "amber" : "slate"}>
                     {agentSignals.length
                       ? `${agentSignals.length} señales IA`
                       : "Sin señales pendientes"}
+                  </BadgeDark>
+
+                  <BadgeDark tone={hasWhatsapp ? "cyan" : "slate"}>
+                    {hasWhatsapp
+                      ? "WhatsApp conectado"
+                      : "WhatsApp pendiente"}
                   </BadgeDark>
                 </div>
 
@@ -542,8 +1104,8 @@ export default async function BrandWorkspace({
 
                 <p className="mt-6 max-w-4xl text-sm font-semibold leading-8 text-slate-300 md:text-base">
                   Cometa OS centraliza diagnóstico, memoria comercial,
-                  estrategia, señales de agentes, ejecución de contenido y ventas
-                  para que la marca opere con inteligencia conectada.
+                  estrategia, señales de agentes, ejecución de contenido y
+                  ventas para que la marca opere con inteligencia conectada.
                 </p>
 
                 <div className="mt-7 flex flex-wrap gap-3">
@@ -559,6 +1121,17 @@ export default async function BrandWorkspace({
                     className="inline-flex min-h-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-7 text-sm font-black text-white transition hover:bg-white/10"
                   >
                     Abrir MERCURY
+                  </Link>
+
+                  <Link
+                    href={`/sales-ai/connect?brand=${encodeURIComponent(
+                      brandSlug
+                    )}`}
+                    className="inline-flex min-h-14 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-7 text-sm font-black text-cyan-100 transition hover:bg-cyan-300/20"
+                  >
+                    {hasWhatsapp
+                      ? "Administrar WhatsApp"
+                      : "Conectar WhatsApp"}
                   </Link>
                 </div>
               </div>
@@ -577,7 +1150,11 @@ export default async function BrandWorkspace({
                 </p>
 
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <HeroMini label="Ciudad" value={memory?.city || "No detectada"} />
+                  <HeroMini
+                    label="Ciudad"
+                    value={memory?.city || "No detectada"}
+                  />
+
                   <HeroMini label="Nivel" value={getLevel(memory)} />
                 </div>
               </div>
@@ -587,10 +1164,18 @@ export default async function BrandWorkspace({
 
         <section className="grid grid-cols-1 gap-5 md:grid-cols-4">
           <Metric title="Brand Score" value={`${getScore(memory)}/100`} />
-          <Metric title="Opportunity" value={`${getOpportunity(memory)}/100`} />
+          <Metric
+            title="Opportunity"
+            value={`${getOpportunity(memory)}/100`}
+          />
           <Metric title="Brand Level" value={getLevel(memory)} />
           <Metric title="Memorias activas" value={`${activeMemories}/6`} />
         </section>
+
+        <WhatsappConnectionCard
+          connection={whatsappConnection}
+          brandSlug={brandSlug}
+        />
 
         <section className="rounded-[38px] border border-white bg-white p-8 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
           <div className="mb-7 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -604,9 +1189,9 @@ export default async function BrandWorkspace({
               </h2>
 
               <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-slate-600">
-                Cada agente cumple una función dentro del sistema. El objetivo no
-                es generar reportes aislados, sino una memoria viva que conecte
-                diagnóstico, estrategia, ejecución y ventas.
+                Cada agente cumple una función dentro del sistema. El objetivo
+                no es generar reportes aislados, sino una memoria viva que
+                conecte diagnóstico, estrategia, ejecución y ventas.
               </p>
             </div>
           </div>
@@ -661,10 +1246,10 @@ export default async function BrandWorkspace({
               name="SALES AI"
               title="Conversión y WhatsApp"
               description="Objeciones, leads, respuestas, seguimiento, reglas de venta y cierre."
-              active={hasSales}
+              active={salesAiActive}
               locked={!hasBusiness}
-              href={`/sales-ai?brandName=${encodeURIComponent(displayBrandName)}`}
-              cta={hasSales ? "Abrir ventas" : "Preparar ventas"}
+              href={`/sales-ai?brand=${encodeURIComponent(brandSlug)}`}
+              cta={salesAiActive ? "Abrir ventas" : "Preparar ventas"}
               icon="💬"
             />
 
@@ -696,26 +1281,31 @@ export default async function BrandWorkspace({
               active={hasOrion}
               description="Diagnóstico externo de marca."
             />
+
             <MemoryCard
               title="Business Memory"
               active={hasBusiness}
               description="Conocimiento interno comercial."
             />
+
             <MemoryCard
               title="Growth Memory"
               active={hasAtlas}
               description="Estrategia generada por ATLAS."
             />
+
             <MemoryCard
               title="Mercury Memory"
               active={hasMercury}
               description="Ciclo de contenido y ejecución mensual."
             />
+
             <MemoryCard
               title="Sales Memory"
               active={hasSales}
               description="Ventas, leads, objeciones y respuestas."
             />
+
             <MemoryCard
               title="Pulse Memory"
               active={hasPulse}
@@ -739,8 +1329,8 @@ function BadgeDark({
     tone === "cyan"
       ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-200"
       : tone === "amber"
-      ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
-      : "border-white/10 bg-white/10 text-white";
+        ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
+        : "border-white/10 bg-white/10 text-white";
 
   return (
     <span
@@ -757,6 +1347,7 @@ function HeroMini({ label, value }: { label: string; value: any }) {
       <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
         {label}
       </p>
+
       <p className="mt-2 text-sm font-black text-white">{value}</p>
     </div>
   );

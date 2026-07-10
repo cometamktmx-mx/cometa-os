@@ -231,9 +231,9 @@ function SalesAIConnectContent() {
       setIsAdmin(json.user?.isAdmin === true);
 
       setRequestedPhoneNumber(
-        loadedConnection.client_requested_phone_number ||
-          loadedConnection.whatsapp_phone_number ||
-          ""
+        loadedConnection.whatsapp_phone_number ||
+  loadedConnection.client_requested_phone_number ||
+  ""
       );
 
       setConnectionNotes(
