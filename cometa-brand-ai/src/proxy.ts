@@ -5,11 +5,13 @@ import { updateSession } from "./lib/supabase/middleware";
 const publicRoutes = ["/", "/login"];
 
 const protectedAdminPages = [
+  "/workspace/admin",
   "/sales-ai/settings",
   "/sales-ai/admin",
 ];
 
 const protectedAdminApis = [
+  "/api/admin",
   "/api/sales-ai/settings",
 ];
 
@@ -36,14 +38,24 @@ function parseCsv(value?: string | null) {
     .filter(Boolean);
 }
 
-function isCometaAdmin(user: { id?: string; email?: string | null } | null) {
+function isCometaAdmin(
+  user: {
+    id?: string;
+    email?: string | null;
+  } | null
+) {
   if (!user) return false;
 
   const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
   const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
 
-  const userEmail = String(user.email || "").trim().toLowerCase();
-  const userId = String(user.id || "").trim().toLowerCase();
+  const userEmail = String(user.email || "")
+    .trim()
+    .toLowerCase();
+
+  const userId = String(user.id || "")
+    .trim()
+    .toLowerCase();
 
   if (!adminEmails.length && !adminUserIds.length) {
     return false;
@@ -76,6 +88,7 @@ async function getProxyUser(request: NextRequest) {
       getAll() {
         return request.cookies.getAll();
       },
+
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
@@ -115,6 +128,23 @@ function copyCookies(source: NextResponse, target: NextResponse) {
   return target;
 }
 
+function redirectToLogin(
+  request: NextRequest,
+  authResponse: NextResponse
+) {
+  const loginUrl = request.nextUrl.clone();
+
+  loginUrl.pathname = "/login";
+  loginUrl.searchParams.set(
+    "next",
+    `${request.nextUrl.pathname}${request.nextUrl.search}`
+  );
+
+  const redirectResponse = NextResponse.redirect(loginUrl);
+
+  return copyCookies(authResponse, redirectResponse);
+}
+
 function redirectToAccessDenied(
   request: NextRequest,
   authResponse: NextResponse
@@ -129,13 +159,29 @@ function redirectToAccessDenied(
   return copyCookies(authResponse, redirectResponse);
 }
 
+function unauthorizedJson(authResponse: NextResponse) {
+  const response = NextResponse.json(
+    {
+      ok: false,
+      error: "No autorizado. Inicia sesión.",
+    },
+    {
+      status: 401,
+    }
+  );
+
+  return copyCookies(authResponse, response);
+}
+
 function forbiddenJson(authResponse: NextResponse) {
   const response = NextResponse.json(
     {
       ok: false,
       error: "Forbidden. Esta ruta es solo para administradores de Cometa.",
     },
-    { status: 403 }
+    {
+      status: 403,
+    }
   );
 
   return copyCookies(authResponse, response);
@@ -147,11 +193,19 @@ export async function proxy(request: NextRequest) {
   console.log("PROXY ACTIVO:", pathname);
 
   /**
-   * API técnica protegida.
-   * Esto bloquea llamadas directas aunque el cliente intente usar la consola.
+   * APIs administrativas.
+   *
+   * Protege:
+   * /api/admin/access
+   * /api/admin/whatsapp-connections
+   * cualquier futura ruta dentro de /api/admin
    */
   if (isProtectedAdminApi(pathname)) {
     const { user, response } = await getProxyUser(request);
+
+    if (!user) {
+      return unauthorizedJson(response);
+    }
 
     if (!isCometaAdmin(user)) {
       return forbiddenJson(response);
@@ -161,36 +215,37 @@ export async function proxy(request: NextRequest) {
   }
 
   /**
-   * Otras APIs pasan.
-   * La seguridad específica por marca/cliente se refuerza dentro de cada route.ts.
+   * El resto de APIs continúa hacia su propia validación interna.
+   *
+   * Ejemplos:
+   * /api/webhooks/whatsapp
+   * /api/sales-ai/agent-run
+   * /api/mercury/...
    */
   if (pathname.startsWith("/api/")) {
     return NextResponse.next();
   }
 
   /**
-   * Landing pública y login público.
+   * Landing y login públicos.
    */
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
 
   /**
-   * Páginas internas Cometa.
-   * Cliente normal no puede entrar manualmente.
+   * Páginas administrativas exclusivas de Cometa.
+   *
+   * /workspace/admin
+   * /workspace/admin/whatsapp-connections
+   * /sales-ai/settings
+   * /sales-ai/admin
    */
   if (isProtectedAdminPage(pathname)) {
     const { user, response } = await getProxyUser(request);
 
     if (!user) {
-      const loginUrl = request.nextUrl.clone();
-
-      loginUrl.pathname = "/login";
-      loginUrl.searchParams.set("next", pathname);
-
-      const redirectResponse = NextResponse.redirect(loginUrl);
-
-      return copyCookies(response, redirectResponse);
+      return redirectToLogin(request, response);
     }
 
     if (!isCometaAdmin(user)) {
@@ -201,7 +256,8 @@ export async function proxy(request: NextRequest) {
   }
 
   /**
-   * Todo lo demás pasa por Supabase Auth:
+   * Todo lo demás pasa por Supabase Auth.
+   *
    * /workspace
    * /brand
    * /sales-ai
@@ -209,6 +265,7 @@ export async function proxy(request: NextRequest) {
    * /new-analysis
    * /generate-strategy
    * /nova
+   * /mercury
    */
   return await updateSession(request);
 }
