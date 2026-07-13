@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import MetaEmbeddedSignupCard from "@/components/whatsapp/MetaEmbeddedSignupCard";
 
 type ConnectionStatus =
   | "not_connected"
@@ -390,10 +391,15 @@ function SalesAIConnectContent() {
 
             <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
               <div className="min-w-0 space-y-5">
-                <MetaConnectionCard
-                  connection={connection}
-  status={statusMeta}
+                <MetaEmbeddedSignupCard
+  brandSlug={selectedBrandSlug}
+  connectionStatus={connection.connection_status}
+  webhookStatus={connection.webhook_status}
+  realSendEnabled={connection.real_send_enabled}
+  statusLabel={statusMeta.label}
+  statusTone={statusMeta.pillTone}
   loading={loading}
+  onCompleted={loadConnection}
 />
 
                 <SalesChannelCard
