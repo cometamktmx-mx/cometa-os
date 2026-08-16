@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
   getAppOrigin,
   getStripeClient,
+  getStripeBillingLink,
+  getStripeRuntimeMode,
   getStripePriceId,
 } from "@/lib/stripe/server";
 import {
@@ -54,18 +56,35 @@ export async function POST(request: Request) {
 
     const { data: subscription, error: subscriptionError } = await admin
       .from("pos_subscriptions")
-      .select("id,stripe_customer_id,stripe_subscription_id")
+      .select("id")
       .eq("brand_slug", brand.slug)
       .maybeSingle();
     assertDatabaseResult(subscriptionError, "No se pudo validar la suscripción.");
     if (!subscription) {
       return Response.json({ ok: false, code: "POS_SUBSCRIPTION_NOT_FOUND", error: "No existe una suscripción POS para esta empresa." }, { status: 409 });
     }
+    const livemode = getStripeRuntimeMode();
+    let link = await getStripeBillingLink(admin, brand.slug, livemode);
+    if (!link) {
+      const { data: createdLink, error: linkError } = await admin
+        .from("pos_stripe_billing_links")
+        .insert({ brand_slug: brand.slug, livemode })
+        .select("id,brand_slug,livemode,stripe_customer_id,stripe_subscription_id,stripe_price_id,stripe_cancel_at_period_end")
+        .single();
+      if (linkError?.code === "23505") {
+        link = await getStripeBillingLink(admin, brand.slug, livemode);
+      } else {
+        assertDatabaseResult(linkError, "No se pudo preparar la identidad de Stripe.");
+        link = createdLink;
+      }
+    }
+    if (!link) return Response.json({ ok: false, code: "POS_STRIPE_LINK_NOT_CONFIGURED", error: "No se pudo resolver la identidad de Stripe para este entorno." }, { status: 409 });
+
     const stripe = getStripeClient();
-    if (subscription.stripe_subscription_id) {
+    if (link.stripe_subscription_id) {
       let previousSubscription;
       try {
-        previousSubscription = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+        previousSubscription = await stripe.subscriptions.retrieve(link.stripe_subscription_id);
       } catch (cause) {
         const stripeError = cause as { code?: string; statusCode?: number };
         if (stripeError.code === "resource_missing" || stripeError.statusCode === 404) {
@@ -80,14 +99,14 @@ export async function POST(request: Request) {
       }
     }
 
-    let customerId = subscription.stripe_customer_id as string | null;
+    let customerId = link.stripe_customer_id;
     if (!customerId) {
       const customer = await stripe.customers.create(
         { name: brand.name, metadata: { brand_slug: brand.slug, pos_subscription_id: subscription.id } },
         { idempotencyKey: `cometa-customer-${brand.slug}` }
       );
       customerId = customer.id;
-      const { error } = await admin.from("pos_subscriptions").update({ stripe_customer_id: customerId }).eq("id", subscription.id);
+      const { error } = await admin.from("pos_stripe_billing_links").update({ stripe_customer_id: customerId }).eq("id", link.id);
       assertDatabaseResult(error, "No se pudo asociar el cliente de Stripe.");
     }
 
@@ -101,8 +120,8 @@ export async function POST(request: Request) {
         success_url: `${getAppOrigin()}/brand/${encodeURIComponent(brand.slug)}/pos/subscription?checkout=success`,
         cancel_url: `${getAppOrigin()}/brand/${encodeURIComponent(brand.slug)}/pos/subscription?checkout=cancelled`,
         client_reference_id: subscription.id,
-        metadata: { brand_slug: brand.slug, plan_code: plan.code, pos_subscription_id: subscription.id },
-        subscription_data: { metadata: { brand_slug: brand.slug, plan_code: plan.code, pos_subscription_id: subscription.id } },
+        metadata: { brand_slug: brand.slug, plan_code: plan.code, pos_subscription_id: subscription.id, livemode: String(livemode) },
+        subscription_data: { metadata: { brand_slug: brand.slug, plan_code: plan.code, pos_subscription_id: subscription.id, livemode: String(livemode) } },
       },
       { idempotencyKey: `cometa-checkout-${subscription.id}-${checkoutAttemptId}` }
     );

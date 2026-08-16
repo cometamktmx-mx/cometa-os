@@ -10,6 +10,7 @@ const files = {
   webhook: "src/app/api/stripe/webhook/route.ts",
   page: "src/app/brand/[brandSlug]/pos/subscription/page.tsx",
   migration: "supabase/migrations/20260816_pos_stripe_billing_v1.sql",
+  linksMigration: "supabase/migrations/20260816_pos_stripe_billing_links_v1.sql",
 };
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const checks = [
@@ -26,7 +27,7 @@ const checks = [
   ["historical Stripe subscription is retrieved before duplicate blocking", read(files.checkout).includes('stripe.subscriptions.retrieve')],
   ["terminal Stripe subscriptions permit re-checkout", read(files.checkout).includes('incomplete_expired') && read(files.checkout).includes('canceled')],
   ["non-terminal Stripe subscriptions remain protected", read(files.checkout).includes('POS_STRIPE_SUBSCRIPTION_EXISTS')],
-  ["existing Stripe customer is reused", read(files.checkout).includes('subscription.stripe_customer_id')],
+  ["existing Stripe customer is reused", read(files.checkout).includes("link.stripe_customer_id") && read(files.checkout).includes("customers.create")],
   ["checkout idempotency is attempt-scoped", read(files.checkout).includes('randomUUID()') && read(files.checkout).includes('checkoutAttemptId') && !read(files.checkout).includes('cometa-checkout-${subscription.id}-${plan.code}')],
   ["Stripe lookup failures fail closed", read(files.checkout).includes('POS_STRIPE_SUBSCRIPTION_LOOKUP_FAILED')],
   ["cancelled UI offers re-subscription without trial presentation", read(files.page).includes('Tu suscripción está cancelada') && read(files.page).includes('subscription?.status === "cancelled"')],
@@ -39,6 +40,15 @@ const checks = [
   ["subscription periods prefer item-level fields", read(files.webhook).includes('current_period_start') && read(files.webhook).includes('items?.data')],
   ["subscription periods have legacy fallback", read(files.webhook).includes('legacyStart') && read(files.webhook).includes('legacyEnd')],
   ["ambiguous multiple items fail closed", read(files.webhook).includes('POS_STRIPE_PERIOD_AMBIGUOUS')],
+  ["runtime mode derives from Stripe secret", read(files.helper).includes('getStripeRuntimeMode') && read(files.helper).includes('sk_test_') && read(files.helper).includes('sk_live_')],
+  ["mapping table is brand and mode scoped", read(files.linksMigration).includes('pos_stripe_billing_links') && read(files.linksMigration).includes('UNIQUE (brand_slug, livemode)')],
+  ["checkout uses mode-scoped mapping", read(files.checkout).includes('getStripeBillingLink') && read(files.checkout).includes('getStripeRuntimeMode')],
+  ["portal uses mode-scoped mapping", read(files.portal).includes('getStripeBillingLink') && read(files.portal).includes('getStripeRuntimeMode')],
+  ["billing read uses mode-scoped mapping", read(files.billing).includes('getStripeBillingLink') && read(files.billing).includes('livemode')],
+  ["webhook validates event mode", read(files.webhook).includes('POS_STRIPE_EVENT_MODE_MISMATCH') && read(files.webhook).includes('event.livemode')],
+  ["webhook mapping queries include mode", read(files.webhook).includes('.eq("livemode", livemode)')],
+  ["legacy Stripe columns are not operational identity source", !read(files.checkout).includes('subscription.stripe_customer_id') && !read(files.portal).includes('stripe_customer_id")')],
+  ["live projection takes precedence over test", read(files.webhook).includes('liveLink?.stripe_subscription_id')],
 ];
 const failed = checks.filter(([, passed]) => !passed);
 for (const [name, passed] of checks) console.log(`${passed ? "PASS" : "FAIL"} ${name}`);

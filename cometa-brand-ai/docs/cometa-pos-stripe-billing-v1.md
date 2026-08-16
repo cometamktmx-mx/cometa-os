@@ -2,6 +2,12 @@
 
 Stripe es la autoridad de billing. Cometa conserva la autoridad de acceso mediante lifecycle nativo, entitlements y commercial grants.
 
+## Aislamiento Test/Live
+
+Las identidades externas se almacenan en `pos_stripe_billing_links`, separadas por `brand_slug + livemode`. `pos_subscriptions` conserva plan, status, lifecycle y acceso nativos; sus columnas Stripe anteriores quedan legacy durante el cutover.
+
+`sk_test_*` sólo consulta mappings Test (`livemode = false`) y `sk_live_*` sólo consulta mappings Live (`livemode = true`). El webhook rechaza eventos cuyo `event.livemode` no coincide con el runtime. La proyección nativa Live tiene prioridad: un webhook Test no sobrescribe `pos_subscriptions` cuando ya existe una Subscription Live.
+
 ## Configuración
 
 Configurar server-side, sin `NEXT_PUBLIC_*`:

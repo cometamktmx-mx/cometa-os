@@ -1,6 +1,7 @@
 import "server-only";
 
 import Stripe from "stripe";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { PosPlanCode } from "@/lib/pos/plans";
 
@@ -18,9 +19,46 @@ const PRICE_ENV_BY_PLAN: Record<PosPlanCode, string> = {
 };
 
 export function getStripeClient() {
+  const key = getStripeSecretKey();
+  return new Stripe(key);
+}
+
+function getStripeSecretKey() {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_ENV_MISSING");
-  return new Stripe(key);
+  return key;
+}
+
+export function getStripeRuntimeMode(): boolean {
+  const key = getStripeSecretKey();
+  if (key.startsWith("sk_test_")) return false;
+  if (key.startsWith("sk_live_")) return true;
+  throw new Error("STRIPE_RUNTIME_MODE_UNKNOWN");
+}
+
+export type StripeBillingLink = {
+  id: string;
+  brand_slug: string;
+  livemode: boolean;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  stripe_price_id: string | null;
+  stripe_cancel_at_period_end: boolean;
+};
+
+export async function getStripeBillingLink(
+  admin: SupabaseClient,
+  brandSlug: string,
+  livemode: boolean
+): Promise<StripeBillingLink | null> {
+  const { data, error } = await admin
+    .from("pos_stripe_billing_links")
+    .select("id,brand_slug,livemode,stripe_customer_id,stripe_subscription_id,stripe_price_id,stripe_cancel_at_period_end")
+    .eq("brand_slug", brandSlug)
+    .eq("livemode", livemode)
+    .maybeSingle();
+  if (error) throw error;
+  return data as StripeBillingLink | null;
 }
 
 export function getAppOrigin() {

@@ -1,6 +1,7 @@
 import { assertDatabaseResult, getBrandSlugFromUrl, handlePosError, ok, requirePosContext } from "@/lib/pos/server";
 import { hasPosPermission, requirePosPermission } from "@/lib/pos/rbac";
 import { isEffectiveCommercialAccess } from "@/lib/pos/lifecycle";
+import { getStripeBillingLink, getStripeRuntimeMode } from "@/lib/stripe/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,8 +11,9 @@ export async function GET(request: Request) {
     const context = await requirePosContext(getBrandSlugFromUrl(request));
     requirePosPermission(context, "pos.subscription.view");
     const { admin, brand, membership } = context;
+    const livemode = getStripeRuntimeMode();
     const [subscriptionResult, accessResult] = await Promise.all([
-      admin.from("pos_subscriptions").select("plan_code,status,list_price,contracted_price,currency,billing_interval,trial_ends_at,current_period_start,current_period_end,stripe_cancel_at_period_end,stripe_customer_id,stripe_subscription_id,plan:pos_plans(name)").eq("brand_slug", brand.slug).maybeSingle(),
+      admin.from("pos_subscriptions").select("plan_code,status,list_price,contracted_price,currency,billing_interval,trial_ends_at,current_period_start,current_period_end,stripe_cancel_at_period_end,plan:pos_plans(name)").eq("brand_slug", brand.slug).maybeSingle(),
       admin.rpc("pos_get_effective_commercial_access", { p_brand_slug: brand.slug }),
     ]);
     assertDatabaseResult(subscriptionResult.error, "No se pudo cargar la suscripción.");
@@ -20,6 +22,7 @@ export async function GET(request: Request) {
     const grant = access?.grant ?? { active: false, planCode: null, type: null, startsAt: null, endsAt: null };
     const daysRemaining = grant.endsAt ? Math.max(0, Math.ceil((new Date(grant.endsAt).getTime() - Date.now()) / 86400000)) : null;
     const subscription = subscriptionResult.data as (Record<string, unknown> & { plan?: { name?: string } | Array<{ name?: string }> | null }) | null;
+    const link = await getStripeBillingLink(admin, brand.slug, livemode);
     return ok({
       canManage: hasPosPermission(membership, "pos.subscription.manage"),
       subscription: subscription ? {
@@ -42,7 +45,7 @@ export async function GET(request: Request) {
         planSource: access.effective.planSource,
       } : null,
       grant: { active: grant.active, code: grant.active ? "COMETA-AGENCY-6M" : null, type: grant.type, startsAt: grant.startsAt, endsAt: grant.endsAt, daysRemaining },
-      stripe: { connected: Boolean(subscription?.stripe_customer_id), subscriptionConnected: Boolean(subscription?.stripe_subscription_id) },
+      stripe: { connected: Boolean(link?.stripe_customer_id), customerConnected: Boolean(link?.stripe_customer_id), subscriptionConnected: Boolean(link?.stripe_subscription_id), livemode },
     });
   } catch (error) {
     return handlePosError(error);
