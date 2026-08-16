@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 const TEAM_ROLES = ["designer", "cm", "copywriter", "video", "manager", "admin"];
@@ -93,7 +93,7 @@ async function resolvePostLoginRedirect(supabase: any, userId?: string | null) {
     // Fallback final.
   }
 
-  return "/workspace";
+  return "/onboarding/business";
 }
 
 export default function LoginPage() {
@@ -103,6 +103,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const authError = new URLSearchParams(window.location.search).get("error");
+    if (authError === "email_confirmation_failed") {
+      setErrorMessage(
+        "El enlace de confirmaciÃ³n no es vÃ¡lido o ya expirÃ³. Solicita un correo nuevo desde la pantalla de registro."
+      );
+    } else if (authError === "auth_callback_failed") {
+      setErrorMessage(
+        "No pudimos completar el acceso. Intenta iniciar sesiÃ³n nuevamente."
+      );
+    }
+  }, []);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -279,6 +292,15 @@ export default function LoginPage() {
             >
               Solicitar acceso
             </a>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-2 border-t border-slate-100 pt-5 text-center text-sm font-bold">
+            <Link href="/signup?product=pos" className="text-cyan-700 hover:text-cyan-600">
+              ¿No tienes cuenta? Crear cuenta
+            </Link>
+            <Link href="/forgot-password" className="text-slate-500 hover:text-slate-950">
+              ¿Olvidaste tu contraseña? Recuperar contraseña
+            </Link>
           </div>
         </div>
       </section>

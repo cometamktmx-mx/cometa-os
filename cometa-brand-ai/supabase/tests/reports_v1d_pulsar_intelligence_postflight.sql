@@ -1,0 +1,17 @@
+-- REPORTS V1D POSTFLIGHT — READ ONLY
+WITH fn(name)AS(VALUES('pos_create_intelligence_report_record'),('pos_get_intelligence_reports'),('pos_get_latest_intelligence_report'),('pos_get_intelligence_report')),checks AS(
+ SELECT'TABLE exists'check_name,to_regclass('public.pos_intelligence_reports')IS NOT NULL passed,COALESCE(to_regclass('public.pos_intelligence_reports')::text,'absent')actual,'public.pos_intelligence_reports'expected
+ UNION ALL SELECT'COLUMNS',count(*)=26,count(*)::text,'26'FROM information_schema.columns WHERE table_schema='public'AND table_name='pos_intelligence_reports'
+ UNION ALL SELECT'CHECKS',count(*)>=13,count(*)::text,'>=13'FROM pg_constraint WHERE conrelid='public.pos_intelligence_reports'::regclass AND contype='c'
+ UNION ALL SELECT'FKs',count(*)=2,count(*)::text,'2'FROM pg_constraint WHERE conrelid='public.pos_intelligence_reports'::regclass AND contype='f'
+ UNION ALL SELECT'INDEXES',count(*)>=4,count(*)::text,'>=4'FROM pg_indexes WHERE schemaname='public'AND tablename='pos_intelligence_reports'
+ UNION ALL SELECT'RLS',(SELECT relrowsecurity FROM pg_class WHERE oid='public.pos_intelligence_reports'::regclass),(SELECT relrowsecurity::text FROM pg_class WHERE oid='public.pos_intelligence_reports'::regclass),'true'
+ UNION ALL SELECT'SELECT policy',count(*)=1,count(*)::text,'1'FROM pg_policies WHERE schemaname='public'AND tablename='pos_intelligence_reports'AND cmd='SELECT'
+ UNION ALL SELECT'NO write policy',count(*)=0,count(*)::text,'0'FROM pg_policies WHERE schemaname='public'AND tablename='pos_intelligence_reports'AND cmd IN('ALL','INSERT','UPDATE','DELETE')
+ UNION ALL SELECT'FUNCTIONS',count(*)=4,count(*)::text,'4'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'AND p.proname IN(SELECT name FROM fn)
+ UNION ALL SELECT'SECURITY DEFINER',bool_and(p.prosecdef),string_agg(p.proname||'='||p.prosecdef,','),'all true'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'AND p.proname IN(SELECT name FROM fn)
+ UNION ALL SELECT'search_path',bool_and('search_path=public'=ANY(COALESCE(p.proconfig,'{}'))),string_agg(p.proname||'='||array_to_string(p.proconfig,','),';'),'all public'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'AND p.proname IN(SELECT name FROM fn)
+ UNION ALL SELECT'service_role execute',count(*)FILTER(WHERE has_function_privilege('service_role',p.oid,'EXECUTE'))=4,count(*)FILTER(WHERE has_function_privilege('service_role',p.oid,'EXECUTE'))||' granted','4 granted'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'AND p.proname IN(SELECT name FROM fn)
+ UNION ALL SELECT'browser denied',count(*)FILTER(WHERE has_function_privilege('anon',p.oid,'EXECUTE')OR has_function_privilege('authenticated',p.oid,'EXECUTE'))=0,count(*)FILTER(WHERE has_function_privilege('anon',p.oid,'EXECUTE')OR has_function_privilege('authenticated',p.oid,'EXECUTE'))||' exposed','0 exposed'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'AND p.proname IN(SELECT name FROM fn)
+ UNION ALL SELECT'versions',position('pulsar_v1'IN pg_get_constraintdef(oid))>0,'pulsar_v1','pulsar_v1'FROM pg_constraint WHERE conname='pos_intelligence_reports_prompt_ck')
+SELECT check_name,passed,actual,expected FROM checks UNION ALL SELECT'SUMMARY all_checks_passed',bool_and(passed),bool_and(passed)::text,'true'FROM checks;

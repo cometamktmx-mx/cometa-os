@@ -114,6 +114,11 @@ export default function WorkspacePage() {
         throw new Error(data?.error || "No se pudo cargar el workspace.");
       }
 
+      if (data.shouldRedirectToBusinessOnboarding) {
+        router.replace("/onboarding/business");
+        return;
+      }
+
       if (data.shouldRedirectToBrand && data.redirectBrandHref) {
         router.replace(data.redirectBrandHref);
         return;

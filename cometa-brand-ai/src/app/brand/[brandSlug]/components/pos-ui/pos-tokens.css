@@ -1,0 +1,108 @@
+.cometa-pos {
+  color-scheme: dark;
+
+  /* Spacing */
+  --pos-space-1: 0.25rem;
+  --pos-space-2: 0.5rem;
+  --pos-space-3: 0.75rem;
+  --pos-space-4: 1rem;
+  --pos-space-6: 1.5rem;
+  --pos-space-8: 2rem;
+  --pos-space-12: 3rem;
+
+  /* Radius */
+  --pos-radius-xs: 0.375rem;
+  --pos-radius-sm: 0.5rem;
+  --pos-radius-md: 0.75rem;
+  --pos-radius-lg: 1rem;
+  --pos-radius-xl: 1.25rem;
+  --pos-radius-pill: 999px;
+
+  /* Type */
+  --pos-text-caption: 0.6875rem;
+  --pos-text-meta: 0.75rem;
+  --pos-text-table: 0.8125rem;
+  --pos-text-body: 0.875rem;
+  --pos-text-section: 1rem;
+  --pos-text-page: 1.375rem;
+  --pos-text-kpi: 2rem;
+  --pos-text-display: 2.5rem;
+
+  /* Control heights */
+  --pos-control-compact: 2.25rem;
+  --pos-control-normal: 2.75rem;
+  --pos-control-touch: 3rem;
+
+  /* Semantic surfaces */
+  --pos-shell: #030812;
+  --pos-canvas: #07101c;
+  --pos-panel: #0c1725;
+  --pos-panel-raised: #111e2e;
+  --pos-panel-muted: #091421;
+  --pos-overlay: rgb(1 5 12 / 82%);
+  --pos-row-hover: rgb(255 255 255 / 4%);
+  --pos-row-selected: rgb(34 211 238 / 8%);
+
+  /* Content */
+  --pos-text-primary: #f8fafc;
+  --pos-text-secondary: #a8b3c4;
+  --pos-text-muted: #69778b;
+  --pos-text-disabled: #465265;
+
+  /* Lines */
+  --pos-line-subtle: rgb(255 255 255 / 6%);
+  --pos-line: rgb(255 255 255 / 10%);
+  --pos-line-strong: rgb(255 255 255 / 16%);
+
+  /* Action and state */
+  --pos-primary: #22d3ee;
+  --pos-primary-hover: #67e8f9;
+  --pos-primary-soft: rgb(34 211 238 / 10%);
+  --pos-primary-line: rgb(34 211 238 / 28%);
+  --pos-success: #6ee7b7;
+  --pos-success-soft: rgb(52 211 153 / 10%);
+  --pos-warning: #fcd34d;
+  --pos-warning-soft: rgb(251 191 36 / 10%);
+  --pos-danger: #fda4af;
+  --pos-danger-soft: rgb(244 63 94 / 10%);
+  --pos-info: #93c5fd;
+  --pos-info-soft: rgb(59 130 246 / 10%);
+
+  /* Depth and motion */
+  --pos-shadow-panel: 0 14px 40px rgb(0 0 0 / 18%);
+  --pos-shadow-overlay: 0 28px 90px rgb(0 0 0 / 48%);
+  --pos-focus-ring: 0 0 0 3px rgb(34 211 238 / 18%);
+  --pos-duration-fast: 120ms;
+  --pos-duration-normal: 180ms;
+}
+
+.cometa-pos .pos-ui-focus:focus-visible {
+  border-color: var(--pos-primary-line);
+  box-shadow: var(--pos-focus-ring);
+  outline: none;
+}
+
+.cometa-pos .pos-ui-focus-within:focus-within {
+  border-color: var(--pos-primary-line);
+  box-shadow: var(--pos-focus-ring);
+}
+
+.cometa-pos .pos-ui-scrollbar {
+  scrollbar-color: rgb(148 163 184 / 24%) transparent;
+  scrollbar-width: thin;
+}
+
+.cometa-pos .pos-ui-table th,
+.cometa-pos .pos-ui-table td {
+  border-bottom: 1px solid var(--pos-line-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.cometa-pos .pos-ui-table tbody tr {
+  transition: background-color var(--pos-duration-fast) ease;
+}
+
+.cometa-pos .pos-ui-table tbody tr:hover {
+  background: var(--pos-row-hover);
+}

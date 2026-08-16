@@ -2,7 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { updateSession } from "./lib/supabase/middleware";
 
-const publicRoutes = ["/", "/login"];
+const publicRoutes = [
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/auth/callback",
+  "/auth/confirm",
+];
 
 const protectedAdminPages = [
   "/workspace/admin",
@@ -230,7 +238,11 @@ export async function proxy(request: NextRequest) {
    * Landing y login públicos.
    */
   if (isPublicRoute(pathname)) {
-    return NextResponse.next();
+    // Public does not mean "skip session maintenance": let the SSR client
+    // rotate valid cookies or remove an invalid/stale refresh token, while
+    // keeping the route accessible when there is no authenticated user.
+    const { response } = await getProxyUser(request);
+    return response;
   }
 
   /**
