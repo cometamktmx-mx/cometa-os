@@ -85,6 +85,16 @@ type UnitOption = {
 type ProductConfigResponse = {
   ok: true;
   units: UnitOption[];
+  attributes?: ProductAttributeDefinition[];
+};
+
+type ProductAttributeDefinition = {
+  id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  use_in_variant_name: boolean;
+  active?: boolean;
 };
 
 type LoyaltyMember = {
@@ -163,6 +173,7 @@ type ProductVariant = {
 
 type Product = {
   id: string;
+  product_code: string | null;
   name: string;
   description: string | null;
   product_type: string;
@@ -238,6 +249,7 @@ type ScanResponse =
 type SellableVariant = {
   productId: string;
   productName: string;
+  productCode: string | null;
   productDescription: string | null;
   productImageUrl: string | null;
   productType: string;
@@ -255,6 +267,16 @@ type SellableVariant = {
   attributes: Record<string, unknown>;
   availableStock: number;
   inventoryTracked: boolean;
+};
+
+type ProductGroup = {
+  productId: string;
+  productName: string;
+  productDescription: string | null;
+  productImageUrl: string | null;
+  categoryId: string | null;
+  categoryName: string;
+  variants: SellableVariant[];
 };
 
 type CartItem = SellableVariant & {
@@ -440,6 +462,10 @@ export default function PosRegisterPage() {
   const [products, setProducts] = useState<
     Product[]
   >([]);
+  const [attributeDefinitions, setAttributeDefinitions] =
+    useState<ProductAttributeDefinition[]>([]);
+  const [selectedProductId, setSelectedProductId] =
+    useState<string | null>(null);
   const [customers, setCustomers] = useState<
     PosCustomer[]
   >([]);
@@ -574,6 +600,9 @@ export default function PosRegisterPage() {
         );
         setUnits(
           productConfig.units || []
+        );
+        setAttributeDefinitions(
+          productConfig.attributes || []
         );
         setProducts(
           productData.products || []
@@ -832,48 +861,54 @@ export default function PosRegisterPage() {
     );
   }, [sellableVariants]);
 
-  const filteredVariants =
-    useMemo(() => {
-      const query = search
-        .trim()
-        .toLowerCase();
+  const productGroups = useMemo<ProductGroup[]>(() => {
+    const groups = new Map<string, ProductGroup>();
+    for (const variant of sellableVariants) {
+      const existing = groups.get(variant.productId);
+      if (existing) {
+        existing.variants.push(variant);
+        continue;
+      }
+      groups.set(variant.productId, {
+        productId: variant.productId,
+        productName: variant.productName,
+        productDescription: variant.productDescription,
+        productImageUrl: variant.productImageUrl,
+        categoryId: variant.categoryId,
+        categoryName: variant.categoryName,
+        variants: [variant],
+      });
+    }
+    return Array.from(groups.values());
+  }, [sellableVariants]);
 
-      return sellableVariants.filter(
-        (variant) => {
-          const matchesCategory =
-            selectedCategory === "all" ||
-            variant.categoryId ===
-              selectedCategory;
+  const filteredGroups = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return productGroups.filter((group) => {
+      if (
+        selectedCategory !== "all" &&
+        group.categoryId !== selectedCategory
+      ) {
+        return false;
+      }
+      if (!query) return true;
+      return [
+          group.productName,
+        group.variants[0]?.productCode || "",
+        group.categoryName,
+        ...group.variants.flatMap((variant) => [
+          variant.variantName,
+          variant.sku || "",
+          variant.barcode || "",
+          formatAttributes(variant.attributes),
+        ]),
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [productGroups, search, selectedCategory]);
 
-          if (!matchesCategory) {
-            return false;
-          }
-
-          if (!query) {
-            return true;
-          }
-
-          return [
-            variant.productName,
-            variant.variantName,
-            variant.sku || "",
-            variant.barcode || "",
-            variant.categoryName,
-            formatAttributes(
-              variant.attributes
-            ),
-          ].some((value) =>
-            value
-              .toLowerCase()
-              .includes(query)
-          );
-        }
-      );
-    }, [
-      search,
-      selectedCategory,
-      sellableVariants,
-    ]);
+  const selectedProduct = selectedProductId
+    ? productGroups.find((group) => group.productId === selectedProductId) || null
+    : null;
 
   const baseTotals = useMemo(
     () =>
@@ -1120,6 +1155,16 @@ export default function PosRegisterPage() {
     );
   }
 
+  function selectProduct(group: ProductGroup) {
+    if (group.variants.length === 1) {
+      addVariantToCart(group.variants[0]);
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setSelectedProductId(group.productId);
+  }
+
   function updateCartQuantity(
     variantId: string,
     rawQuantity: number
@@ -1283,6 +1328,7 @@ export default function PosRegisterPage() {
             result.variant.product.id,
           productName:
             result.variant.product.name,
+          productCode: null,
           productDescription:
             result.variant.product
               .description,
@@ -1815,26 +1861,19 @@ export default function PosRegisterPage() {
               )}
             </div>
 
-            {filteredVariants.length >
+            {filteredGroups.length >
             0 ? (
               <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 min-[1180px]:grid-cols-2 min-[1500px]:grid-cols-3">
-                {filteredVariants.map(
-                  (variant) => (
-                    <VariantCard
+                {filteredGroups.map(
+                  (group) => (
+                    <ProductGroupCard
                       key={
-                        variant.variantId
+                        group.productId
                       }
-                      variant={variant}
+                      group={group}
                       currency={currency}
-                      unit={
-                        unitMap.get(
-                          variant.unitCode
-                        )
-                      }
                       onAdd={() =>
-                        addVariantToCart(
-                          variant
-                        )
+                        selectProduct(group)
                       }
                     />
                   )
@@ -1860,6 +1899,19 @@ export default function PosRegisterPage() {
             )}
           </article>
         </div>
+
+        {selectedProduct ? (
+          <VariantSelectorModal
+            group={selectedProduct}
+            definitions={attributeDefinitions}
+            currency={currency}
+            onClose={() => setSelectedProductId(null)}
+            onSelect={(variant) => {
+              addVariantToCart(variant);
+              setSelectedProductId(null);
+            }}
+          />
+        ) : null}
 
         <CartPanel
           cart={cart}
@@ -2000,6 +2052,239 @@ export default function PosRegisterPage() {
         />
       ) : null}
     </PosPage>
+  );
+}
+
+function ProductGroupCard({
+  group,
+  currency,
+  onAdd,
+}: {
+  group: ProductGroup;
+  currency: string;
+  onAdd: () => void;
+}) {
+  const single = group.variants.length === 1;
+  const variant = group.variants[0];
+  const tracked = group.variants.some((item) => item.inventoryTracked);
+  const totalStock = group.variants.reduce(
+    (total, item) =>
+      total + (item.inventoryTracked ? Math.max(item.availableStock, 0) : 0),
+    0
+  );
+  const prices = group.variants.map((item) => item.price);
+  const samePrice = prices.every((price) => price === prices[0]);
+  const soldOut = single && Boolean(variant?.inventoryTracked && variant.availableStock <= 0);
+
+  return (
+    <button
+      type="button"
+      disabled={soldOut}
+      onClick={onAdd}
+      className="pos-ui-focus group flex min-h-36 flex-col rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-3 text-left transition-colors duration-150 hover:bg-[var(--pos-panel-raised)] disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[var(--pos-radius-sm)] bg-white/[0.04]">
+          <PosProductImage
+            src={variant?.variantImageUrl || group.productImageUrl}
+            alt={group.productName}
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-semibold leading-5 text-[var(--pos-text-primary)]">
+            {group.productName}
+          </p>
+          <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
+            {single ? variant?.variantName : `${group.variants.length} variantes`}
+          </p>
+        </div>
+      </div>
+      <div className="mt-auto flex items-end justify-between gap-3 pt-4">
+        <div>
+          <p className="text-base font-bold text-[var(--pos-text-primary)]">
+            {samePrice ? formatMoney(prices[0] || 0, currency) : `Desde ${formatMoney(Math.min(...prices), currency)}`}
+          </p>
+          <p className={`mt-1 text-[9px] font-black uppercase tracking-[0.1em] ${soldOut ? "text-rose-300" : "text-cyan-300"}`}>
+            {soldOut ? "Agotado" : tracked ? `${formatQuantity(totalStock)} disponibles` : "Venta sin inventario"}
+          </p>
+        </div>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary-soft)] text-lg font-bold text-[var(--pos-primary)] transition-colors group-hover:bg-[var(--pos-primary)] group-hover:text-slate-950">
+          {single ? "+" : "›"}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function VariantSelectorModal({
+  group,
+  definitions,
+  currency,
+  onClose,
+  onSelect,
+}: {
+  group: ProductGroup;
+  definitions: ProductAttributeDefinition[];
+  currency: string;
+  onClose: () => void;
+  onSelect: (variant: SellableVariant) => void;
+}) {
+  const [selection, setSelection] = useState<Record<string, string>>({});
+  const attributeCodes = useMemo(() => {
+    const keys = new Set(
+      group.variants.flatMap((variant) => Object.keys(variant.attributes || {}))
+    );
+    return [
+      ...definitions
+        .filter((definition) => keys.has(definition.code))
+        .sort((left, right) => left.sort_order - right.sort_order)
+        .map((definition) => definition.code),
+      ...Array.from(keys).filter(
+        (key) => !definitions.some((definition) => definition.code === key)
+      ).sort(),
+    ];
+  }, [definitions, group.variants]);
+
+  const labelFor = (code: string) =>
+    definitions.find((definition) => definition.code === code)?.name || code;
+
+  const optionsFor = (code: string) =>
+    Array.from(
+      new Set(
+        group.variants
+          .map((variant) => String(variant.attributes[code] || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+  useEffect(() => {
+    setSelection((current) => {
+      const next = { ...current };
+      for (const code of attributeCodes) {
+        const options = optionsFor(code);
+        if (options.length === 1) next[code] = options[0];
+      }
+      return next;
+    });
+  }, [attributeCodes, group.variants]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+      if (event.key === "Enter") {
+        const variant = resolveVariant(group.variants, attributeCodes, selection);
+        if (variant && (!variant.inventoryTracked || variant.availableStock > 0)) {
+          event.preventDefault();
+          onSelect(variant);
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [attributeCodes, group.variants, onClose, onSelect, selection]);
+
+  const resolved = resolveVariant(group.variants, attributeCodes, selection);
+  const resolvedStock = resolved?.inventoryTracked
+    ? Math.max(resolved.availableStock, 0)
+    : null;
+  const resolvedDescriptor = resolved ? formatAttributes(resolved.attributes) : "Selecciona una combinación";
+
+  return (
+    <PosModal open onClose={onClose} size="medium" title={group.productName} description="Selecciona una combinación disponible.">
+      <div className="grid gap-5">
+        <div className="flex items-center gap-4 rounded-[var(--pos-radius-md)] bg-white/[0.035] p-3">
+          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[var(--pos-radius-sm)] bg-white/[0.05]">
+            <PosProductImage
+              src={resolved?.variantImageUrl || group.productImageUrl}
+              alt={group.productName}
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div>
+            <p className="text-xl font-black text-[var(--pos-text-primary)]">
+              {resolved ? formatMoney(resolved.price, currency) : "Selecciona una variante"}
+            </p>
+            <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
+              {resolved ? (resolvedStock === null ? "Venta sin inventario" : `Stock: ${formatQuantity(resolvedStock)}`) : "La imagen y el precio se actualizarán al resolverla."}
+            </p>
+          </div>
+        </div>
+
+        {attributeCodes.map((code) => {
+          const options = optionsFor(code);
+          return (
+            <div key={code}>
+              <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">
+                {labelFor(code)}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {options.map((option) => {
+                  const candidate = { ...selection, [code]: option };
+                  const matches = group.variants.filter((variant) =>
+                    matchesSelection(variant, candidate)
+                  );
+                  const available = matches.some(
+                    (variant) => !variant.inventoryTracked || variant.availableStock > 0
+                  );
+                  const active = selection[code] === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      disabled={matches.length === 0 || !available}
+                      onClick={() => setSelection((current) => ({ ...current, [code]: option }))}
+                      className={`pos-ui-focus min-h-10 rounded-[var(--pos-radius-sm)] border px-4 py-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${active ? "border-cyan-300 bg-cyan-300 text-slate-950" : "border-[var(--pos-line)] bg-white/[0.03] text-[var(--pos-text-primary)]"}`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="rounded-[var(--pos-radius-sm)] bg-white/[0.035] p-3 text-sm text-[var(--pos-text-secondary)]">
+          <span className="font-semibold text-[var(--pos-text-primary)]">Seleccionado:</span>{" "}{resolvedDescriptor}
+          {resolved && resolvedStock === 0 ? <span className="ml-2 font-bold text-rose-300">Agotado</span> : null}
+        </div>
+
+        <PosButton
+          type="button"
+          fullWidth
+          disabled={!resolved || Boolean(resolved.inventoryTracked && resolved.availableStock <= 0)}
+          onClick={() => resolved && onSelect(resolved)}
+        >
+          Agregar al carrito
+        </PosButton>
+      </div>
+    </PosModal>
+  );
+}
+
+function resolveVariant(
+  variants: SellableVariant[],
+  attributeCodes: string[],
+  selection: Record<string, string>
+) {
+  if (attributeCodes.some((code) => !selection[code])) return null;
+  return variants.find((variant) =>
+    attributeCodes.every(
+      (code) => String(variant.attributes[code] || "").trim() === selection[code]
+    )
+  ) || null;
+}
+
+function matchesSelection(
+  variant: SellableVariant,
+  selection: Record<string, string>
+) {
+  return Object.entries(selection).every(
+    ([code, value]) => String(variant.attributes[code] || "").trim() === value
   );
 }
 
@@ -2394,7 +2679,7 @@ function CartPanel({
                       {item.productName}
                     </p>
                     <p className="mt-0.5 truncate text-xs text-[var(--pos-text-muted)]">
-                      {item.variantName}
+                      {formatCartVariantName(item)}
                     </p>
                   </div>
 
@@ -3532,6 +3817,8 @@ function buildSellableVariants({
             productId: product.id,
             productName:
               product.name,
+            productCode:
+              product.product_code || null,
             productDescription:
               product.description,
             productImageUrl:
@@ -3899,6 +4186,24 @@ function formatAttributes(
   return values.length > 0
     ? values.join(" · ")
     : "Presentación única";
+}
+
+function formatCartVariantName(variant: SellableVariant) {
+  const values = Object.values(variant.attributes || {})
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (values.length > 1) {
+    const generatedName = variant.variantName.trim();
+    if (
+      generatedName &&
+      generatedName !== "Única" &&
+      (generatedName.includes("/") || generatedName.includes("·"))
+    ) {
+      return generatedName.replace(/\s*\/\s*/g, " · ");
+    }
+    return values.join(" · ");
+  }
+  return variant.variantName || values[0] || "Presentación única";
 }
 
 function formatQuantity(

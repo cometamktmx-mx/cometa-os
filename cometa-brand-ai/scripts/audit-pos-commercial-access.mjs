@@ -51,6 +51,11 @@ const billing = new Map([
   ["billing/portal/route.ts", ["POST"]],
 ]);
 
+const personalization = new Map([
+  ["business-personalization/route.ts", ["GET", "PUT"]],
+  ["business-personalization/logo/route.ts", ["POST", "DELETE"]],
+]);
+
 const checks = [];
 const check = (name, fn) => {
   try {
@@ -131,6 +136,7 @@ const classified = new Set([
   ...exempt.keys(),
   ...invitation.keys(),
   ...billing.keys(),
+  ...personalization.keys(),
 ]);
 const unresolved = discovered.filter((route) => !classified.has(route));
 
@@ -180,6 +186,28 @@ check("billing portal is Owner-only", () => {
   assert.match(source, /export async function POST/);
   assert.match(source, /requirePosContext/);
   assert.match(source, /requirePosPermission\(context, "pos\.subscription\.manage"\)/);
+});
+check("business personalization read is tenant-scoped and passive", () => {
+  const source = read("src/app/api/pos/business-personalization/route.ts");
+  assert.match(source, /export async function GET/);
+  assert.match(source, /requirePosContext/);
+  assert.match(source, /getBusinessDocumentProfile/);
+  assert.doesNotMatch(source, /pos_initialize_brand_setup/);
+});
+check("business personalization write requires settings permission", () => {
+  const source = read("src/app/api/pos/business-personalization/route.ts");
+  assert.match(source, /export async function PUT/);
+  assert.match(source, /requirePosContext/);
+  assert.match(source, /requirePosPermission\(context, "pos\.settings\.manage"\)/);
+  assert.match(source, /\.upsert\(/);
+});
+check("business personalization logo is settings-protected", () => {
+  const source = read("src/app/api/pos/business-personalization/logo/route.ts");
+  assert.match(source, /export async function POST/);
+  assert.match(source, /export async function DELETE/);
+  assert.match(source, /requirePosContext/);
+  assert.match(source, /requirePosPermission\(context, "pos\.settings\.manage"\)/);
+  assert.doesNotMatch(source, /pos_initialize_brand_setup/);
 });
 check("team invitation creation enters CORE-1 and team permission", () => {
   const source = read("src/app/api/pos/team/invitations/route.ts");

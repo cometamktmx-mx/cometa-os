@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 const VIEWS = {
   summary: "pos_get_analytics_summary",
   products: "pos_get_analytics_products",
+  operational_products: "pos_get_operational_report_products_v1",
   customers: "pos_get_analytics_customers",
   inventory: "pos_get_analytics_inventory",
   loyalty: "pos_get_analytics_loyalty",
@@ -90,9 +91,9 @@ export async function GET(request: Request) {
       args.p_granularity = granularity;
     }
 
-    if (view === "products" || view === "customers" || view === "product_pairs") {
-      const maximum = view === "products" ? 100 : 200;
-      const fallback = view === "products" ? 20 : 50;
+    if (view === "products" || view === "operational_products" || view === "customers" || view === "product_pairs") {
+      const maximum = view === "products" || view === "operational_products" ? 500 : 200;
+      const fallback = view === "products" || view === "operational_products" ? 200 : 50;
       const limit = parseInteger(url.searchParams.get("limit"), fallback, 1, maximum);
       args.p_limit = limit;
       if (view === "products") {

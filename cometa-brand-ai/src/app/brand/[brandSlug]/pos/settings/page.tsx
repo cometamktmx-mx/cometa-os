@@ -417,6 +417,15 @@ export default function PosSettingsPage() {
           }
         />
 
+        <SummaryCard
+          eyebrow="Personalización"
+          title="Identidad para documentos"
+          description="Logo, datos públicos, redes y mensajes reutilizables."
+          actionLabel="Abrir personalización"
+          href={`/brand/${brand.slug}/pos/settings/personalization`}
+          accent={bootstrap.branding.primary_color}
+        />
+
         <PlanSummary
           subscription={bootstrap.subscription}
           locations={locations.length}

@@ -1,3 +1,6 @@
+import { randomInt } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import {
   assertDatabaseResult,
   booleanValue,
@@ -42,6 +45,7 @@ type ProductBody = {
   locationId?: unknown;
   categoryId?: unknown;
   name?: unknown;
+  productCode?: unknown;
   description?: unknown;
   productType?: unknown;
   inventoryMode?: unknown;
@@ -360,6 +364,29 @@ export async function POST(request: Request) {
     const { admin, brand, user } =
       await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
 
+    const requestedAction = optionalText(body.action, 40);
+    if (requestedAction === "suggest_product_code") {
+      const name = requiredText(body.name, "name", 180);
+      const productCode = await suggestProductCode(admin, brand.slug, name);
+      return ok({ productCode });
+    }
+
+    if (requestedAction === "generate_barcodes") {
+      const variants = Array.isArray(body.variants) ? body.variants : [];
+      const barcodes: Array<{ index: number; barcode: string }> = [];
+      const reserved = new Set<string>();
+      for (let index = 0; index < variants.length; index += 1) {
+        const variant = variants[index];
+        if (!variant || typeof variant !== "object") continue;
+        const value = (variant as ProductVariantInput).barcode;
+        if (optionalText(value, 120)) continue;
+        const barcode = await generateInternalBarcode(admin, brand.slug, reserved);
+        reserved.add(barcode);
+        barcodes.push({ index, barcode });
+      }
+      return ok({ barcodes });
+    }
+
     const profileResult = await admin
       .from("pos_business_profiles")
       .select("profile_code,onboarding_status")
@@ -398,6 +425,16 @@ export async function POST(request: Request) {
         30
       ) || "physical"
     ).toLowerCase();
+
+    const rawProductCode = optionalText(body.productCode, 80);
+    const productCode = normalizeProductCode(rawProductCode);
+    if (rawProductCode && !productCode) {
+      return fail(
+        "La clave del producto sólo puede contener letras, números, guiones y guiones bajos.",
+        400,
+        "POS_PRODUCT_CODE_INVALID"
+      );
+    }
 
     if (
       !LIVE_PRODUCT_TYPES.has(
@@ -708,6 +745,26 @@ export async function POST(request: Request) {
         ? body.configuration
         : {};
 
+    if (productCode) {
+      const duplicateCode = await admin
+        .from("pos_products")
+        .select("id")
+        .eq("brand_slug", brand.slug)
+        .ilike("product_code", productCode)
+        .limit(1);
+      assertDatabaseResult(
+        duplicateCode.error,
+        "No se pudo validar la clave del producto."
+      );
+      if ((duplicateCode.data || []).length > 0) {
+        return fail(
+          "La clave del producto ya está siendo utilizada en esta marca.",
+          409,
+          "POS_PRODUCT_CODE_DUPLICATED"
+        );
+      }
+    }
+
     const { error: syncError } =
       await admin.rpc(
         "pos_sync_product_attributes_from_profile",
@@ -784,12 +841,52 @@ export async function POST(request: Request) {
           normalizedVariants,
         p_user_id:
           user.userId,
+        p_product_code: productCode,
       }
     );
 
     if (error) {
       const message =
         error.message || "";
+      const databaseErrorText = [
+        error.message,
+        error.details,
+        error.hint,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      if (databaseErrorText.includes("pos_products_brand_product_code_uidx")) {
+        return fail(
+          "La clave del producto ya está siendo utilizada en esta marca.",
+          409,
+          "POS_PRODUCT_CODE_DUPLICATED"
+        );
+      }
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_brand_sku_uidx")) {
+        return fail(
+          "Ya existe una variante con ese SKU en esta marca.",
+          409,
+          "POS_PRODUCT_SKU_DUPLICATED"
+        );
+      }
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_brand_barcode_uidx")) {
+        return fail(
+          "Ya existe una variante con ese cÃ³digo de barras en esta marca.",
+          409,
+          "POS_PRODUCT_BARCODE_DUPLICATED"
+        );
+      }
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_product_signature_uidx")) {
+        return fail(
+          "Ya existe una variante con esa combinaciÃ³n de atributos en este producto.",
+          409,
+          "POS_PRODUCT_VARIANT_COMBINATION_DUPLICATED"
+        );
+      }
 
       if (
         message.includes(
@@ -944,6 +1041,16 @@ export async function PATCH(request: Request) {
     const normalizedInventoryMode =
       productType === "service" ? "none" : inventoryMode;
 
+    const rawProductCode = optionalText(body.productCode, 80);
+    const productCode = normalizeProductCode(rawProductCode);
+    if (rawProductCode && !productCode) {
+      return fail(
+        "La clave del producto sólo puede contener letras, números, guiones y guiones bajos.",
+        400,
+        "POS_PRODUCT_CODE_INVALID"
+      );
+    }
+
     if (!LIVE_INVENTORY_MODES.has(normalizedInventoryMode)) {
       return fail(
         "Este modo de inventario todavía no está disponible.",
@@ -1066,6 +1173,27 @@ export async function PATCH(request: Request) {
         ? body.configuration
         : productResult.data.configuration || {};
 
+    if (productCode) {
+      const duplicateCode = await admin
+        .from("pos_products")
+        .select("id")
+        .eq("brand_slug", brand.slug)
+        .ilike("product_code", productCode)
+        .neq("id", productId)
+        .limit(1);
+      assertDatabaseResult(
+        duplicateCode.error,
+        "No se pudo validar la clave del producto."
+      );
+      if ((duplicateCode.data || []).length > 0) {
+        return fail(
+          "La clave del producto ya está siendo utilizada en esta marca.",
+          409,
+          "POS_PRODUCT_CODE_DUPLICATED"
+        );
+      }
+    }
+
     const { data, error } = await admin.rpc("pos_update_product_v2", {
       p_brand_id: brand.id,
       p_brand_slug: brand.slug,
@@ -1088,10 +1216,26 @@ export async function PATCH(request: Request) {
       p_configuration: configuration,
       p_variants: normalizedVariants,
       p_user_id: user.userId,
+      p_product_code: productCode,
     });
 
     if (error) {
       const message = error.message || "";
+      const databaseErrorText = [
+        error.message,
+        error.details,
+        error.hint,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      if (databaseErrorText.includes("pos_products_brand_product_code_uidx")) {
+        return fail(
+          "La clave del producto ya está siendo utilizada en esta marca.",
+          409,
+          "POS_PRODUCT_CODE_DUPLICATED"
+        );
+      }
       console.error("pos_update_product_v2 failed", {
         code: error.code,
         message: error.message,
@@ -1100,6 +1244,30 @@ export async function PATCH(request: Request) {
         productId,
         brandSlug: brand.slug,
       });
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_brand_sku_uidx")) {
+        return fail(
+          "Ya existe una variante con ese SKU en esta marca.",
+          409,
+          "POS_PRODUCT_SKU_DUPLICATED"
+        );
+      }
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_brand_barcode_uidx")) {
+        return fail(
+          "Ya existe una variante con ese cÃ³digo de barras en esta marca.",
+          409,
+          "POS_PRODUCT_BARCODE_DUPLICATED"
+        );
+      }
+
+      if (error.code === "23505" && databaseErrorText.includes("pos_product_variants_product_signature_uidx")) {
+        return fail(
+          "Ya existe una variante con esa combinaciÃ³n de atributos en este producto.",
+          409,
+          "POS_PRODUCT_VARIANT_COMBINATION_DUPLICATED"
+        );
+      }
 
       if (message.includes("Ya existe una variante con ese SKU")) {
         return fail(
@@ -1147,4 +1315,83 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return handlePosError(error);
   }
+}
+
+function normalizeProductCode(value: string | null) {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9_-]{0,63}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function productCodePrefix(name: string) {
+  const normalized = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  const word = normalized.match(/[A-Z0-9]+/)?.[0] || "PRO";
+  const letters = word.replace(/[^A-Z0-9]/g, "");
+  return (letters.slice(0, 3) || "PRO").padEnd(3, "X");
+}
+
+async function suggestProductCode(
+  admin: SupabaseClient,
+  brandSlug: string,
+  name: string
+) {
+  const prefix = productCodePrefix(name);
+  const result = await admin
+    .from("pos_products")
+    .select("product_code")
+    .eq("brand_slug", brandSlug)
+    .ilike("product_code", `${prefix}%`);
+
+  assertDatabaseResult(
+    result.error,
+    "No se pudo generar una sugerencia de clave."
+  );
+
+  let next = 1;
+  for (const row of result.data || []) {
+    const match = String(row.product_code || "").match(
+      new RegExp(`^${prefix}(\\d+)$`, "i")
+    );
+    if (match) next = Math.max(next, Number(match[1]) + 1);
+  }
+  return `${prefix}${String(next).padStart(3, "0")}`;
+}
+
+async function generateInternalBarcode(
+  admin: SupabaseClient,
+  brandSlug: string,
+  reserved: Set<string>
+) {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const base = `20${String(randomInt(0, 10_000_000_000)).padStart(10, "0")}`;
+    const barcode = `${base}${ean13CheckDigit(base)}`;
+    if (reserved.has(barcode)) continue;
+
+    const existing = await admin
+      .from("pos_product_variants")
+      .select("id")
+      .eq("brand_slug", brandSlug)
+      .eq("barcode", barcode)
+      .limit(1);
+    assertDatabaseResult(
+      existing.error,
+      "No se pudo verificar la disponibilidad del código interno."
+    );
+    if (!existing.data?.length) return barcode;
+  }
+  throw new Error("POS_INTERNAL_BARCODE_GENERATION_FAILED");
+}
+
+function ean13CheckDigit(base: string) {
+  const digits = base.split("").map(Number);
+  const sum = digits.reduce(
+    (total, digit, index) => total + digit * (index % 2 === 0 ? 1 : 3),
+    0
+  );
+  return String((10 - (sum % 10)) % 10);
 }

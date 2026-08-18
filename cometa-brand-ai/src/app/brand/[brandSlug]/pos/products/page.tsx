@@ -147,6 +147,7 @@ type ProductVariant = {
 
 type Product = {
   id: string;
+  product_code: string | null;
   name: string;
   description: string | null;
   product_type: "physical" | "service";
@@ -254,10 +255,13 @@ type VariantForm = {
   currentStock: number;
 };
 
+type AttributeValues = Record<string, string[]>;
+
 type ProductForm = {
   locationId: string;
   categoryId: string;
   name: string;
+  productCode: string;
   description: string;
   productType: "physical" | "service";
   inventoryMode: "direct" | "none";
@@ -279,6 +283,7 @@ const EMPTY_PRODUCT_FORM: ProductForm = {
   locationId: "",
   categoryId: "",
   name: "",
+  productCode: "",
   description: "",
   productType: "physical",
   inventoryMode: "direct",
@@ -337,6 +342,11 @@ export default function PosProductsPage() {
   const [productForm, setProductForm] =
     useState<ProductForm>(EMPTY_PRODUCT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([]);
+  const [attributeValues, setAttributeValues] =
+    useState<AttributeValues>({});
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkCost, setBulkCost] = useState("");
+  const [productCodeSuggested, setProductCodeSuggested] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -622,6 +632,215 @@ export default function PosProductsPage() {
     ]);
   }
 
+  function addAttributeValue(attributeCode: string, value: string) {
+    const normalized = value.trim();
+    if (!normalized) return;
+
+    setAttributeValues((current) => {
+      const values = current[attributeCode] || [];
+      if (values.some((item) => item.trim().toLowerCase() === normalized.toLowerCase())) {
+        return current;
+      }
+      return { ...current, [attributeCode]: [...values, normalized] };
+    });
+  }
+
+  function removeAttributeValue(attributeCode: string, value: string) {
+    const affectsExisting = variants.some(
+      (variant) =>
+        variant.id &&
+        variant.active &&
+        String(variant.attributes[attributeCode] || "").trim().toLowerCase() === value.trim().toLowerCase()
+    );
+    if (
+      affectsExisting &&
+      !window.confirm("Quitar este valor dejará fuera las combinaciones existentes que lo usan. Se conservarán como inactivas. ¿Continuar?")
+    ) {
+      return;
+    }
+
+    setAttributeValues((current) => ({
+      ...current,
+      [attributeCode]: (current[attributeCode] || []).filter(
+        (item) => item !== value
+      ),
+    }));
+  }
+
+  function generateVariantCombinations() {
+    if (!productForm.hasVariants || attributes.length === 0) return;
+
+    const dimensions = attributes
+      .map((attribute) => ({
+        attribute,
+        values: (attributeValues[attribute.code] || [])
+          .map((value) => value.trim())
+          .filter(Boolean),
+      }))
+      .filter((dimension) => dimension.values.length > 0);
+
+    if (dimensions.length === 0) {
+      setError("Agrega al menos un valor de atributo para generar variantes.");
+      return;
+    }
+
+    const combinations = dimensions.reduce<Record<string, string>[]>(
+      (result, dimension) =>
+        result.flatMap((partial) =>
+          dimension.values.map((value) => ({
+            ...partial,
+            [dimension.attribute.code]: value,
+          }))
+        ),
+      [{}]
+    );
+
+    if (combinations.length > 250) {
+      setError("La combinación supera el límite de 250 variantes por producto.");
+      return;
+    }
+
+    setVariants((current) => {
+      const bySignature = new Map(
+        current.map((variant) => [variantSignature(variant.attributes), variant])
+      );
+      const technicalVariant = current.find(
+        (variant) => Object.values(variant.attributes).every((value) => !String(value || "").trim())
+      );
+      const used = new Set<string>();
+      const generated = combinations.map((combination, index) => {
+        const signature = variantSignature(combination);
+        const existing = bySignature.get(signature) ||
+          (index === 0 ? technicalVariant : undefined);
+        if (existing) used.add(existing.localId);
+        const next = existing || createVariant(index, productForm.defaultUnitCode, attributes);
+        return {
+          ...next,
+          name: buildVariantName({ ...next, attributes: combination }, attributes, index),
+          attributes: combination,
+          active: existing ? existing.active : true,
+        };
+      });
+
+      return [
+        ...generated,
+        ...current
+          .filter((variant) => variant.id && !used.has(variant.localId))
+          .map((variant) => ({ ...variant, active: false })),
+      ];
+    });
+    setNotice(`${combinations.length} combinaciones listas para revisar.`);
+  }
+
+  function applyBulkValue(field: "price" | "cost", value: string) {
+    if (value.trim() === "" || Number(value) < 0) return;
+    setVariants((current) =>
+      current.map((variant) => ({ ...variant, [field]: value }))
+    );
+  }
+
+  function getImageAttributeForVariant(variant: VariantForm) {
+    const preferred = attributes.find(
+      (attribute) =>
+        /color|colour/i.test(attribute.code) ||
+        /color|colour/i.test(attribute.name)
+    );
+    return (
+      preferred ||
+      attributes.find((attribute) =>
+        String(variant.attributes[attribute.code] || "").trim()
+      ) ||
+      null
+    );
+  }
+
+  function applyVariantImage(
+    localId: string,
+    mode: "emptyOnly" | "all"
+  ) {
+    const source = variants.find((item) => item.localId === localId);
+    if (!source?.imageUrl) {
+      setImageUploadError("Sube una imagen propia antes de aplicarla a otras variantes.");
+      return;
+    }
+
+    const attribute = getImageAttributeForVariant(source);
+    const value = attribute
+      ? String(source.attributes[attribute.code] || "").trim()
+      : "";
+    if (!attribute || !value) {
+      setImageUploadError("Esta variante no tiene un atributo con valor para aplicar la imagen.");
+      return;
+    }
+
+    const matching = variants.filter(
+      (item) =>
+        item.active &&
+        String(item.attributes[attribute.code] || "")
+          .trim()
+          .toLocaleLowerCase() === value.toLocaleLowerCase()
+    );
+    const withOwnImage = matching.filter(
+      (item) => item.localId !== source.localId && Boolean(item.imageUrl)
+    );
+    if (mode === "all" && withOwnImage.length > 0) {
+      const confirmed = window.confirm(
+        `${withOwnImage.length} variantes ya tienen imagen propia. ¿Quieres reemplazarlas todas?`
+      );
+      if (!confirmed) return;
+    }
+
+    const targets = matching.filter(
+      (item) => mode === "all" || !item.imageUrl
+    );
+    setVariants((current) =>
+      current.map((item) =>
+        targets.some((target) => target.localId === item.localId)
+          ? { ...item, imageUrl: source.imageUrl }
+          : item
+      )
+    );
+    setNotice(
+      `Imagen aplicada a ${targets.length} variante${targets.length === 1 ? "" : "s"}.`
+    );
+  }
+
+  async function uploadVariantImage(localId: string, file: File) {
+    try {
+      setImageUploadError(null);
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await apiRequest<{ imageUrl: string }>(
+        `/api/pos/product-images?brandSlug=${encodeURIComponent(brand.slug)}`,
+        { method: "POST", body: formData }
+      );
+      setVariants((current) =>
+        current.map((variant) =>
+          variant.localId === localId
+            ? { ...variant, imageUrl: response.imageUrl }
+            : variant
+        )
+      );
+    } catch (uploadError) {
+      setImageUploadError(getErrorMessage(uploadError));
+    }
+  }
+
+  async function removeVariantImage(localId: string) {
+    const variant = variants.find((item) => item.localId === localId);
+    if (!variant?.imageUrl) return;
+    try {
+      await deleteManagedProductImage(variant.imageUrl, brand.slug);
+      setVariants((current) =>
+        current.map((item) =>
+          item.localId === localId ? { ...item, imageUrl: "" } : item
+        )
+      );
+    } catch (removeError) {
+      setImageUploadError(getErrorMessage(removeError));
+    }
+  }
+
   function removeVariant(localId: string) {
     setVariants((current) => {
       if (current.length === 1) return current;
@@ -694,6 +913,14 @@ export default function PosProductsPage() {
   }
 
   function toggleVariants(enabled: boolean) {
+    if (!enabled && isEditing) {
+      const activeVariants = variants.filter((variant) => variant.active);
+      if (activeVariants.length > 1 || activeVariants.some((variant) => variant.currentStock > 0)) {
+        setError("No puedes convertir este producto a simple mientras tenga varias variantes activas o stock. Desactiva variantes explícitamente desde el editor.");
+        return;
+      }
+    }
+
     setProductForm((current) => ({
       ...current,
       hasVariants: enabled,
@@ -766,6 +993,122 @@ export default function PosProductsPage() {
     }
   }
 
+  async function suggestProductCode() {
+    if (!productForm.name.trim()) {
+      setError("Escribe el nombre antes de sugerir una clave.");
+      return;
+    }
+    try {
+      const response = await apiRequest<{ productCode: string }>(
+        "/api/pos/products",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            brandSlug: brand.slug,
+            action: "suggest_product_code",
+            name: productForm.name,
+          }),
+        }
+      );
+      setProductForm((current) => ({ ...current, productCode: response.productCode }));
+      setProductCodeSuggested(true);
+      setNotice("Clave sugerida por Cometa.");
+    } catch (suggestionError) {
+      setError(getErrorMessage(suggestionError));
+    }
+  }
+
+  function generateMissingSkus() {
+    const productCode = productForm.productCode.trim().toUpperCase();
+    if (!productCode) {
+      setError("Sugiere o escribe una clave del producto antes de generar SKU.");
+      return;
+    }
+    const orderedAttributes = [...attributes].sort((left, right) => left.sort_order - right.sort_order);
+    const tokenMaps = new Map<string, Map<string, string>>();
+    for (const attribute of orderedAttributes) {
+      const values = Array.from(
+        new Set(
+          variants
+            .map((variant) => variant.attributes[attribute.code] || "")
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      );
+      tokenMaps.set(attribute.code, createAttributeTokenMap(values));
+    }
+    const occupied = new Set(
+      variants.map((variant) => variant.sku.trim().toUpperCase()).filter(Boolean)
+    );
+    let generated = 0;
+    setVariants((current) => current.map((variant) => {
+      if (variant.sku.trim()) return variant;
+      const tokens = orderedAttributes
+        .map((attribute) => tokenMaps.get(attribute.code)?.get((variant.attributes[attribute.code] || "").trim()) || "")
+        .filter(Boolean);
+      let candidate = tokens.length === 0 ? productCode : `${productCode}-${tokens.join("-")}`;
+      let suffix = 2;
+      while (occupied.has(candidate)) candidate = `${productCode}-${tokens.join("-")}-${suffix++}`;
+      occupied.add(candidate);
+      generated += 1;
+      return { ...variant, sku: candidate };
+    }));
+    setNotice(generated ? `${generated} SKU faltantes generados.` : "No hay variantes sin SKU.");
+  }
+
+  async function generateMissingBarcodes() {
+    try {
+      const response = await apiRequest<{ barcodes: Array<{ index: number; barcode: string }> }>(
+        "/api/pos/products",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            brandSlug: brand.slug,
+            action: "generate_barcodes",
+            variants: variants.map((variant) => ({ barcode: variant.barcode })),
+          }),
+        }
+      );
+      const generated = new Map(response.barcodes.map((item) => [item.index, item.barcode]));
+      setVariants((current) => current.map((variant, index) =>
+        variant.barcode.trim() || !generated.has(index)
+          ? variant
+          : { ...variant, barcode: generated.get(index) || variant.barcode }
+      ));
+      setNotice(response.barcodes.length ? `${response.barcodes.length} códigos internos generados.` : "No hay variantes sin código de barras.");
+    } catch (barcodeError) {
+      setError(getErrorMessage(barcodeError));
+    }
+  }
+
+  async function generateBarcodeForVariant(localId: string) {
+    const index = variants.findIndex((variant) => variant.localId === localId);
+    if (index < 0 || variants[index].barcode.trim()) return;
+    try {
+      const response = await apiRequest<{ barcodes: Array<{ index: number; barcode: string }> }>(
+        "/api/pos/products",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            brandSlug: brand.slug,
+            action: "generate_barcodes",
+            variants: variants.map((variant) => ({ barcode: variant.barcode })),
+          }),
+        }
+      );
+      const generated = response.barcodes.find((item) => item.index === index);
+      if (!generated) return;
+      setVariants((current) => current.map((variant, currentIndex) =>
+        currentIndex === index && !variant.barcode.trim()
+          ? { ...variant, barcode: generated.barcode }
+          : variant
+      ));
+      setNotice("Código interno generado.");
+    } catch (barcodeError) {
+      setError(getErrorMessage(barcodeError));
+    }
+  }
+
   async function handleSaveProduct(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -828,6 +1171,34 @@ export default function PosProductsPage() {
       }
     }
 
+    const activeVariants = variants.filter((variant) => variant.active);
+    const seenSignatures = new Map<string, string>();
+    const seenSkus = new Map<string, string>();
+    const seenBarcodes = new Map<string, string>();
+    for (const variant of activeVariants) {
+      const label = buildVariantName(variant, attributes, 0);
+      const signature = variantSignature(variant.attributes);
+      if (seenSignatures.has(signature)) {
+        setError(`La combinación ${label} está duplicada.`);
+        return;
+      }
+      seenSignatures.set(signature, label);
+
+      const sku = variant.sku.trim().toLowerCase();
+      if (sku && seenSkus.has(sku)) {
+        setError(`El SKU ${variant.sku.trim()} está repetido en el producto.`);
+        return;
+      }
+      if (sku) seenSkus.set(sku, label);
+
+      const barcode = variant.barcode.trim().toLowerCase();
+      if (barcode && seenBarcodes.has(barcode)) {
+        setError(`El código de barras ${variant.barcode.trim()} está repetido en el producto.`);
+        return;
+      }
+      if (barcode) seenBarcodes.set(barcode, label);
+    }
+
     try {
       setIsSavingProduct(true);
       setError(null);
@@ -851,6 +1222,7 @@ export default function PosProductsPage() {
           categoryId:
             productForm.categoryId || null,
           name: productForm.name,
+          productCode: productForm.productCode || null,
           description:
             productForm.description,
           productType:
@@ -987,6 +1359,10 @@ export default function PosProductsPage() {
     };
 
     setProductForm(form);
+    setProductCodeSuggested(false);
+    setAttributeValues(defaultAttributeValues(attributes));
+    setBulkPrice("");
+    setBulkCost("");
     setImageUploadError(null);
     setVariants([
       createVariant(
@@ -1010,6 +1386,7 @@ export default function PosProductsPage() {
       locationId: selectedLocation?.id || locations[0]?.id || "",
       categoryId: product.category?.id || "",
       name: product.name,
+      productCode: product.product_code || "",
       description: product.description || "",
       productType: product.product_type,
       inventoryMode: product.inventory_mode,
@@ -1020,6 +1397,12 @@ export default function PosProductsPage() {
       taxRate: String(product.tax_rate),
       imageUrl: product.image_url || "",
     });
+    setProductCodeSuggested(false);
+    setAttributeValues(
+      defaultAttributeValues(attributes, product.variants)
+    );
+    setBulkPrice("");
+    setBulkCost("");
     setVariants(
       product.variants.map((variant) => ({
         id: variant.id,
@@ -1502,6 +1885,36 @@ export default function PosProductsPage() {
               }
             />
 
+            <div className="grid gap-2 rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-cyan-300/[0.03] p-3">
+              <Field
+                label="Clave del producto"
+                value={productForm.productCode}
+                onChange={(value) =>
+                  (setProductCodeSuggested(false),
+                  setProductForm((current) => ({
+                    ...current,
+                    productCode: value.toUpperCase(),
+                  })))
+                }
+                placeholder="Opcional · LEG001"
+              />
+              <p className="text-[11px] text-[var(--pos-text-muted)]">
+                Se utiliza como base para proponer los SKU de las variantes.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void suggestProductCode()}
+                  className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-cyan-300 px-3 text-xs font-black text-slate-950"
+                >
+                  {productForm.productCode ? "Regenerar sugerencia" : "Sugerir clave"}
+                </button>
+                {productCodeSuggested ? (
+                  <span className="text-[11px] font-semibold text-cyan-300">Sugerida por Cometa</span>
+                ) : null}
+              </div>
+            </div>
+
             <TextAreaField
               label="Descripción"
               value={productForm.description}
@@ -1713,6 +2126,49 @@ export default function PosProductsPage() {
                 ) : null}
               </div>
 
+              {productForm.hasVariants && attributes.length > 0 ? (
+                <VariantAttributeBuilder
+                  attributes={attributes}
+                  values={attributeValues}
+                  onAddValue={addAttributeValue}
+                  onRemoveValue={removeAttributeValue}
+                  onGenerate={generateVariantCombinations}
+                />
+              ) : null}
+
+              {productForm.hasVariants ? (
+                <div className="mt-4 grid gap-3 rounded-[var(--pos-radius-md)] border border-[var(--pos-line-subtle)] bg-[var(--pos-canvas)] p-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+                  <MoneyField label={`Precio para todas · ${currency}`} value={bulkPrice} onChange={setBulkPrice} />
+                  <MoneyField label={`Costo para todas · ${currency}`} value={bulkCost} onChange={setBulkCost} />
+                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("price", bulkPrice)}>
+                    Aplicar precio
+                  </button>
+                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("cost", bulkCost)}>
+                    Aplicar costo
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--pos-radius-md)] border border-[var(--pos-line-subtle)] bg-white/[0.02] p-3">
+                <button
+                  type="button"
+                  onClick={generateMissingSkus}
+                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+                >
+                  Generar SKU faltantes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void generateMissingBarcodes()}
+                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+                >
+                  Generar códigos faltantes
+                </button>
+                <span className="text-[11px] text-[var(--pos-text-muted)]">
+                  Los SKU y códigos existentes nunca se reemplazan.
+                </span>
+              </div>
+
               <div className="mt-4 grid gap-4">
                 {variants.map(
                   (variant, index) => (
@@ -1767,6 +2223,20 @@ export default function PosProductsPage() {
                           active
                         )
                       }
+                      productImageUrl={productForm.imageUrl}
+                      onUploadImage={(file) => uploadVariantImage(variant.localId, file)}
+                      onRemoveImage={() => removeVariantImage(variant.localId)}
+                      onGenerateBarcode={() => generateBarcodeForVariant(variant.localId)}
+                      imageAttributeLabel={(() => {
+                        const attribute = getImageAttributeForVariant(variant);
+                        const value = attribute
+                          ? String(variant.attributes[attribute.code] || "").trim()
+                          : "";
+                        return attribute && value
+                          ? `${attribute.name}: ${value}`
+                          : null;
+                      })()}
+                      onApplyImage={(mode) => applyVariantImage(variant.localId, mode)}
                     />
                   )
                 )}
@@ -1934,6 +2404,78 @@ export default function PosProductsPage() {
   );
 }
 
+function VariantAttributeBuilder({
+  attributes,
+  values,
+  onAddValue,
+  onRemoveValue,
+  onGenerate,
+}: {
+  attributes: AttributeDefinition[];
+  values: AttributeValues;
+  onAddValue: (code: string, value: string) => void;
+  onRemoveValue: (code: string, value: string) => void;
+  onGenerate: () => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  return (
+    <div className="mt-4 grid gap-3 rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-cyan-300/[0.03] p-3">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Atributos del producto</p>
+        <p className="mt-1 text-xs text-[var(--pos-text-muted)]">Define valores y genera combinaciones sin perder variantes existentes.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {attributes.map((attribute) => (
+          <div key={attribute.code} className="rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] bg-[var(--pos-canvas)] p-3">
+            <p className="text-xs font-bold text-[var(--pos-text-primary)]">{attribute.name}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(values[attribute.code] || []).map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  onClick={() => onRemoveValue(attribute.code, value)}
+                  className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-2.5 py-1 text-xs font-semibold text-cyan-200"
+                  title="Quitar valor"
+                >
+                  {value} ×
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={drafts[attribute.code] || ""}
+                onChange={(event) => setDrafts((current) => ({ ...current, [attribute.code]: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  onAddValue(attribute.code, drafts[attribute.code] || "");
+                  setDrafts((current) => ({ ...current, [attribute.code]: "" }));
+                }}
+                placeholder="Agregar valor"
+                className="pos-ui-focus h-9 min-w-0 flex-1 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-panel)] px-2.5 text-xs text-[var(--pos-text-primary)]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  onAddValue(attribute.code, drafts[attribute.code] || "");
+                  setDrafts((current) => ({ ...current, [attribute.code]: "" }));
+                }}
+                className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+              >
+                + Valor
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={onGenerate} className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-cyan-300 px-4 text-xs font-black text-slate-950">
+        Generar combinaciones
+      </button>
+    </div>
+  );
+}
+
 function VariantEditor({
   index,
   variant,
@@ -1948,6 +2490,12 @@ function VariantEditor({
   onAttributeChange,
   onRemove,
   onActiveChange,
+  productImageUrl,
+  onUploadImage,
+  onRemoveImage,
+  onGenerateBarcode,
+  imageAttributeLabel,
+  onApplyImage,
 }: {
   index: number;
   variant: VariantForm;
@@ -1977,7 +2525,14 @@ function VariantEditor({
   ) => void;
   onRemove: () => void;
   onActiveChange: (active: boolean) => void;
+  productImageUrl: string;
+  onUploadImage: (file: File) => Promise<void>;
+  onRemoveImage: () => Promise<void>;
+  onGenerateBarcode: () => Promise<void>;
+  imageAttributeLabel: string | null;
+  onApplyImage: (mode: "emptyOnly" | "all") => void;
 }) {
+  const imageInputRef = useRef<HTMLInputElement>(null);
   return (
     <div className="border-t border-[var(--pos-line-subtle)] pt-4 first:border-0 first:pt-0">
       <div className="flex items-center justify-between gap-4">
@@ -2104,6 +2659,16 @@ function VariantEditor({
           />
         </div>
 
+        {!variant.barcode.trim() ? (
+          <button
+            type="button"
+            onClick={() => void onGenerateBarcode()}
+            className="pos-ui-focus h-8 w-fit rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-2.5 text-[11px] font-bold text-cyan-300"
+          >
+            Generar código interno para esta variante
+          </button>
+        ) : null}
+
         <SelectField
           label="Unidad"
           value={variant.unitCode}
@@ -2150,14 +2715,82 @@ function VariantEditor({
           </InfoBox>
         ) : null}
 
-        <Field
-          label="Imagen de esta variante"
-          value={variant.imageUrl}
-          onChange={(value) =>
-            onChange("imageUrl", value)
-          }
-          placeholder="Opcional"
-        />
+        <div className="grid gap-2 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] bg-white/[0.02] p-3">
+          <span className="text-xs font-medium text-[var(--pos-text-muted)]">Imagen de esta variante</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-[var(--pos-radius-sm)] bg-[var(--pos-canvas)]">
+              {variant.imageUrl || productImageUrl ? (
+                <img src={variant.imageUrl || productImageUrl} alt="Vista previa de variante" className="h-full w-full object-cover" />
+              ) : (
+                <div className="grid h-full place-items-center text-[10px] text-[var(--pos-text-muted)]">Sin imagen</div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void onUploadImage(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="pos-ui-focus rounded-[var(--pos-radius-sm)] bg-cyan-300 px-3 py-2 text-xs font-black text-slate-950"
+              >
+                {variant.imageUrl ? "Reemplazar imagen" : "Subir imagen"}
+              </button>
+              <p className="mt-1 text-[11px] text-[var(--pos-text-muted)]">
+                {variant.imageUrl ? "Imagen propia de esta variante" : productImageUrl ? "Usando imagen principal" : "Sin imagen propia todavía"}
+              </p>
+              {variant.imageUrl ? (
+                <button type="button" onClick={() => void onRemoveImage()} className="mt-1 text-[11px] font-bold text-rose-300 hover:text-rose-200">
+                  Quitar imagen propia
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {variant.imageUrl && imageAttributeLabel ? (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[11px] font-semibold text-cyan-300 hover:text-cyan-200">
+                Aplicar imagen a {imageAttributeLabel}
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onApplyImage("emptyOnly")}
+                  className="pos-ui-focus rounded-[var(--pos-radius-sm)] border border-cyan-300/20 bg-cyan-300/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200"
+                >
+                  Sólo variantes sin imagen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onApplyImage("all")}
+                  className="pos-ui-focus rounded-[var(--pos-radius-sm)] border border-rose-300/20 bg-rose-300/[0.05] px-2.5 py-1.5 text-[11px] font-semibold text-rose-200"
+                >
+                  Reemplazar todas
+                </button>
+              </div>
+            </details>
+          ) : null}
+          <details>
+            <summary className="cursor-pointer text-[11px] font-semibold text-[var(--pos-text-secondary)] hover:text-[var(--pos-text-primary)]">
+              Opciones avanzadas · Usar URL externa
+            </summary>
+            <div className="mt-2">
+              <Field
+                label="URL externa (opcional)"
+                value={variant.imageUrl}
+                onChange={(value) => onChange("imageUrl", value)}
+                placeholder="Opcional"
+              />
+            </div>
+          </details>
+        </div>
       </div>
     </div>
   );
@@ -2300,6 +2933,7 @@ function ProductTableRow({
           </div>
           <div className="min-w-0">
             <p className="max-w-64 truncate text-sm font-semibold text-[var(--pos-text-primary)]">{product.name}</p>
+            {product.product_code ? <p className="mt-0.5 font-mono text-[10px] text-cyan-300">Clave: {product.product_code}</p> : null}
             <p className="mt-0.5 text-[11px] text-[var(--pos-text-muted)]">{product.product_type === "service" ? "Servicio" : "Producto físico"}</p>
           </div>
         </div>
@@ -2393,6 +3027,7 @@ function ProductCard({
               <h3 className="truncate text-sm font-semibold text-[var(--pos-text-primary)]">
                 {product.name}
               </h3>
+              {product.product_code ? <p className="mt-1 font-mono text-[10px] text-cyan-300">Clave: {product.product_code}</p> : null}
               <p className="mt-1 truncate text-xs text-[var(--pos-text-muted)]">
                 {product.category?.name || "Sin categoría"} · {product.summary.variantCount} variantes
               </p>
@@ -2913,8 +3548,11 @@ function ProductImageUploader({
           id="product-image-heading"
           className="text-sm font-semibold text-[var(--pos-text-primary)]"
         >
-          Imagen del producto
+          Imagen principal del producto
         </h3>
+        <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
+          Se utilizará como imagen predeterminada para las variantes que no tengan una imagen propia.
+        </p>
         <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
           JPG, PNG o WEBP. Máximo 5 MB.
         </p>
@@ -3221,6 +3859,40 @@ function buildVariantName(
     : `Variante ${index + 1}`;
 }
 
+function defaultAttributeValues(
+  attributes: AttributeDefinition[],
+  existingVariants: ProductVariant[] = []
+): AttributeValues {
+  return Object.fromEntries(
+    attributes.map((attribute) => {
+      const configured = Array.isArray(attribute.options)
+        ? attribute.options.map(String)
+        : [];
+      const existing = existingVariants
+        .map((variant) => String(variant.attributes?.[attribute.code] || "").trim())
+        .filter(Boolean);
+      return [
+        attribute.code,
+        Array.from(new Set([...configured, ...existing])),
+      ];
+    })
+  );
+}
+
+function variantSignature(attributes: Record<string, unknown>) {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(attributes || {})
+        .map(([key, value]) => [
+          key.trim().toLowerCase(),
+          String(value ?? "").trim().toLowerCase(),
+        ])
+        .filter(([, value]) => Boolean(value))
+        .sort(([left], [right]) => left.localeCompare(right))
+    )
+  );
+}
+
 function formatAttributes(
   attributes: Record<string, unknown>
 ) {
@@ -3233,6 +3905,48 @@ function formatAttributes(
   return values.length > 0
     ? values.join(" · ")
     : "Presentación única";
+}
+
+function createAttributeTokenMap(values: string[]) {
+  const result = new Map<string, string>();
+  const groups = new Map<string, string[]>();
+  for (const value of values) {
+    const base = attributeToken(value);
+    groups.set(base, [...(groups.get(base) || []), value]);
+  }
+  for (const [base, group] of groups) {
+    if (group.length === 1) {
+      result.set(group[0], base);
+      continue;
+    }
+    [...group].sort((left, right) => left.localeCompare(right, "es")).forEach((value, index) => {
+      const compact = normalizeTokenSource(value);
+      const expanded = compact.slice(0, Math.max(3, base.length + 1)) || base;
+      result.set(value, `${expanded}${index ? index + 1 : ""}`);
+    });
+  }
+  return result;
+}
+
+function normalizeTokenSource(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function attributeToken(value: string) {
+  const source = normalizeTokenSource(value);
+  if (/^\d+$/.test(source)) return source;
+  const words = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+  if (words.length > 1) return words.map((word) => word[0]).join("");
+  return source.slice(0, 1) || "X";
 }
 
 function formatQuantity(value: number) {
