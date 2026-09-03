@@ -3,6 +3,18 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --os-canvas: #f2f5f9;
+  --os-surface: #ffffff;
+  --os-surface-subtle: #eef3f8;
+  --os-border: #dfe6ef;
+  --os-text: #14213d;
+  --os-text-muted: #68758b;
+  --os-primary: #1d4ed8;
+  --os-success: #15803d;
+  --os-warning: #b45309;
+  --os-critical: #be123c;
+  --os-intelligence-accent: #4338ca;
+  --os-marketing-accent: #0f766e;
 }
 
 @theme inline {
@@ -25,6 +37,36 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.os-label {
+  color: var(--os-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.os-card {
+  border: 1px solid var(--os-border);
+  border-radius: 14px;
+  background: var(--os-surface);
+  padding: 1.25rem;
+}
+
+.os-card-primary {
+  border: 1px solid #d7e2f0;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #f6f9fd 100%);
+  padding: 1.5rem;
+}
+
+.os-card-subtle {
+  border: 1px solid #e5ebf2;
+  border-radius: 12px;
+  background: var(--os-surface-subtle);
+  padding: 1rem;
+}
+
 .input {
   width: 100%;
   border-radius: 1rem;
@@ -40,4 +82,34 @@ body {
 .input:focus {
   border-color: #20c6df;
   box-shadow: 0 0 0 4px #dff8ff;
+}
+
+/* Administrative Mercury piece editor. Kept as one narrowly used class so
+   native inputs, selects and textareas share the same dark interaction model. */
+.control {
+  width: 100%;
+  min-width: 0;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: #0b1c30;
+  padding: 0.75rem 0.875rem;
+  color: white;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.control::placeholder {
+  color: rgb(100 116 139);
+}
+
+.control:focus {
+  border-color: rgb(34 211 238 / 0.55);
+  box-shadow: 0 0 0 3px rgb(34 211 238 / 0.08);
+}
+
+.control:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }

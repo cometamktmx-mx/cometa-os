@@ -1,1 +1,3 @@
 /cometa-orion-worker/
+.vercel
+.env*

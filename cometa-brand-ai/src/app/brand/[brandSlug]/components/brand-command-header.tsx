@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { getUserWorkspaceContext } from "@/lib/workspace/context";
 
-export function BrandCommandHeader({
+export async function BrandCommandHeader({
   brandName,
   userEmail,
 }: {
@@ -8,6 +9,8 @@ export function BrandCommandHeader({
   userEmail: string | null;
 }) {
   const initial = getInitial(userEmail);
+  const workspace = await getUserWorkspaceContext();
+  const showCompanySwitcher = workspace.isCanonicalAdmin || workspace.brands.length > 1;
 
   return (
     <header className="flex flex-col gap-4 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -29,12 +32,12 @@ export function BrandCommandHeader({
           </span>
           <span className="truncate">{userEmail || "Sesión Cometa"}</span>
         </span>
-        <Link
+        {showCompanySwitcher ? <Link
           href="/workspace"
           className="inline-flex min-h-10 items-center rounded-xl border border-white/10 px-3 text-xs font-semibold text-slate-300 transition hover:border-cyan-300/30 hover:bg-cyan-300/[0.08] hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300"
         >
           Cambiar empresa
-        </Link>
+        </Link> : null}
       </div>
     </header>
   );

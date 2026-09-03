@@ -31,7 +31,7 @@ type SalesAiSettingsRow = {
 };
 
 const defaultRuntimeSettings: SalesAiRuntimeSettings = {
-  brand_name: "Cometa Mkt",
+  brand_name: "",
   agent_mode: "observation",
   whatsapp_status: "pending_verification",
   auto_reply_enabled: false,
@@ -62,9 +62,7 @@ function getSupabaseAdmin() {
 }
 
 export function normalizeSalesAiBrandName(value?: string | null) {
-  const normalized = String(value || "").trim();
-
-  return normalized || "Cometa Mkt";
+  return String(value || "").trim();
 }
 
 export function normalizeSalesAiAgentMode(
@@ -93,6 +91,10 @@ export async function getSalesAiRuntimeSettings(
   brandName?: string | null
 ): Promise<SalesAiRuntimeSettings> {
   const normalizedBrandName = normalizeSalesAiBrandName(brandName);
+
+  if (!normalizedBrandName) {
+    return defaultRuntimeSettings;
+  }
 
   try {
     const supabase = getSupabaseAdmin();

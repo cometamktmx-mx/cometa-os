@@ -11,6 +11,7 @@ import {
   uuidValue,
 } from "@/lib/pos/server";
 import { requirePosOperationalAccess } from "@/lib/pos/access";
+import { requirePosPermission } from "@/lib/pos/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,10 +26,47 @@ type CashSessionBody = {
   notes?: unknown;
 };
 
+type CashSessionSummaryRow = {
+  cash_session_id: string;
+  sales_total: number | string;
+  tickets_count: number | string;
+  cash_sales: number | string;
+  card_sales: number | string;
+  transfer_sales: number | string;
+  wallet_sales: number | string;
+  other_sales: number | string;
+  cash_income: number | string;
+  cash_deposits: number | string;
+  cash_expenses: number | string;
+  cash_withdrawals: number | string;
+  net_cash_movements: number | string;
+  expected_cash: number | string | null;
+  recent_movements: unknown;
+};
+
+function requireCashPermission(
+  access: Awaited<ReturnType<typeof requirePosOperationalAccess>>,
+  permission: "pos.cash.read" | "pos.cash.operate"
+) {
+  if (!access.user.isAdmin) {
+    requirePosPermission(access, permission);
+  }
+}
+
+function canViewOpenExpectedCash(
+  access: Awaited<ReturnType<typeof requirePosOperationalAccess>>
+) {
+  return access.user.isAdmin || ["owner", "admin", "manager"].includes(
+    access.membership?.effectiveRole || ""
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.cash" });
+    const access = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.cash" });
+    requireCashPermission(access, "pos.cash.read");
+    const { admin, brand } = access;
 
     const url = new URL(request.url);
     const registerId = url.searchParams.get("registerId");
@@ -58,9 +96,51 @@ export async function GET(request: Request) {
       "No se pudieron cargar las sesiones de caja."
     );
 
+    const sessionRows = data || [];
+    let summaries: CashSessionSummaryRow[] = [];
+
+    if (sessionRows.length > 0) {
+      const { data: summaryData, error: summaryError } = await admin.rpc(
+        "pos_get_cash_session_summaries_v1",
+        {
+          p_brand_slug: brand.slug,
+          p_session_ids: sessionRows.map((session) => session.id),
+          p_include_expected_cash: canViewOpenExpectedCash(access),
+        }
+      );
+
+      assertDatabaseResult(
+        summaryError,
+        "No se pudo cargar el resumen de las sesiones de caja."
+      );
+
+      summaries = Array.isArray(summaryData)
+        ? (summaryData as CashSessionSummaryRow[])
+        : [];
+    }
+
+    const summaryBySessionId = new Map(
+      summaries.map((summary) => [summary.cash_session_id, summary])
+    );
+
+    const sessions = sessionRows.map((session) => {
+      const summary = summaryBySessionId.get(session.id) || null;
+      const canReceiveExpected =
+        session.status === "closed" || canViewOpenExpectedCash(access);
+
+      return {
+        ...session,
+        expected_cash: canReceiveExpected
+          ? summary?.expected_cash ?? null
+          : null,
+        summary,
+      };
+    });
+
     return ok({
       brand,
-      sessions: data || [],
+      sessions,
+      blindClose: !canViewOpenExpectedCash(access),
     });
   } catch (error) {
     return handlePosError(error);
@@ -76,8 +156,12 @@ export async function POST(request: Request) {
       120
     );
     const action = requiredText(body.action, "action", 20);
-    const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.cash" });
+    const access = await requirePosOperationalAccess({
+      brandSlug,
+      entitlement: "pos.cash",
+    });
+    requireCashPermission(access, "pos.cash.operate");
+    const { admin, brand, user } = access;
 
     if (action === "open") {
       const registerId = uuidValue(

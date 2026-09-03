@@ -1,0 +1,4 @@
+import { NextRequest,NextResponse } from "next/server";
+import { finalizeAssetWithReviewGuard } from "@/lib/mercury/admin-content";
+export const runtime="nodejs"; export const dynamic="force-dynamic";
+export async function POST(request:NextRequest,{params}:{params:Promise<{brandSlug:string;contentItemId:string}>}){try{const {brandSlug,contentItemId}=await params;const body=await request.json();const result=await finalizeAssetWithReviewGuard(brandSlug,contentItemId,body);return NextResponse.json({ok:true,asset:result},{status:201});}catch(error){const code=error instanceof Error?error.message:"ASSET_FINALIZE_FAILED";return NextResponse.json({ok:false,error:code==="REVIEW_PENDING_LOCK"?"REVIEW_PENDING_LOCK":code},{status:code==="REVIEW_PENDING_LOCK"?409:code==="CONTENT_NOT_FOUND"?404:400});}}

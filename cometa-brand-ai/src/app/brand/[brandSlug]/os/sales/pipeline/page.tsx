@@ -1,0 +1,2 @@
+import { FoundationPage } from "../../components/foundation-page";
+export default function PipelinePage() { return <FoundationPage title="Pipeline" description="Tus oportunidades comerciales por etapa y siguiente acción." emptyTitle="El pipeline aparecerá con tus primeros leads" emptyDescription="No mostramos tarjetas de ejemplo. Las oportunidades se crearán a partir de conversaciones reales." />; }

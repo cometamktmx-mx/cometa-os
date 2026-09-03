@@ -1,0 +1,4 @@
+-- Superseded migration marker.
+-- The remote public.mercury_content_reviews table is legacy AI review data.
+-- Client Review V1 is defined in 20260827210000_mercury_client_content_reviews_v1.sql.
+-- Intentionally no-op: never alter, rename, drop, or write to the legacy table.

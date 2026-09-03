@@ -4,8 +4,9 @@ import { BrandCommandCenter } from "./components/brand-command-center";
 import { BrandHomeHashRedirect } from "./components/brand-home-hash-redirect";
 import {
   BrandOsGuardError,
-  requireBrandAccess,
+  requireClientBrandAccess,
 } from "@/lib/brand-os/server";
+import { resolveBrandOsProductAccess } from "@/lib/brand-os/access";
 import { getPassivePosProductAvailability } from "@/lib/pos/access";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,15 @@ export default async function BrandCommandCenterPage({
   const safeRequestedSlug = encodeURIComponent(brandSlug || "");
 
   try {
-    const access = await requireBrandAccess(brandSlug);
+    const access = await requireClientBrandAccess(brandSlug);
     const posAvailability = await getPassivePosProductAvailability(
       access.brand.slug
     );
+    const osProductAccess = resolveBrandOsProductAccess({
+      membershipActive: access.membershipActive,
+      isPlatformAdmin: access.isPlatformAdmin,
+      osAccess: access.osAccess,
+    });
 
     return (
       <>
@@ -30,8 +36,8 @@ export default async function BrandCommandCenterPage({
         <BrandCommandCenter
           brand={access.brand}
           userEmail={access.user.email}
-          isPlatformAdmin={access.isPlatformAdmin}
-          osStatus={access.osAccess.status}
+          osStatus={osProductAccess.effectiveAccessAllowed ? "active" : access.osAccess.status}
+          osAccessAllowed={osProductAccess.effectiveAccessAllowed}
           posAvailability={posAvailability}
         />
       </>

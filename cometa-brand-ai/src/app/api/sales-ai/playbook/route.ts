@@ -1,15 +1,24 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { brandContextErrorResponse } from "@/lib/brand-os/api";
+import { requireCanonicalBrandContext } from "@/lib/brand-os/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE!;
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing Supabase server configuration.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 type Offer = {
   name: string;
@@ -25,7 +34,8 @@ type ObjectionHandler = {
 };
 
 type PlaybookInput = {
-  brandName: string;
+  brandName?: string;
+  brandSlug?: string;
 
   businessModel?: string;
   idealCustomer?: string;
@@ -55,34 +65,28 @@ type PlaybookInput = {
   isActive?: boolean;
 };
 
-const DEFAULT_BRAND_NAME = "Mar Cosmetic";
-
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const brandName = searchParams.get("brandName") || DEFAULT_BRAND_NAME;
+    const context = await requireCanonicalBrandContext({
+      brandSlug: searchParams.get("brandSlug"),
+      legacyBrandName: searchParams.get("brandName"),
+    });
+    const supabase = getSupabaseAdmin();
 
     const { data, error } = await supabase
       .from("sales_playbooks")
       .select("*")
-      .eq("brand_name", brandName)
+      .eq("brand_name", context.brandName)
       .eq("is_active", true)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: error.message,
-        },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
     if (!data) {
-      const defaultPlaybook = buildDefaultPlaybook(brandName);
+      const defaultPlaybook = buildDefaultPlaybook(context.brandName);
 
       return NextResponse.json({
         ok: true,
@@ -97,39 +101,25 @@ export async function GET(req: Request) {
       raw: data,
       exists: true,
     });
-  } catch (error: any) {
-    console.error("Error cargando playbook:", error);
-
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Error interno cargando playbook",
-        details: error?.message || String(error),
-      },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return brandContextErrorResponse(error);
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as PlaybookInput;
+    const context = await requireCanonicalBrandContext({
+      brandSlug: body.brandSlug,
+      legacyBrandName: body.brandName,
+    });
+    const supabase = getSupabaseAdmin();
+    const payload = buildDatabasePayload({
+      ...body,
+      brandName: context.brandName,
+    });
 
-    const brandName = body.brandName?.trim();
-
-    if (!brandName) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "brandName es requerido.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const payload = buildDatabasePayload(body);
-
-    const existing = await findExistingPlaybook(brandName);
+    const existing = await findExistingPlaybook(supabase, context.brandName);
 
     let result;
 
@@ -144,15 +134,7 @@ export async function POST(req: Request) {
         .select("*")
         .single();
 
-      if (error) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: error.message,
-          },
-          { status: 500 }
-        );
-      }
+      if (error) throw error;
 
       result = data;
     } else {
@@ -162,15 +144,7 @@ export async function POST(req: Request) {
         .select("*")
         .single();
 
-      if (error) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: error.message,
-          },
-          { status: 500 }
-        );
-      }
+      if (error) throw error;
 
       result = data;
     }
@@ -181,21 +155,15 @@ export async function POST(req: Request) {
       raw: result,
       message: "Playbook guardado correctamente.",
     });
-  } catch (error: any) {
-    console.error("Error guardando playbook:", error);
-
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Error interno guardando playbook",
-        details: error?.message || String(error),
-      },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return brandContextErrorResponse(error);
   }
 }
 
-async function findExistingPlaybook(brandName: string) {
+async function findExistingPlaybook(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  brandName: string
+) {
   const { data, error } = await supabase
     .from("sales_playbooks")
     .select("id")
@@ -212,7 +180,7 @@ async function findExistingPlaybook(brandName: string) {
   return data;
 }
 
-function buildDatabasePayload(input: PlaybookInput) {
+function buildDatabasePayload(input: PlaybookInput & { brandName: string }) {
   const brandName = input.brandName.trim();
 
   const autonomyRules = {
@@ -276,7 +244,7 @@ function normalizePlaybookForClient(data: any) {
 
   return {
     id: data?.id || null,
-    brandName: data?.brand_name || DEFAULT_BRAND_NAME,
+    brandName: data?.brand_name || "",
 
     businessModel: data?.business_model || "",
     idealCustomer: data?.ideal_customer || "",

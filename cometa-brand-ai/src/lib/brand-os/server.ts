@@ -33,6 +33,7 @@ export type BrandServerAccess = {
   brand: CanonicalBrand;
   activeBrandSlugs: string[];
   membershipActive: boolean;
+  accessRole: string | null;
   isPlatformAdmin: boolean;
   osAccess: BrandOsAccess;
 };
@@ -40,6 +41,32 @@ export type BrandServerAccess = {
 export type BrandOsServerAccess = BrandServerAccess & {
   bypassUsed: boolean;
   productAccess: BrandOsProductAccess;
+};
+
+export type CanonicalBrandContext = {
+  userId: string;
+  userEmail: string | null;
+  brandId: string;
+  brandSlug: string;
+  brandName: string;
+  role: string | null;
+  isPlatformAdmin: boolean;
+  membershipActive: boolean;
+  osAccess: BrandOsAccess;
+  permissions: {
+    canAccessBrand: true;
+    canAccessOs: boolean;
+  };
+};
+
+export type RequireCanonicalBrandContextInput = {
+  brandSlug?: string | null;
+  /**
+   * Compatibility-only hint for legacy routes. It is resolved against the
+   * canonical brands registry before authorization and is never authority.
+   */
+  legacyBrandName?: string | null;
+  requireOsAccess?: boolean;
 };
 
 export class BrandOsGuardError extends Error {
@@ -83,6 +110,9 @@ export async function requireBrandAccess(
   const membershipActive = isPlatformAdmin
     ? false
     : activeBrandSlugs.includes(brand.slug);
+  const accessRole = isPlatformAdmin
+    ? "admin"
+    : await getActiveBrandAccessRole(admin, user.userId, brand.slug);
 
   if (!isPlatformAdmin && !membershipActive) {
     throw new BrandOsGuardError(
@@ -108,9 +138,22 @@ export async function requireBrandAccess(
     brand,
     activeBrandSlugs,
     membershipActive,
+    accessRole,
     isPlatformAdmin,
     osAccess,
   };
+}
+
+/** Client-facing brand surface guard. Admins retain their existing access;
+ * team profiles are never treated as clients merely because they have a
+ * brand membership. */
+export async function requireClientBrandAccess(requestedBrandSlug: string): Promise<BrandServerAccess> {
+  const access = await requireBrandAccess(requestedBrandSlug);
+  if (access.isPlatformAdmin) return access;
+  const { data, error } = await getAdminClient().from("user_profiles").select("role,status").eq("user_id", access.user.userId).maybeSingle();
+  if (error) throw new BrandOsGuardError(500, "BRAND_OS_PROFILE_LOOKUP_FAILED", "No se pudo resolver el perfil de acceso.");
+  if (!data || data.role !== "client" || data.status !== "active") throw new BrandOsGuardError(403, "CLIENT_SURFACE_REQUIRED", "Esta superficie está disponible para clientes de la marca.");
+  return access;
 }
 
 /**
@@ -123,6 +166,11 @@ export async function requireBrandOsAccess(
   requestedBrandSlug: string
 ): Promise<BrandOsServerAccess> {
   const brandAccess = await requireBrandAccess(requestedBrandSlug);
+  if (!brandAccess.isPlatformAdmin) {
+    const { data, error } = await getAdminClient().from("user_profiles").select("role,status").eq("user_id", brandAccess.user.userId).maybeSingle();
+    if (error) throw new BrandOsGuardError(500, "BRAND_OS_PROFILE_LOOKUP_FAILED", "No se pudo resolver el perfil de acceso.");
+    if (!data || data.role !== "client" || data.status !== "active") throw new BrandOsGuardError(403, "CLIENT_SURFACE_REQUIRED", "Esta superficie está disponible para clientes de la marca.");
+  }
   const productAccess = resolveBrandOsProductAccess({
     membershipActive: brandAccess.membershipActive,
     isPlatformAdmin: brandAccess.isPlatformAdmin,
@@ -137,6 +185,62 @@ export async function requireBrandOsAccess(
     ...brandAccess,
     bypassUsed: productAccess.authorizationSource === "platform_admin_bypass",
     productAccess,
+  };
+}
+
+/**
+ * Canonical tenant context for API routes that are being migrated from legacy
+ * brand_name inputs. New callers must send brandSlug. The legacy name adapter
+ * is exact-match only and fails closed when it cannot resolve one canonical
+ * brand.
+ */
+export async function requireCanonicalBrandContext(
+  input: RequireCanonicalBrandContextInput
+): Promise<CanonicalBrandContext> {
+  const requestedBrandSlug = String(input.brandSlug || "").trim();
+  const legacyBrandName = String(input.legacyBrandName || "").trim();
+
+  // Authenticate before the compatibility-only brand-name lookup. The exact
+  // lookup is only an identity bootstrap; the existing membership/OS guard
+  // below remains the authority for tenant access.
+  if (!requestedBrandSlug) {
+    await getAuthenticatedUser();
+  }
+
+  const canonicalBrandSlug = requestedBrandSlug
+    ? slugifyBrand(requestedBrandSlug)
+    : await resolveCanonicalBrandSlugFromLegacyName(legacyBrandName);
+
+  if (!canonicalBrandSlug) {
+    throw new BrandOsGuardError(
+      400,
+      "BRAND_OS_BRAND_REQUIRED",
+      "Se requiere un brandSlug vÃ¡lido para esta operaciÃ³n."
+    );
+  }
+
+  const access = input.requireOsAccess
+    ? await requireBrandOsAccess(canonicalBrandSlug)
+    : await requireBrandAccess(canonicalBrandSlug);
+
+  return {
+    userId: access.user.userId,
+    userEmail: access.user.email,
+    brandId: access.brand.id,
+    brandSlug: access.brand.slug,
+    brandName: access.brand.name,
+    role: access.isPlatformAdmin ? "platform_admin" : access.accessRole,
+    isPlatformAdmin: access.isPlatformAdmin,
+    membershipActive: access.membershipActive,
+    osAccess: access.osAccess,
+    permissions: {
+      canAccessBrand: true,
+      canAccessOs:
+        "productAccess" in access
+          ? (access as BrandOsServerAccess).productAccess
+              .effectiveAccessAllowed
+          : false,
+    },
   };
 }
 
@@ -280,6 +384,72 @@ async function getActiveBrandSlugs(
         .filter(Boolean)
     )
   );
+}
+
+async function getActiveBrandAccessRole(
+  admin: SupabaseClient,
+  userId: string,
+  brandSlug: string
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("user_brand_access")
+    .select("access_role")
+    .eq("user_id", userId)
+    .eq("brand_slug", brandSlug)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (error) {
+    throw new BrandOsGuardError(
+      500,
+      "BRAND_OS_MEMBERSHIP_LOOKUP_FAILED",
+      "No se pudo resolver el rol de acceso de esta empresa."
+    );
+  }
+
+  return typeof data?.access_role === "string" && data.access_role.trim()
+    ? data.access_role.trim()
+    : null;
+}
+
+async function resolveCanonicalBrandSlugFromLegacyName(
+  legacyBrandName: string
+): Promise<string> {
+  if (!legacyBrandName) {
+    return "";
+  }
+
+  const { data, error } = await getAdminClient()
+    .from("brands")
+    .select("slug")
+    .eq("name", legacyBrandName)
+    .limit(2);
+
+  if (error) {
+    throw new BrandOsGuardError(
+      500,
+      "BRAND_OS_BRAND_LOOKUP_FAILED",
+      "No se pudo resolver la empresa solicitada."
+    );
+  }
+
+  if (!data?.length) {
+    throw new BrandOsGuardError(
+      404,
+      "BRAND_NOT_FOUND",
+      "La empresa solicitada no existe."
+    );
+  }
+
+  if (data.length !== 1 || typeof data[0]?.slug !== "string") {
+    throw new BrandOsGuardError(
+      400,
+      "BRAND_OS_BRAND_AMBIGUOUS",
+      "La empresa solicitada no se puede resolver de forma segura."
+    );
+  }
+
+  return slugifyBrand(data[0].slug);
 }
 
 function createProductAccessError(status: BrandOsAccess["status"]): BrandOsGuardError {

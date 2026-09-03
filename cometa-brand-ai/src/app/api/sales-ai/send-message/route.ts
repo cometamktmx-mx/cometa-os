@@ -1,6 +1,12 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  brandContextErrorResponse,
+  invalidRequestResponse,
+} from "@/lib/brand-os/api";
+import { requireCanonicalBrandContext } from "@/lib/brand-os/server";
+import { findSalesLeadForBrand } from "@/lib/sales-ai/tenant";
 import {
   canSendApprovedWhatsapp,
   explainApprovedWhatsappSendLock,
@@ -10,144 +16,105 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE!;
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing Supabase server configuration.");
+  }
 
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+/**
+ * TEMPORARY AUTHORIZATION MODEL (Phase 0): an authenticated user with active
+ * canonical brand membership may perform a supervised human send when the
+ * Sales AI runtime permits it. COMETA does not yet have verified granular
+ * Sales AI RBAC, so this is deliberately not the final permission model.
+ *
+ * `approved`, `approvedBy`, `brandName`, `brandSlug`, and `phoneNumberId`
+ * supplied by the client are not authorization authority. The server resolves
+ * the actor, canonical brand, lead ownership, and sending phone internally.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
-
     const leadId = cleanText(body?.leadId);
-    const approved = body?.approved === true;
-    const approvedBy = cleanText(body?.approvedBy) || "Cometa";
-    const sendReason =
-      cleanText(body?.sendReason) || "Respuesta aprobada manualmente";
-
-    let messageText =
+    const messageText =
       cleanText(body?.messageText) ||
       cleanText(body?.agentReply) ||
       cleanText(body?.reply);
+    const sendReason =
+      cleanText(body?.sendReason) || "Respuesta enviada manualmente";
 
     if (!leadId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Falta leadId para enviar el mensaje.",
-        },
-        { status: 400 }
-      );
+      return invalidRequestResponse("Falta leadId para enviar el mensaje.");
     }
 
-    if (!approved) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Este endpoint requiere approved=true para evitar envíos accidentales.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const { data: lead, error: leadError } = await supabase
-      .from("sales_leads")
-      .select("*")
-      .eq("id", leadId)
-      .maybeSingle();
-
-    if (leadError) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: leadError.message,
-        },
-        { status: 500 }
-      );
-    }
+    const context = await requireCanonicalBrandContext({
+      brandSlug: cleanText(body?.brandSlug),
+      legacyBrandName: cleanText(body?.brandName),
+    });
+    const supabase = getSupabaseAdmin();
+    const lead = await findSalesLeadForBrand(supabase, leadId, context);
 
     if (!lead) {
       return NextResponse.json(
         {
           ok: false,
-          error: "No se encontró el lead.",
+          success: false,
+          code: "ENTITY_NOT_FOUND",
+          error: "No se encontrÃ³ el lead solicitado.",
         },
         { status: 404 }
       );
     }
 
-    const brandName =
-      cleanText(body?.brandName) || cleanText(lead.brand_name) || "Cometa Mkt";
-
-    const brandSlug =
-      cleanText(lead.brand_slug) ||
-      cleanText(body?.brandSlug) ||
-      formatBrandSlug(brandName);
-
-    const toPhone =
-      cleanPhone(body?.toPhone) ||
-      cleanPhone(lead.contact_phone) ||
-      cleanPhone(lead.phone) ||
-      cleanPhone(lead.whatsapp) ||
-      cleanPhone(lead.whatsapp_number) ||
-      cleanPhone(lead.from_number);
+    const toPhone = getFirstPhone(lead);
 
     if (!toPhone) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "No se encontró el número del lead para enviar WhatsApp.",
-        },
-        { status: 400 }
+      return invalidRequestResponse(
+        "No se encontrÃ³ un nÃºmero de WhatsApp para este lead."
       );
     }
 
-    const latestAgentRun = await getLatestAgentRun(leadId);
+    const latestAgentRun = await getLatestAgentRun(supabase, leadId);
+    const finalMessageText = messageText || cleanText(latestAgentRun?.agent_reply);
 
-    if (!messageText) {
-      messageText = cleanText(latestAgentRun?.agent_reply);
-    }
-
-    if (!messageText) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "No hay respuesta para enviar. Falta messageText o agent_reply en el último agent run.",
-        },
-        { status: 400 }
+    if (!finalMessageText) {
+      return invalidRequestResponse(
+        "No hay respuesta para enviar. Captura un mensaje o genera una respuesta del agente."
       );
     }
 
-    const runtimeSettings = await getSalesAiRuntimeSettings(brandName);
-
+    const runtimeSettings = await getSalesAiRuntimeSettings(context.brandName);
     const envAllowsWhatsappSend =
       process.env.SALES_AI_SEND_WHATSAPP_ENABLED === "true";
-
     const settingsAllowWhatsappSend = canSendApprovedWhatsapp(runtimeSettings);
-
-const lockReasons = explainApprovedWhatsappSendLock(runtimeSettings);
+    const lockReasons = explainApprovedWhatsappSendLock(runtimeSettings);
+    const actorLabel = context.userEmail || context.userId;
 
     if (!envAllowsWhatsappSend || !settingsAllowWhatsappSend) {
       const blockedReason = [
         !envAllowsWhatsappSend
-          ? "SALES_AI_SEND_WHATSAPP_ENABLED no está activo"
+          ? "SALES_AI_SEND_WHATSAPP_ENABLED no estÃ¡ activo"
           : null,
         ...lockReasons,
       ]
         .filter(Boolean)
         .join(", ");
 
-      await saveOutboundAttempt({
+      await saveOutboundAttempt(supabase, {
         leadId,
         agentRunId: latestAgentRun?.id || null,
-        brandName,
+        brandName: context.brandName,
         toPhone,
         fromPhoneNumberId: null,
-        messageText,
+        messageText: finalMessageText,
         status: "blocked",
         sendReason,
         errorMessage: blockedReason,
@@ -156,182 +123,146 @@ const lockReasons = explainApprovedWhatsappSendLock(runtimeSettings);
       return NextResponse.json(
         {
           ok: false,
+          success: false,
           blocked: true,
-          error: "Envío real bloqueado por configuración de seguridad.",
-          reasons: [
-            !envAllowsWhatsappSend
-              ? "SALES_AI_SEND_WHATSAPP_ENABLED no está activo"
-              : null,
-            ...lockReasons,
-          ].filter(Boolean),
+          code: "SEND_NOT_ALLOWED",
+          error: "El envÃ­o de WhatsApp estÃ¡ bloqueado por la configuraciÃ³n de seguridad.",
         },
         { status: 403 }
       );
     }
 
-    const whatsappSettings = await getWhatsappSettings(brandName);
-
-    const runtimeSettingsAny = runtimeSettings as any;
-
-const phoneNumberId =
-  cleanText(body?.phoneNumberId) ||
-  cleanText(whatsappSettings?.whatsapp_phone_number_id) ||
-  cleanText(runtimeSettingsAny?.whatsapp_phone_number_id) ||
-  cleanText(runtimeSettingsAny?.whatsappPhoneNumberId);
-
-const displayPhoneNumber =
-  cleanText(whatsappSettings?.whatsapp_phone_number) ||
-  cleanText(runtimeSettingsAny?.whatsapp_phone_number) ||
-  cleanText(runtimeSettingsAny?.whatsappPhoneNumber) ||
-  null;
+    const whatsappSettings = await getWhatsappSettings(supabase, context.brandName);
+    const phoneNumberId = cleanText(whatsappSettings?.whatsapp_phone_number_id);
+    const displayPhoneNumber =
+      cleanText(whatsappSettings?.whatsapp_phone_number) || null;
 
     if (!phoneNumberId) {
-      await saveOutboundAttempt({
+      await saveOutboundAttempt(supabase, {
         leadId,
         agentRunId: latestAgentRun?.id || null,
-        brandName,
+        brandName: context.brandName,
         toPhone,
         fromPhoneNumberId: null,
-        messageText,
+        messageText: finalMessageText,
         status: "failed",
         sendReason,
-        errorMessage:
-          "Falta whatsapp_phone_number_id en sales_ai_settings o runtime settings.",
+        errorMessage: "Falta un phone number autorizado en Sales AI settings.",
       });
 
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Falta whatsapp_phone_number_id para enviar WhatsApp real.",
-        },
-        { status: 400 }
+      return invalidRequestResponse(
+        "No hay un nÃºmero de WhatsApp autorizado para esta marca."
       );
     }
 
     const whatsappSendResult = await sendWhatsappTextMessage({
       phoneNumberId,
       to: toPhone,
-      message: messageText,
+      message: finalMessageText,
     });
 
     if (!whatsappSendResult.ok) {
-      await saveOutboundAttempt({
+      await saveOutboundAttempt(supabase, {
         leadId,
         agentRunId: latestAgentRun?.id || null,
-        brandName,
+        brandName: context.brandName,
         toPhone,
         fromPhoneNumberId: phoneNumberId,
-        messageText,
+        messageText: finalMessageText,
         status: "failed",
         sendReason,
-        errorMessage: whatsappSendResult.error,
+        errorMessage: whatsappSendResult.error || "WhatsApp delivery failed.",
       });
 
       return NextResponse.json(
         {
           ok: false,
+          success: false,
+          code: "SEND_FAILED",
           error: "No se pudo enviar el mensaje por WhatsApp.",
-          details: whatsappSendResult.error,
-          meta: whatsappSendResult.data || null,
         },
         { status: 502 }
       );
     }
 
     const whatsappMessageId = whatsappSendResult.whatsappMessageId || null;
-
-    const outbound = await saveOutboundSuccess({
-      brandSlug,
-      brandName,
+    const outbound = await saveOutboundSuccess(supabase, {
+      brandSlug: context.brandSlug,
+      brandName: context.brandName,
       leadId,
       agentRunId: latestAgentRun?.id || null,
       toPhone,
       phoneNumberId,
       displayPhoneNumber,
-      messageText,
+      messageText: finalMessageText,
       whatsappMessageId,
       rawResponse: whatsappSendResult.data,
       sendReason,
-      approvedBy,
+      actorLabel,
     });
 
-    await updateLeadAfterSend({
+    await updateLeadAfterSend(supabase, {
       leadId,
-      messageText,
+      messageText: finalMessageText,
       whatsappMessageId,
     });
 
     if (latestAgentRun?.id) {
-      await safeUpdateById("sales_agent_runs", latestAgentRun.id, [
+      await safeUpdateById(supabase, "sales_agent_runs", latestAgentRun.id, [
         {
           action_status: "sent_whatsapp_supervised",
           whatsapp_message_id: whatsappMessageId,
           executed_at: new Date().toISOString(),
         },
-        {
-          action_status: "sent_whatsapp_supervised",
-        },
+        { action_status: "sent_whatsapp_supervised" },
       ]);
     }
 
     return NextResponse.json({
       ok: true,
+      success: true,
       message: "Mensaje enviado por WhatsApp.",
       leadId,
-      brandName,
+      brand: {
+        id: context.brandId,
+        slug: context.brandSlug,
+        name: context.brandName,
+      },
       toPhone,
       whatsappMessageId,
       outbound,
     });
-  } catch (error: any) {
-    console.error("SALES_AI_SEND_MESSAGE_ERROR:", error);
-
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error?.message || "Error enviando mensaje por WhatsApp.",
-      },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return brandContextErrorResponse(error);
   }
 }
 
-async function getLatestAgentRun(leadId: string) {
-  const { data } = await supabase
+async function getLatestAgentRun(supabase: SupabaseClient, leadId: string) {
+  const { data, error } = await supabase
     .from("sales_agent_runs")
     .select(
-      `
-      id,
-      action,
-      action_status,
-      lead_stage,
-      requires_human,
-      confidence_score,
-      decision_reason,
-      agent_reply,
-      created_at
-    `
+      "id,action,action_status,lead_stage,requires_human,confidence_score,decision_reason,agent_reply,created_at"
     )
     .eq("lead_id", leadId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  if (error) throw error;
   return data || null;
 }
 
-async function getWhatsappSettings(brandName: string) {
+async function getWhatsappSettings(
+  supabase: SupabaseClient,
+  brandName: string
+) {
   const { data, error } = await supabase
     .from("sales_ai_settings")
-    .select("*")
+    .select("whatsapp_phone_number_id,whatsapp_phone_number")
     .eq("brand_name", brandName)
     .maybeSingle();
 
-  if (error) {
-    console.warn("No se pudieron cargar sales_ai_settings:", error.message);
-  }
-
+  if (error) throw error;
   return data || null;
 }
 
@@ -345,10 +276,7 @@ async function sendWhatsappTextMessage({
   message: string;
 }) {
   const accessToken =
-    process.env.WHATSAPP_ACCESS_TOKEN ||
-    process.env.META_WHATSAPP_TOKEN ||
-    "";
-
+    process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_WHATSAPP_TOKEN || "";
   const graphApiVersion =
     process.env.WHATSAPP_GRAPH_API_VERSION ||
     process.env.META_GRAPH_API_VERSION ||
@@ -357,23 +285,14 @@ async function sendWhatsappTextMessage({
   if (!accessToken) {
     return {
       ok: false,
-      error: "Falta WHATSAPP_ACCESS_TOKEN o META_WHATSAPP_TOKEN.",
-      data: null,
-      whatsappMessageId: null,
-    };
-  }
-
-  if (!phoneNumberId) {
-    return {
-      ok: false,
-      error: "Falta phoneNumberId para enviar WhatsApp.",
+      error: "Missing WhatsApp server token.",
       data: null,
       whatsappMessageId: null,
     };
   }
 
   try {
-    const res = await fetch(
+    const response = await fetch(
       `https://graph.facebook.com/${graphApiVersion}/${phoneNumberId}/messages`,
       {
         method: "POST",
@@ -385,20 +304,17 @@ async function sendWhatsappTextMessage({
           messaging_product: "whatsapp",
           to,
           type: "text",
-          text: {
-            preview_url: false,
-            body: message,
-          },
+          text: { preview_url: false, body: message },
         }),
       }
     );
 
-    const data = await res.json().catch(() => null);
+    const data = await response.json().catch(() => null);
 
-    if (!res.ok) {
+    if (!response.ok) {
       return {
         ok: false,
-        error: JSON.stringify(data || {}),
+        error: "WhatsApp Graph API rejected the message.",
         data,
         whatsappMessageId: null,
       };
@@ -409,27 +325,18 @@ async function sendWhatsappTextMessage({
       data,
       whatsappMessageId: data?.messages?.[0]?.id || null,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    console.error("SALES_AI_WHATSAPP_SEND_ERROR:", error);
     return {
       ok: false,
-      error: error?.message || String(error),
+      error: "WhatsApp delivery request failed.",
       data: null,
       whatsappMessageId: null,
     };
   }
 }
 
-async function saveOutboundAttempt({
-  leadId,
-  agentRunId,
-  brandName,
-  toPhone,
-  fromPhoneNumberId,
-  messageText,
-  status,
-  sendReason,
-  errorMessage,
-}: {
+type OutboundAttempt = {
   leadId: string;
   agentRunId: string | null;
   brandName: string;
@@ -439,50 +346,42 @@ async function saveOutboundAttempt({
   status: "blocked" | "failed";
   sendReason: string;
   errorMessage: string;
-}) {
+};
+
+async function saveOutboundAttempt(
+  supabase: SupabaseClient,
+  input: OutboundAttempt
+) {
   const now = new Date().toISOString();
 
-  await safeInsertWithFallback("sales_outbound_messages", [
+  await safeInsertWithFallback(supabase, "sales_outbound_messages", [
     {
       id: randomUUID(),
-      lead_id: leadId,
-      agent_run_id: agentRunId,
-      brand_name: brandName,
-      to_phone: toPhone,
-      from_phone_number_id: fromPhoneNumberId,
-      message_text: messageText,
-      status,
-      send_reason: sendReason,
-      error_message: errorMessage,
+      lead_id: input.leadId,
+      agent_run_id: input.agentRunId,
+      brand_name: input.brandName,
+      to_phone: input.toPhone,
+      from_phone_number_id: input.fromPhoneNumberId,
+      message_text: input.messageText,
+      status: input.status,
+      send_reason: input.sendReason,
+      error_message: input.errorMessage,
       created_at: now,
     },
     {
       id: randomUUID(),
-      lead_id: leadId,
-      brand_name: brandName,
-      to_phone: toPhone,
-      message_text: messageText,
-      status,
-      error_message: errorMessage,
+      lead_id: input.leadId,
+      brand_name: input.brandName,
+      to_phone: input.toPhone,
+      message_text: input.messageText,
+      status: input.status,
+      error_message: input.errorMessage,
       created_at: now,
     },
   ]);
 }
 
-async function saveOutboundSuccess({
-  brandSlug,
-  brandName,
-  leadId,
-  agentRunId,
-  toPhone,
-  phoneNumberId,
-  displayPhoneNumber,
-  messageText,
-  whatsappMessageId,
-  rawResponse,
-  sendReason,
-  approvedBy,
-}: {
+type OutboundSuccess = {
   brandSlug: string;
   brandName: string;
   leadId: string;
@@ -492,114 +391,96 @@ async function saveOutboundSuccess({
   displayPhoneNumber: string | null;
   messageText: string;
   whatsappMessageId: string | null;
-  rawResponse: any;
+  rawResponse: unknown;
   sendReason: string;
-  approvedBy: string;
-}) {
-  const now = new Date().toISOString();
+  actorLabel: string;
+};
 
-  const outbound = await safeInsertWithFallback("sales_outbound_messages", [
+async function saveOutboundSuccess(
+  supabase: SupabaseClient,
+  input: OutboundSuccess
+) {
+  const now = new Date().toISOString();
+  const outbound = await safeInsertWithFallback(supabase, "sales_outbound_messages", [
     {
       id: randomUUID(),
-      lead_id: leadId,
-      agent_run_id: agentRunId,
-      brand_name: brandName,
-      to_phone: toPhone,
-      from_phone_number_id: phoneNumberId,
-      message_text: messageText,
+      lead_id: input.leadId,
+      agent_run_id: input.agentRunId,
+      brand_name: input.brandName,
+      to_phone: input.toPhone,
+      from_phone_number_id: input.phoneNumberId,
+      message_text: input.messageText,
       status: "sent",
-      send_reason: sendReason,
-      whatsapp_message_id: whatsappMessageId,
+      send_reason: input.sendReason,
+      whatsapp_message_id: input.whatsappMessageId,
       created_at: now,
       sent_at: now,
     },
     {
       id: randomUUID(),
-      lead_id: leadId,
-      brand_name: brandName,
-      to_phone: toPhone,
-      message_text: messageText,
+      lead_id: input.leadId,
+      brand_name: input.brandName,
+      to_phone: input.toPhone,
+      message_text: input.messageText,
       status: "sent",
-      whatsapp_message_id: whatsappMessageId,
+      whatsapp_message_id: input.whatsappMessageId,
       created_at: now,
       sent_at: now,
     },
   ]);
 
-  await safeInsertWithFallback("whatsapp_messages", [
+  await safeInsertWithFallback(supabase, "whatsapp_messages", [
     {
-      brand_slug: brandSlug,
-      message_id: whatsappMessageId || randomUUID(),
-      wa_id: toPhone,
-      phone_number_id: phoneNumberId,
-      display_phone_number: displayPhoneNumber,
+      brand_slug: input.brandSlug,
+      message_id: input.whatsappMessageId || randomUUID(),
+      wa_id: input.toPhone,
+      phone_number_id: input.phoneNumberId,
+      display_phone_number: input.displayPhoneNumber,
       direction: "outbound",
       message_type: "text",
-      content_text: messageText,
-      raw_message: rawResponse,
+      content_text: input.messageText,
+      raw_message: input.rawResponse,
       timestamp_at: now,
       status: "sent",
     },
     {
-      brand_slug: brandSlug,
-      message_id: whatsappMessageId || randomUUID(),
-      wa_id: toPhone,
+      brand_slug: input.brandSlug,
+      message_id: input.whatsappMessageId || randomUUID(),
+      wa_id: input.toPhone,
       direction: "outbound",
-      content_text: messageText,
+      content_text: input.messageText,
       status: "sent",
     },
   ]);
 
-  await safeInsertWithFallback("sales_messages", [
+  await safeInsertWithFallback(supabase, "sales_messages", [
     {
       id: randomUUID(),
-      lead_id: leadId,
-      agent_run_id: agentRunId,
-      outbound_message_id: outbound?.id || null,
-      brand_name: brandName,
+      lead_id: input.leadId,
+      agent_run_id: input.agentRunId,
+      outbound_message_id: getRecordId(outbound),
+      brand_name: input.brandName,
       platform: "whatsapp",
       direction: "outbound",
       sender_type: "sales_ai",
-      contact_phone: toPhone,
-      from_phone_number_id: phoneNumberId,
-      message_text: messageText,
-      whatsapp_message_id: whatsappMessageId,
+      contact_phone: input.toPhone,
+      from_phone_number_id: input.phoneNumberId,
+      message_text: input.messageText,
+      whatsapp_message_id: input.whatsappMessageId,
       status: "sent",
       raw_data: {
-        approved_by: approvedBy,
-        send_reason: sendReason,
-        meta_response: rawResponse,
+        sent_by: input.actorLabel,
+        send_reason: input.sendReason,
+        meta_response: input.rawResponse,
       },
       created_at: now,
     },
     {
       id: randomUUID(),
-      brand_name: brandName,
-      lead_id: leadId,
+      brand_name: input.brandName,
+      lead_id: input.leadId,
       direction: "outbound",
-      message_direction: "outbound",
-      type: "outbound",
-      message: messageText,
-      body: messageText,
-      content: messageText,
-      text: messageText,
-      content_text: messageText,
-      sender: "SALES AI",
-      sender_name: "SALES AI",
-      to: toPhone,
-      to_number: toPhone,
-      whatsapp_message_id: whatsappMessageId,
-      external_message_id: whatsappMessageId,
-      raw_message: rawResponse,
-      is_from_customer: false,
-      created_at: now,
-    },
-    {
-      id: randomUUID(),
-      brand_name: brandName,
-      lead_id: leadId,
-      direction: "outbound",
-      content_text: messageText,
+      content_text: input.messageText,
       sender: "SALES AI",
       created_at: now,
     },
@@ -608,25 +489,24 @@ async function saveOutboundSuccess({
   return outbound;
 }
 
-async function updateLeadAfterSend({
-  leadId,
-  messageText,
-  whatsappMessageId,
-}: {
-  leadId: string;
-  messageText: string;
-  whatsappMessageId: string | null;
-}) {
+async function updateLeadAfterSend(
+  supabase: SupabaseClient,
+  input: {
+    leadId: string;
+    messageText: string;
+    whatsappMessageId: string | null;
+  }
+) {
   const now = new Date().toISOString();
 
-  await safeUpdateById("sales_leads", leadId, [
+  await safeUpdateById(supabase, "sales_leads", input.leadId, [
     {
       updated_at: now,
       last_message_at: now,
       last_agent_action: "sent_whatsapp_supervised",
-      last_agent_reason: "Respuesta aprobada manualmente desde SALES AI.",
-      last_outbound_message: messageText,
-      last_whatsapp_message_id: whatsappMessageId,
+      last_agent_reason: "Respuesta enviada manualmente desde SALES AI.",
+      last_outbound_message: input.messageText,
+      last_whatsapp_message_id: input.whatsappMessageId,
       agent_stage: "waiting_response",
     },
     {
@@ -635,13 +515,15 @@ async function updateLeadAfterSend({
       last_agent_action: "sent_whatsapp_supervised",
       agent_stage: "waiting_response",
     },
-    {
-      updated_at: now,
-    },
+    { updated_at: now },
   ]);
 }
 
-async function safeInsertWithFallback(tableName: string, payloads: any[]) {
+async function safeInsertWithFallback(
+  supabase: SupabaseClient,
+  tableName: string,
+  payloads: Record<string, unknown>[]
+) {
   for (const payload of payloads) {
     try {
       const { data, error } = await supabase
@@ -650,20 +532,22 @@ async function safeInsertWithFallback(tableName: string, payloads: any[]) {
         .select("*")
         .maybeSingle();
 
-      if (!error) {
-        return data;
-      }
-
+      if (!error) return data;
       console.warn(`${tableName} insert fallback:`, error.message);
-    } catch (error: any) {
-      console.warn(`${tableName} insert exception:`, error?.message);
+    } catch (error: unknown) {
+      console.warn(`${tableName} insert exception:`, error);
     }
   }
 
   return null;
 }
 
-async function safeUpdateById(tableName: string, id: string, payloads: any[]) {
+async function safeUpdateById(
+  supabase: SupabaseClient,
+  tableName: string,
+  id: string,
+  payloads: Record<string, unknown>[]
+) {
   for (const payload of payloads) {
     try {
       const { error } = await supabase
@@ -672,32 +556,45 @@ async function safeUpdateById(tableName: string, id: string, payloads: any[]) {
         .eq("id", id);
 
       if (!error) return true;
-
       console.warn(`${tableName} update fallback:`, error.message);
-    } catch (error: any) {
-      console.warn(`${tableName} update exception:`, error?.message);
+    } catch (error: unknown) {
+      console.warn(`${tableName} update exception:`, error);
     }
   }
 
   return false;
 }
 
-function cleanText(value: any) {
-  if (value === null || value === undefined) return "";
+function getFirstPhone(lead: Record<string, unknown>) {
+  const keys = [
+    "contact_phone",
+    "phone",
+    "whatsapp",
+    "whatsapp_number",
+    "from_number",
+  ];
 
-  return String(value).trim();
+  for (const key of keys) {
+    const value = cleanPhone(lead[key]);
+    if (value) return value;
+  }
+
+  return "";
 }
 
-function cleanPhone(value: any) {
+function getRecordId(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" ? id : null;
+}
+
+function cleanText(value: unknown) {
+  return value === null || value === undefined ? "" : String(value).trim();
+}
+
+function cleanPhone(value: unknown) {
   return String(value || "").replace(/\D/g, "");
-}
-
-function formatBrandSlug(value: string) {
-  return String(value || "brand-os")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }

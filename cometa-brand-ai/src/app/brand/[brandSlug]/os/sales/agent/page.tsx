@@ -1,0 +1,2 @@
+import { FoundationPage } from "../../components/foundation-page";
+export default function AgentPage() { return <FoundationPage title="Agente Sales AI" description="Consulta el modo y las capacidades que definen cómo trabaja Sales AI." emptyTitle="La configuración detallada sigue en su superficie actual" emptyDescription="Esta vista canónica se conectará a los settings seguros sin exponer prompts, modelos ni secretos." />; }

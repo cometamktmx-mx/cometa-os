@@ -1,94 +1,81 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { brandContextErrorResponse, invalidRequestResponse } from "@/lib/brand-os/api";
+import {
+  requireCanonicalBrandContext,
+  type CanonicalBrandContext,
+} from "@/lib/brand-os/server";
 
 type GetAnalysisBody = {
   analysisId?: unknown;
+  brandSlug?: unknown;
+  brandName?: unknown;
 };
 
-function getSupabaseAdminClient() {
+function getSupabaseAdmin() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(
-      "Faltan las variables NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY"
-    );
+    throw new Error("Missing Supabase server configuration.");
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as GetAnalysisBody;
-
-    const analysisId =
-      typeof body.analysisId === "string" ? body.analysisId.trim() : "";
+    const body = (await req.json().catch(() => null)) as GetAnalysisBody | null;
+    const analysisId = text(body?.analysisId);
 
     if (!analysisId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Falta analysisId",
-        },
-        { status: 400 }
-      );
+      return invalidRequestResponse("Falta analysisId.");
     }
 
-    const supabase = getSupabaseAdminClient();
-
+    const context = await requireCanonicalBrandContext({
+      brandSlug: text(body?.brandSlug),
+      legacyBrandName: text(body?.brandName),
+    });
+    const supabase = getSupabaseAdmin();
     const { data: analysis, error } = await supabase
       .from("brand_analysis")
       .select("*")
       .eq("id", analysisId)
       .maybeSingle();
 
-    if (error) {
-      console.error("Error consultando análisis NOVA:", {
-        code: error.code,
-        message: error.message,
-      });
+    if (error) throw error;
 
+    if (!analysis || !belongsToCanonicalBrand(analysis, context)) {
       return NextResponse.json(
         {
+          ok: false,
           success: false,
-          error: "No fue posible cargar el análisis",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!analysis) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "No se encontró el análisis ORION",
+          code: "ENTITY_NOT_FOUND",
+          error: "No se encontrÃ³ el anÃ¡lisis solicitado.",
         },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      analysis,
-    });
-  } catch (error) {
-    console.error(
-      "Error interno en get-analysis NOVA:",
-      error instanceof Error ? error.message : "Error desconocido"
-    );
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Error interno cargando el análisis",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, success: true, analysis });
+  } catch (error: unknown) {
+    return brandContextErrorResponse(error);
   }
+}
+
+function belongsToCanonicalBrand(
+  row: Record<string, unknown>,
+  context: CanonicalBrandContext
+) {
+  const rowSlug = text(row.brand_slug);
+  return rowSlug
+    ? rowSlug === context.brandSlug
+    : text(row.brand_name) === context.brandName;
+}
+
+function text(value: unknown) {
+  return value === null || value === undefined ? "" : String(value).trim();
 }

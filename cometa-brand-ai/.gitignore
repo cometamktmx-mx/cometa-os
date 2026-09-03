@@ -42,5 +42,11 @@ next-env.d.ts
 
 /public/screenshots
 
+# Supabase CLI local link/cache state
+/supabase/.temp/
+
+# Local editor workspaces
+/supabase/tests/*.code-workspace
+
 # Local browser session state (sensitive; generated outside the application)
 /instagram-session.json

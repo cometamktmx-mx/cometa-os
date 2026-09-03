@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { formatBrandName, slugifyBrand } from "@/lib/brand-resolver";
+import { requireAdminWorkspace } from "@/lib/workspace/admin-brands";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
@@ -418,65 +416,14 @@ async function requireAdmin(): Promise<
       error: string;
     }
 > {
-  const cookieStore = await cookies();
-
-  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        } catch {
-          // No hacemos nada aquí.
-        }
-      },
-    },
-  });
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAuth.auth.getUser();
-
-  if (error || !user) {
-    return {
-      ok: false,
-      status: 401,
-      error: "No autorizado. Inicia sesión.",
-    };
+  // Compatibility endpoint delegates to the same canonical authority as V2.
+  try {
+    const admin = await requireAdminWorkspace();
+    return { ok: true, userId: admin.userId, email: admin.email || null };
+  } catch (error) {
+    const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
+    return { ok: false, status, error: error instanceof Error ? error.message : "No se pudo validar el perfil del usuario." };
   }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role,status,email")
-    .or(`user_id.eq.${user.id},id.eq.${user.id}`)
-    .maybeSingle();
-
-  if (profileError) {
-    return {
-      ok: false,
-      status: 500,
-      error: "No se pudo validar el perfil del usuario.",
-    };
-  }
-
-  if (profile?.role !== "admin" || profile?.status !== "active") {
-    return {
-      ok: false,
-      status: 403,
-      error: "Acceso solo para administradores.",
-    };
-  }
-
-  return {
-    ok: true,
-    userId: user.id,
-    email: user.email || profile?.email || null,
-  };
 }
 
 async function findAuthUser({

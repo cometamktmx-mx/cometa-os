@@ -1,11 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE!;
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing Supabase server configuration.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export type SalesPlaybook = {
   id?: string | null;
@@ -55,7 +62,13 @@ export type SalesPlaybook = {
 export async function getSalesPlaybook(
   brandName: string
 ): Promise<SalesPlaybook> {
-  const cleanBrandName = String(brandName || "").trim() || "Mar Cosmetic";
+  const cleanBrandName = String(brandName || "").trim();
+
+  if (!cleanBrandName) {
+    return buildFallbackPlaybook("");
+  }
+
+  const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
     .from("sales_playbooks")
@@ -180,7 +193,7 @@ function normalizePlaybook(data: any): SalesPlaybook {
 
   return {
     id: data?.id || null,
-    brandName: data?.brand_name || "Mar Cosmetic",
+    brandName: data?.brand_name || "",
 
     businessModel: data?.business_model || "",
     idealCustomer: data?.ideal_customer || "",

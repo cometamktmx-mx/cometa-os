@@ -409,8 +409,19 @@ export async function GET(request: Request) {
 
     const locations = locationsResult.data || [];
     const registers = registersResult.data || [];
-    const openSessions =
-      openSessionsResult.data || [];
+    const canViewOpenExpectedCash =
+      user.isAdmin ||
+      ["owner", "admin", "manager"].includes(
+        membership?.effectiveRole || ""
+      );
+    const openSessions = (openSessionsResult.data || []).map((session) =>
+      canViewOpenExpectedCash
+        ? session
+        : {
+            ...session,
+            expected_cash: null,
+          }
+    );
     const profile = profileResult.data;
     const branding = brandingResult.data;
 

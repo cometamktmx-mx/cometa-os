@@ -14,6 +14,7 @@ const publicRoutes = [
 
 const protectedAdminPages = [
   "/workspace/admin",
+  "/workspace/brands",
   "/sales-ai/settings",
   "/sales-ai/admin",
 ];
@@ -37,39 +38,6 @@ function isProtectedAdminApi(pathname: string) {
   return protectedAdminApis.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
-}
-
-function parseCsv(value?: string | null) {
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isCometaAdmin(
-  user: {
-    id?: string;
-    email?: string | null;
-  } | null
-) {
-  if (!user) return false;
-
-  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
-  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
-
-  const userEmail = String(user.email || "")
-    .trim()
-    .toLowerCase();
-
-  const userId = String(user.id || "")
-    .trim()
-    .toLowerCase();
-
-  if (!adminEmails.length && !adminUserIds.length) {
-    return false;
-  }
-
-  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
 }
 
 async function getProxyUser(request: NextRequest) {
@@ -122,10 +90,12 @@ async function getProxyUser(request: NextRequest) {
     console.warn("PROXY AUTH WARNING:", error.message);
   }
 
-  return {
-    user,
-    response,
-  };
+  let isAdmin = false;
+  if (user) {
+    const { data: profile } = await supabase.from("user_profiles").select("role,status").eq("user_id", user.id).maybeSingle();
+    isAdmin = profile?.role === "admin" && profile.status === "active";
+  }
+  return { user, isAdmin, response };
 }
 
 function copyCookies(source: NextResponse, target: NextResponse) {
@@ -209,13 +179,13 @@ export async function proxy(request: NextRequest) {
    * cualquier futura ruta dentro de /api/admin
    */
   if (isProtectedAdminApi(pathname)) {
-    const { user, response } = await getProxyUser(request);
+    const { user, isAdmin, response } = await getProxyUser(request);
 
     if (!user) {
       return unauthorizedJson(response);
     }
 
-    if (!isCometaAdmin(user)) {
+    if (!isAdmin) {
       return forbiddenJson(response);
     }
 
@@ -254,13 +224,13 @@ export async function proxy(request: NextRequest) {
    * /sales-ai/admin
    */
   if (isProtectedAdminPage(pathname)) {
-    const { user, response } = await getProxyUser(request);
+    const { user, isAdmin, response } = await getProxyUser(request);
 
     if (!user) {
       return redirectToLogin(request, response);
     }
 
-    if (!isCometaAdmin(user)) {
+    if (!isAdmin) {
       return redirectToAccessDenied(request, response);
     }
 

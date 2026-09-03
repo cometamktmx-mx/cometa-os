@@ -24,7 +24,32 @@ type PaymentMethod =
   | "cash"
   | "card"
   | "transfer"
+  | "wallet"
   | "other";
+
+type SplitPaymentLine = {
+  id: string;
+  method: PaymentMethod;
+  amount: string;
+  tenderedAmount: string;
+  reference: string;
+};
+
+type CheckoutPaymentPayload = {
+  method: PaymentMethod;
+  amount: number;
+  tenderedAmount?: number;
+  reference?: string | null;
+};
+
+type SplitPaymentSummary = {
+  appliedCents: number;
+  tenderedCents: number;
+  changeCents: number;
+  pendingCents: number;
+  isOverpaid: boolean;
+  isReady: boolean;
+};
 
 type Location = {
   id: string;
@@ -442,6 +467,11 @@ const PAYMENT_METHODS: Array<{
     description: "Registra una referencia opcional.",
   },
   {
+    code: "wallet",
+    label: "Wallet",
+    description: "Registra una referencia opcional.",
+  },
+  {
     code: "other",
     label: "Otro",
     description: "Método adicional autorizado.",
@@ -520,6 +550,13 @@ export default function PosRegisterPage() {
     paymentReference,
     setPaymentReference,
   ] = useState("");
+  const [isSplitPayment, setIsSplitPayment] =
+    useState(false);
+  const [splitPayments, setSplitPayments] = useState<
+    SplitPaymentLine[]
+  >([]);
+  const [isAddingSplitPayment, setIsAddingSplitPayment] =
+    useState(false);
   const [saleNotes, setSaleNotes] =
     useState("");
   const [
@@ -556,6 +593,7 @@ export default function PosRegisterPage() {
   const searchRef =
     useRef<HTMLInputElement>(null);
   const checkoutIdempotencyKeyRef = useRef<string | null>(null);
+  const checkoutTotalAtOpenRef = useRef<number | null>(null);
   const loyaltyRequestRef = useRef(0);
 
   const loadRegisterData =
@@ -669,7 +707,9 @@ export default function PosRegisterPage() {
       if (
         event.key === "F9" &&
         cart.length > 0 &&
-        selectedSessionId
+        selectedSessionId &&
+        !isPaymentOpen &&
+        !isCharging
       ) {
         event.preventDefault();
         openPayment();
@@ -677,10 +717,11 @@ export default function PosRegisterPage() {
 
       if (
         event.key === "Escape" &&
-        isPaymentOpen
+        isPaymentOpen &&
+        !isCharging
       ) {
         event.preventDefault();
-        setIsPaymentOpen(false);
+        closePayment();
       }
     }
 
@@ -697,6 +738,7 @@ export default function PosRegisterPage() {
     };
   }, [
     cart.length,
+    isCharging,
     isPaymentOpen,
     selectedSessionId,
   ]);
@@ -962,6 +1004,10 @@ export default function PosRegisterPage() {
     [baseTotals, loyaltyDiscount]
   );
 
+  const checkoutTotalCents = moneyToCents(
+    totals.total
+  ) || 0;
+
   useEffect(() => {
     if (
       selectedReward &&
@@ -989,6 +1035,73 @@ export default function PosRegisterPage() {
     [cart]
   );
 
+  const splitPaymentFingerprint = useMemo(
+    () => JSON.stringify(splitPayments),
+    [splitPayments]
+  );
+
+  const splitPaymentSummary = useMemo(
+    () => {
+      let appliedCents = 0;
+      let tenderedCents = 0;
+      let changeCents = 0;
+      let hasInvalidAmount = false;
+      let hasInvalidTenderedAmount = false;
+
+      for (const payment of splitPayments) {
+        const amountCents = moneyToCents(
+          payment.amount
+        );
+
+        if (
+          amountCents === null ||
+          amountCents <= 0
+        ) {
+          hasInvalidAmount = true;
+          continue;
+        }
+
+        appliedCents += amountCents;
+
+        if (payment.method === "cash") {
+          const cashTenderedCents = moneyToCents(
+            payment.tenderedAmount
+          );
+
+          if (
+            cashTenderedCents === null ||
+            cashTenderedCents < amountCents
+          ) {
+            hasInvalidTenderedAmount = true;
+            continue;
+          }
+
+          tenderedCents += cashTenderedCents;
+          changeCents +=
+            cashTenderedCents - amountCents;
+        } else {
+          tenderedCents += amountCents;
+        }
+      }
+
+      const pendingCents =
+        checkoutTotalCents - appliedCents;
+
+      return {
+        appliedCents,
+        tenderedCents,
+        changeCents,
+        pendingCents,
+        isOverpaid: pendingCents < 0,
+        isReady:
+          splitPayments.length > 0 &&
+          splitPayments.length <= 10 &&
+          !hasInvalidAmount &&
+          !hasInvalidTenderedAmount &&
+          pendingCents === 0,
+      };
+    }, [checkoutTotalCents, splitPayments]);
+
   useEffect(() => {
     checkoutIdempotencyKeyRef.current = null;
   }, [
@@ -999,32 +1112,75 @@ export default function PosRegisterPage() {
     paymentMethod,
     tenderedAmount,
     paymentReference,
+    isSplitPayment,
+    splitPaymentFingerprint,
     saleNotes,
     selectedSessionId,
   ]);
 
+  useEffect(() => {
+    if (
+      !isPaymentOpen ||
+      isCharging ||
+      checkoutTotalAtOpenRef.current === null ||
+      checkoutTotalAtOpenRef.current ===
+        checkoutTotalCents
+    ) {
+      return;
+    }
+
+    checkoutTotalAtOpenRef.current =
+      checkoutTotalCents;
+    setIsSplitPayment(false);
+    setSplitPayments([]);
+    setIsAddingSplitPayment(false);
+    setPaymentMethod("cash");
+    setTenderedAmount(
+      centsToMoneyInput(checkoutTotalCents)
+    );
+    setPaymentReference("");
+    setError(
+      "El total de la venta cambió. Revisa el pago antes de cobrar."
+    );
+  }, [
+    checkoutTotalCents,
+    isCharging,
+    isPaymentOpen,
+  ]);
+
+  const tenderedCents = moneyToCents(
+    tenderedAmount
+  );
   const tenderedNumber =
-    Number(tenderedAmount || 0);
+    tenderedCents === null
+      ? 0
+      : centsToMoney(tenderedCents);
 
   const changeDue =
     paymentMethod === "cash"
-      ? roundMoney(
+      ? centsToMoney(
           Math.max(
-            tenderedNumber -
-              totals.total,
+            (tenderedCents || 0) -
+              checkoutTotalCents,
             0
           )
         )
       : 0;
 
+  const simplePaymentReady =
+    paymentMethod !== "cash" ||
+    (
+      tenderedCents !== null &&
+      tenderedCents >= checkoutTotalCents
+    );
+
   const canCharge =
     cart.length > 0 &&
     Boolean(selectedSession) &&
-    totals.total > 0 &&
-    (
-      paymentMethod !== "cash" ||
-      tenderedNumber >= totals.total
-    );
+    checkoutTotalCents > 0 &&
+    (isSplitPayment
+      ? splitPaymentSummary.isReady
+      : simplePaymentReady);
 
   function handleSessionChange(
     value: string
@@ -1469,6 +1625,8 @@ export default function PosRegisterPage() {
   }
 
   function openPayment() {
+    if (isCharging) return;
+
     if (!selectedSession) {
       setError(
         "No hay una sesión de caja abierta."
@@ -1485,30 +1643,283 @@ export default function PosRegisterPage() {
 
     setPaymentMethod("cash");
     setTenderedAmount(
-      totals.total.toFixed(2)
+      centsToMoneyInput(checkoutTotalCents)
     );
     setPaymentReference("");
+    setIsSplitPayment(false);
+    setSplitPayments([]);
+    setIsAddingSplitPayment(false);
     setSaleNotes("");
     setError(null);
     setNotice(null);
+    checkoutTotalAtOpenRef.current =
+      checkoutTotalCents;
     setIsPaymentOpen(true);
+  }
+
+  function closePayment() {
+    if (isCharging) return;
+
+    checkoutTotalAtOpenRef.current = null;
+    setIsPaymentOpen(false);
+    setIsSplitPayment(false);
+    setSplitPayments([]);
+    setIsAddingSplitPayment(false);
+    setError(null);
   }
 
   function choosePaymentMethod(
     method: PaymentMethod
   ) {
     setPaymentMethod(method);
+    setError(null);
 
     if (method === "cash") {
       setTenderedAmount(
-        totals.total.toFixed(2)
+        centsToMoneyInput(checkoutTotalCents)
       );
     } else {
       setTenderedAmount("");
     }
   }
 
+  function beginSplitPayment() {
+    if (isCharging) return;
+
+    setIsSplitPayment(true);
+    setSplitPayments([]);
+    setIsAddingSplitPayment(false);
+    setError(null);
+  }
+
+  function returnToSimplePayment() {
+    if (isCharging) return;
+
+    setIsSplitPayment(false);
+    setSplitPayments([]);
+    setIsAddingSplitPayment(false);
+    setError(null);
+  }
+
+  function addSplitPayment(method: PaymentMethod) {
+    if (isCharging) return;
+
+    setSplitPayments((current) => {
+      if (current.length >= 10) return current;
+
+      const appliedCents = current.reduce(
+        (total, payment) =>
+          total +
+          Math.max(
+            moneyToCents(payment.amount) || 0,
+            0
+          ),
+        0
+      );
+      const pendingCents = Math.max(
+        checkoutTotalCents - appliedCents,
+        0
+      );
+
+      if (pendingCents === 0) return current;
+
+      const suggestedAmount =
+        centsToMoneyInput(pendingCents);
+
+      return [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          method,
+          amount: suggestedAmount,
+          tenderedAmount:
+            method === "cash"
+              ? suggestedAmount
+              : "",
+          reference: "",
+        },
+      ];
+    });
+    setIsAddingSplitPayment(false);
+    setError(null);
+  }
+
+  function updateSplitPaymentAmount(
+    paymentId: string,
+    value: string
+  ) {
+    const rawValue = normalizeMoneyInput(value);
+
+    if (rawValue === null) return;
+
+    setSplitPayments((current) => {
+      const requestedCents = moneyToCents(rawValue);
+
+      return current.map((payment) => {
+        if (payment.id !== paymentId) {
+          return payment;
+        }
+
+        if (requestedCents === null) {
+          return {
+            ...payment,
+            amount: rawValue,
+          };
+        }
+
+        const otherAppliedCents = current.reduce(
+          (total, item) =>
+            item.id === paymentId
+              ? total
+              : total +
+                Math.max(
+                  moneyToCents(item.amount) || 0,
+                  0
+                ),
+          0
+        );
+        const maximumCents = Math.max(
+          checkoutTotalCents - otherAppliedCents,
+          0
+        );
+
+        return {
+          ...payment,
+          amount:
+            requestedCents > maximumCents
+              ? centsToMoneyInput(maximumCents)
+              : rawValue,
+        };
+      });
+    });
+    setError(null);
+  }
+
+  function updateSplitPaymentTendered(
+    paymentId: string,
+    value: string
+  ) {
+    const rawValue = normalizeMoneyInput(value);
+
+    if (rawValue === null) return;
+
+    setSplitPayments((current) =>
+      current.map((payment) =>
+        payment.id === paymentId
+          ? {
+              ...payment,
+              tenderedAmount: rawValue,
+            }
+          : payment
+      )
+    );
+    setError(null);
+  }
+
+  function updateSplitPaymentReference(
+    paymentId: string,
+    value: string
+  ) {
+    setSplitPayments((current) =>
+      current.map((payment) =>
+        payment.id === paymentId
+          ? {
+              ...payment,
+              reference: value,
+            }
+          : payment
+      )
+    );
+    setError(null);
+  }
+
+  function updateSplitPaymentMethod(
+    paymentId: string,
+    method: PaymentMethod
+  ) {
+    setSplitPayments((current) =>
+      current.map((payment) => {
+        if (payment.id !== paymentId) {
+          return payment;
+        }
+
+        return {
+          ...payment,
+          method,
+          tenderedAmount:
+            method === "cash"
+              ? payment.tenderedAmount ||
+                payment.amount
+              : "",
+        };
+      })
+    );
+    setError(null);
+  }
+
+  function removeSplitPayment(paymentId: string) {
+    setSplitPayments((current) =>
+      current.filter(
+        (payment) => payment.id !== paymentId
+      )
+    );
+    setError(null);
+  }
+
+  function buildCheckoutPayments(): CheckoutPaymentPayload[] {
+    if (!isSplitPayment) {
+      return [
+        {
+          method: paymentMethod,
+          amount: centsToMoney(checkoutTotalCents),
+          tenderedAmount:
+            paymentMethod === "cash"
+              ? tenderedNumber
+              : centsToMoney(checkoutTotalCents),
+          reference:
+            paymentReference.trim() || null,
+        },
+      ];
+    }
+
+    return splitPayments.flatMap((payment) => {
+      const amountCents = moneyToCents(
+        payment.amount
+      );
+
+      if (
+        amountCents === null ||
+        amountCents <= 0
+      ) {
+        return [];
+      }
+
+      const payload: CheckoutPaymentPayload = {
+        method: payment.method,
+        amount: centsToMoney(amountCents),
+      };
+
+      if (payment.method === "cash") {
+        const cashTenderedCents = moneyToCents(
+          payment.tenderedAmount
+        );
+
+        if (cashTenderedCents !== null) {
+          payload.tenderedAmount =
+            centsToMoney(cashTenderedCents);
+        }
+      } else if (payment.reference.trim()) {
+        payload.reference =
+          payment.reference.trim();
+      }
+
+      return [payload];
+    });
+  }
+
   async function completeSale() {
+    if (isCharging) return;
+
     if (
       !selectedSession ||
       !selectedLocation
@@ -1521,7 +1932,7 @@ export default function PosRegisterPage() {
 
     if (!canCharge) {
       setError(
-        paymentMethod === "cash"
+        !isSplitPayment && paymentMethod === "cash"
           ? "El efectivo recibido no cubre el total."
           : "La venta no está lista para cobrarse."
       );
@@ -1566,22 +1977,8 @@ export default function PosRegisterPage() {
                     item.discountAmount,
                 })
               ),
-              payments: [
-                {
-                  method:
-                    paymentMethod,
-                  amount:
-                    totals.total,
-                  tenderedAmount:
-                    paymentMethod ===
-                    "cash"
-                      ? tenderedNumber
-                      : totals.total,
-                  reference:
-                    paymentReference ||
-                    null,
-                },
-              ],
+              payments:
+                buildCheckoutPayments(),
               notes:
                 saleNotes || null,
               rewardId:
@@ -1614,6 +2011,9 @@ export default function PosRegisterPage() {
       setIsPaymentOpen(false);
       setTenderedAmount("");
       setPaymentReference("");
+      setIsSplitPayment(false);
+      setSplitPayments([]);
+      setIsAddingSplitPayment(false);
       setSaleNotes("");
       setSearch("");
       setSelectedCategory("all");
@@ -1625,6 +2025,7 @@ export default function PosRegisterPage() {
       setRewardUnlocks([]);
       setLoyaltyMember(null);
       checkoutIdempotencyKeyRef.current = null;
+      checkoutTotalAtOpenRef.current = null;
 
       await loadRegisterData();
     } catch (saleError) {
@@ -1995,6 +2396,10 @@ export default function PosRegisterPage() {
         <PaymentModal
           totals={totals}
           currency={currency}
+          isSplitPayment={isSplitPayment}
+          splitPayments={splitPayments}
+          splitPaymentSummary={splitPaymentSummary}
+          isAddingSplitPayment={isAddingSplitPayment}
           method={paymentMethod}
           tenderedAmount={
             tenderedAmount
@@ -2004,25 +2409,57 @@ export default function PosRegisterPage() {
           }
           notes={saleNotes}
           changeDue={changeDue}
+          isCashTenderedShort={
+            paymentMethod === "cash" &&
+            (
+              tenderedCents === null ||
+              tenderedCents < checkoutTotalCents
+            )
+          }
           canCharge={canCharge}
           isCharging={isCharging}
+          error={error}
+          onBeginSplit={beginSplitPayment}
+          onReturnToSimple={returnToSimplePayment}
+          onAddSplitPayment={addSplitPayment}
+          onToggleAddSplitPayment={() =>
+            setIsAddingSplitPayment((current) => !current)
+          }
+          onSplitPaymentMethodChange={
+            updateSplitPaymentMethod
+          }
+          onSplitPaymentAmountChange={
+            updateSplitPaymentAmount
+          }
+          onSplitPaymentTenderedChange={
+            updateSplitPaymentTendered
+          }
+          onSplitPaymentReferenceChange={
+            updateSplitPaymentReference
+          }
+          onRemoveSplitPayment={removeSplitPayment}
           onMethodChange={
             choosePaymentMethod
           }
           onTenderedChange={
-            setTenderedAmount
+            (value) => {
+              setTenderedAmount(value);
+              setError(null);
+            }
           }
           onReferenceChange={
-            setPaymentReference
+            (value) => {
+              setPaymentReference(value);
+              setError(null);
+            }
           }
           onNotesChange={
-            setSaleNotes
+            (value) => {
+              setSaleNotes(value);
+              setError(null);
+            }
           }
-          onClose={() =>
-            setIsPaymentOpen(
-              false
-            )
-          }
+          onClose={closePayment}
           onComplete={
             completeSale
           }
@@ -3075,13 +3512,28 @@ function CustomerPickerModal({
 function PaymentModal({
   totals,
   currency,
+  isSplitPayment,
+  splitPayments,
+  splitPaymentSummary,
+  isAddingSplitPayment,
   method,
   tenderedAmount,
   reference,
   notes,
   changeDue,
+  isCashTenderedShort,
   canCharge,
   isCharging,
+  error,
+  onBeginSplit,
+  onReturnToSimple,
+  onAddSplitPayment,
+  onToggleAddSplitPayment,
+  onSplitPaymentMethodChange,
+  onSplitPaymentAmountChange,
+  onSplitPaymentTenderedChange,
+  onSplitPaymentReferenceChange,
+  onRemoveSplitPayment,
   onMethodChange,
   onTenderedChange,
   onReferenceChange,
@@ -3091,13 +3543,40 @@ function PaymentModal({
 }: {
   totals: SaleTotals;
   currency: string;
+  isSplitPayment: boolean;
+  splitPayments: SplitPaymentLine[];
+  splitPaymentSummary: SplitPaymentSummary;
+  isAddingSplitPayment: boolean;
   method: PaymentMethod;
   tenderedAmount: string;
   reference: string;
   notes: string;
   changeDue: number;
+  isCashTenderedShort: boolean;
   canCharge: boolean;
   isCharging: boolean;
+  error: string | null;
+  onBeginSplit: () => void;
+  onReturnToSimple: () => void;
+  onAddSplitPayment: (method: PaymentMethod) => void;
+  onToggleAddSplitPayment: () => void;
+  onSplitPaymentMethodChange: (
+    paymentId: string,
+    method: PaymentMethod
+  ) => void;
+  onSplitPaymentAmountChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onSplitPaymentTenderedChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onSplitPaymentReferenceChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onRemoveSplitPayment: (paymentId: string) => void;
   onMethodChange: (
     method: PaymentMethod
   ) => void;
@@ -3127,8 +3606,35 @@ function PaymentModal({
       title={`Cobrar ${formatMoney(totals.total, currency)}`}
       description={`${totals.articleCount} artículos en la venta`}
     >
+      {error ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-[var(--pos-radius-sm)] bg-[var(--pos-danger-soft)] px-3 py-2 text-sm font-medium text-[var(--pos-danger)]"
+        >
+          {error}
+        </p>
+      ) : null}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <fieldset disabled={isCharging} className="min-w-0">
+        {isSplitPayment ? (
+          <SplitPaymentComposer
+            currency={currency}
+            totalCents={moneyToCents(totals.total) || 0}
+            payments={splitPayments}
+            summary={splitPaymentSummary}
+            isAddingPayment={isAddingSplitPayment}
+            onReturnToSimple={onReturnToSimple}
+            onAddPayment={onAddSplitPayment}
+            onToggleAddPayment={onToggleAddSplitPayment}
+            onMethodChange={onSplitPaymentMethodChange}
+            onAmountChange={onSplitPaymentAmountChange}
+            onTenderedChange={onSplitPaymentTenderedChange}
+            onReferenceChange={onSplitPaymentReferenceChange}
+            onRemove={onRemoveSplitPayment}
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {PAYMENT_METHODS.map(
             (option) => {
               const active =
@@ -3167,6 +3673,14 @@ function PaymentModal({
             }
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={onBeginSplit}
+          className="pos-ui-focus mt-4 flex min-h-12 w-full items-center justify-center rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-primary-line)] bg-[var(--pos-primary-soft)] px-4 text-sm font-semibold text-[var(--pos-primary)] hover:bg-[var(--pos-row-selected)]"
+        >
+          Dividir pago
+        </button>
 
         {method === "cash" ? (
           <div className="mt-5 border-t border-[var(--pos-line-subtle)] pt-5">
@@ -3216,7 +3730,7 @@ function PaymentModal({
                   className={`mt-1 text-[32px] font-bold tracking-[-0.05em] ${
                     changeDue > 0
                       ? "text-emerald-300"
-                      : Number(tenderedAmount || 0) < totals.total
+                      : isCashTenderedShort
                       ? "text-rose-300"
                       : "text-[var(--pos-text-primary)]"
                   }`}
@@ -3245,15 +3759,18 @@ function PaymentModal({
             />
           </div>
         )}
+          </>
+        )}
+      </fieldset>
 
-        <div className="mt-5">
+        <fieldset disabled={isCharging} className="mt-5">
           <TextAreaField
             label="Notas de la venta"
             value={notes}
             onChange={onNotesChange}
             placeholder="Opcional"
           />
-        </div>
+        </fieldset>
 
         <PosButton
           type="button"
@@ -3275,6 +3792,423 @@ function PaymentModal({
               )}`}
         </PosButton>
     </PosModal>
+  );
+}
+
+function SplitPaymentComposer({
+  currency,
+  totalCents,
+  payments,
+  summary,
+  isAddingPayment,
+  onReturnToSimple,
+  onAddPayment,
+  onToggleAddPayment,
+  onMethodChange,
+  onAmountChange,
+  onTenderedChange,
+  onReferenceChange,
+  onRemove,
+}: {
+  currency: string;
+  totalCents: number;
+  payments: SplitPaymentLine[];
+  summary: SplitPaymentSummary;
+  isAddingPayment: boolean;
+  onReturnToSimple: () => void;
+  onAddPayment: (method: PaymentMethod) => void;
+  onToggleAddPayment: () => void;
+  onMethodChange: (
+    paymentId: string,
+    method: PaymentMethod
+  ) => void;
+  onAmountChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onTenderedChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onReferenceChange: (
+    paymentId: string,
+    value: string
+  ) => void;
+  onRemove: (paymentId: string) => void;
+}) {
+  const canAddPayment =
+    summary.pendingCents > 0 &&
+    payments.length < 10;
+  const pendingTone =
+    summary.pendingCents === 0
+      ? "text-emerald-300"
+      : "text-amber-200";
+
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-primary)]">
+            Pago dividido
+          </p>
+          <p className="mt-1 text-sm text-[var(--pos-text-muted)]">
+            Registra lo que paga con cada método hasta completar la venta.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onReturnToSimple}
+          className="pos-ui-focus min-h-11 rounded-[var(--pos-radius-sm)] px-3 text-xs font-semibold text-[var(--pos-text-secondary)] hover:bg-white/[0.05] hover:text-[var(--pos-text-primary)]"
+        >
+          Volver a pago simple
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-2 rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-3 sm:grid-cols-3 sm:p-4">
+        <SplitPaymentMetric
+          label="TOTAL"
+          value={formatMoney(
+            centsToMoney(totalCents),
+            currency
+          )}
+        />
+        <SplitPaymentMetric
+          label="PAGADO"
+          value={formatMoney(
+            centsToMoney(summary.appliedCents),
+            currency
+          )}
+        />
+        <SplitPaymentMetric
+          label="FALTA"
+          value={formatMoney(
+            centsToMoney(
+              Math.max(summary.pendingCents, 0)
+            ),
+            currency
+          )}
+          tone={pendingTone}
+          emphasis
+        />
+      </div>
+
+      {payments.length === 0 ? (
+        <div className="mt-5 rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-line-strong)] bg-white/[0.025] p-4">
+          <p className="text-sm font-semibold text-[var(--pos-text-primary)]">
+            Elige el primer método de pago
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {PAYMENT_METHODS.map((option) => (
+              <button
+                key={option.code}
+                type="button"
+                onClick={() => onAddPayment(option.code)}
+                className="pos-ui-focus min-h-14 rounded-[var(--pos-radius-sm)] bg-[var(--pos-panel-raised)] px-3 text-left text-sm font-semibold text-[var(--pos-text-primary)] hover:bg-[var(--pos-row-selected)]"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {payments.map((payment, index) => {
+            const amountCents = moneyToCents(
+              payment.amount
+            );
+            const tenderedCents = moneyToCents(
+              payment.tenderedAmount
+            );
+            const isCash = payment.method === "cash";
+            const changeCents =
+              isCash &&
+              amountCents !== null &&
+              tenderedCents !== null
+                ? Math.max(
+                    tenderedCents - amountCents,
+                    0
+                  )
+                : 0;
+            const paymentMethodLabel =
+              PAYMENT_METHODS.find(
+                (option) => option.code === payment.method
+              )?.label || "Otro";
+            const remainingForThisPaymentCents = Math.max(
+              totalCents -
+                payments.reduce(
+                  (total, item) =>
+                    item.id === payment.id
+                      ? total
+                      : total +
+                        Math.max(
+                          moneyToCents(item.amount) || 0,
+                          0
+                        ),
+                  0
+                ),
+              0
+            );
+            const cashIsShort =
+              isCash &&
+              amountCents !== null &&
+              (tenderedCents === null ||
+                tenderedCents < amountCents);
+
+            return (
+              <article
+                key={payment.id}
+                className="min-w-0 rounded-[var(--pos-radius-md)] border border-[var(--pos-line)] bg-[var(--pos-panel)] p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="grid min-w-0 flex-1 gap-1.5">
+                    <span className="text-[11px] font-medium text-[var(--pos-text-muted)]">
+                      {paymentMethodLabel.toUpperCase()} · Pago {index + 1}
+                    </span>
+                    <select
+                      value={payment.method}
+                      onChange={(event) =>
+                        onMethodChange(
+                          payment.id,
+                          event.target.value as PaymentMethod
+                        )
+                      }
+                      className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 text-sm font-semibold text-[var(--pos-text-primary)] outline-none"
+                    >
+                      {PAYMENT_METHODS.map((option) => (
+                        <option
+                          key={option.code}
+                          value={option.code}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => onRemove(payment.id)}
+                    className="pos-ui-focus min-h-11 rounded-[var(--pos-radius-sm)] px-3 text-xs font-semibold text-[var(--pos-danger)] hover:bg-[var(--pos-danger-soft)]"
+                    aria-label={`Eliminar ${PAYMENT_METHODS.find((option) => option.code === payment.method)?.label || "pago"}`}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+
+                <div className="mt-4 grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="grid min-w-0 gap-2">
+                    <SplitMoneyField
+                      label={
+                        isCash
+                          ? `¿Cuánto pagará en efectivo? · ${currency}`
+                          : `¿Cuánto pagará con ${paymentMethodLabel.toLowerCase()}? · ${currency}`
+                      }
+                      value={payment.amount}
+                      onChange={(value) =>
+                        onAmountChange(payment.id, value)
+                      }
+                      autoFocus={index === 0}
+                    />
+
+                    {isCash ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAmountChange(
+                            payment.id,
+                            centsToMoneyInput(
+                              remainingForThisPaymentCents
+                            )
+                          )
+                        }
+                        className="pos-ui-focus inline-flex min-h-9 items-center justify-self-start rounded-[var(--pos-radius-sm)] px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--pos-primary)] hover:bg-[var(--pos-primary-soft)]"
+                      >
+                        Restante
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {isCash ? (
+                    <div className="grid min-w-0 gap-2">
+                      <SplitMoneyField
+                        label={`¿Con cuánto paga? · ${currency}`}
+                        value={payment.tenderedAmount}
+                        onChange={(value) =>
+                          onTenderedChange(payment.id, value)
+                        }
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onTenderedChange(
+                            payment.id,
+                            centsToMoneyInput(
+                              Math.max(amountCents || 0, 0)
+                            )
+                          )
+                        }
+                        className="pos-ui-focus inline-flex min-h-9 items-center justify-self-start rounded-[var(--pos-radius-sm)] px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--pos-primary)] hover:bg-[var(--pos-primary-soft)]"
+                      >
+                        Exacto
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="min-w-0 [&_input]:box-border [&_input]:max-w-full [&_input]:min-w-0 [&_input]:w-full [&_label]:min-w-0">
+                      <Field
+                        label="Referencia del pago"
+                        value={payment.reference}
+                        onChange={(value) =>
+                          onReferenceChange(payment.id, value)
+                        }
+                        placeholder="Folio, autorización o nota opcional"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {isCash ? (
+                  <div className="mt-3 flex items-end justify-between gap-4 rounded-[var(--pos-radius-sm)] bg-[var(--pos-canvas)] p-3">
+                    <div>
+                      <p className="text-[11px] font-medium text-[var(--pos-text-muted)]">
+                        Cambio
+                      </p>
+                      <p
+                        className={`mt-1 text-xl font-bold tabular-nums ${
+                          cashIsShort
+                            ? "text-rose-300"
+                            : changeCents > 0
+                            ? "text-emerald-300"
+                            : "text-[var(--pos-text-primary)]"
+                        }`}
+                      >
+                        {formatMoney(
+                          centsToMoney(changeCents),
+                          currency
+                        )}
+                      </p>
+                    </div>
+                    <p className="max-w-52 text-right text-[11px] leading-5 text-[var(--pos-text-muted)]">
+                      El cambio se calcula para este efectivo y no aumenta la venta.
+                    </p>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {payments.length > 0 && canAddPayment ? (
+        <div className="mt-4">
+          {isAddingPayment ? (
+            <div className="grid grid-cols-2 gap-2 rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-3 sm:grid-cols-5">
+              {PAYMENT_METHODS.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  onClick={() => onAddPayment(option.code)}
+                  className="pos-ui-focus min-h-12 rounded-[var(--pos-radius-sm)] bg-[var(--pos-panel-raised)] px-3 text-sm font-semibold text-[var(--pos-text-primary)] hover:bg-[var(--pos-row-selected)]"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggleAddPayment}
+              className="pos-ui-focus flex min-h-12 w-full items-center justify-center rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-primary-line)] bg-[var(--pos-primary-soft)] px-4 text-sm font-semibold text-[var(--pos-primary)] hover:bg-[var(--pos-row-selected)]"
+            >
+              + Agregar método
+            </button>
+          )}
+        </div>
+      ) : null}
+
+      {payments.length >= 10 ? (
+        <p className="mt-3 text-xs font-medium text-[var(--pos-warning)]">
+          Esta venta ya alcanzó el máximo de 10 componentes de pago.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SplitPaymentMetric({
+  label,
+  value,
+  tone = "text-[var(--pos-text-primary)]",
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      className={
+        emphasis
+          ? "rounded-[var(--pos-radius-sm)] border border-[var(--pos-primary-line)] bg-[var(--pos-primary-soft)] px-3 py-2 sm:px-4"
+          : "px-1 py-2"
+      }
+    >
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--pos-text-muted)]">
+        {label}
+      </p>
+      <p
+        className={`mt-1 font-bold tracking-[-0.04em] tabular-nums ${
+          emphasis ? "text-3xl" : "text-2xl"
+        } ${tone}`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function SplitMoneyField({
+  label,
+  value,
+  onChange,
+  autoFocus = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <label className="grid min-w-0 w-full gap-2">
+      <span className="text-xs font-medium text-[var(--pos-text-muted)]">
+        {label}
+      </span>
+
+      <input
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(event) => {
+          const rawValue = normalizeMoneyInput(event.target.value);
+
+          if (rawValue !== null) {
+            onChange(rawValue);
+          }
+        }}
+        onBlur={() => {
+          const cents = moneyToCents(value);
+
+          if (cents !== null && value !== "") {
+            onChange(centsToMoneyInput(cents));
+          }
+        }}
+        pattern="[0-9]*[.,]?[0-9]{0,2}"
+        className="pos-ui-focus box-border h-14 w-full min-w-0 max-w-full rounded-[var(--pos-radius-md)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-4 text-2xl font-bold text-[var(--pos-text-primary)] outline-none"
+      />
+    </label>
   );
 }
 
@@ -4242,6 +5176,59 @@ function roundMoney(
       ) * 100
     ) / 100
   );
+}
+
+function moneyToCents(
+  value: string | number
+) {
+  const source =
+    typeof value === "number"
+      ? value.toFixed(2)
+      : value.trim();
+
+  if (!/^\d+(?:\.\d{0,2})?$/.test(source)) {
+    return null;
+  }
+
+  const [whole, fraction = ""] = source.split(".");
+  const wholeCents = Number(whole) * 100;
+  const fractionCents = Number(
+    fraction.padEnd(2, "0")
+  );
+  const cents = wholeCents + fractionCents;
+
+  return Number.isSafeInteger(cents)
+    ? cents
+    : null;
+}
+
+function normalizeMoneyInput(value: string) {
+  const normalized = value.replace(",", ".");
+
+  if (normalized === "") return "";
+
+  return /^\d+(?:\.\d{0,2})?$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function centsToMoney(
+  cents: number
+) {
+  return cents / 100;
+}
+
+function centsToMoneyInput(
+  cents: number
+) {
+  const normalized = Math.max(
+    Math.round(cents),
+    0
+  );
+
+  return `${Math.floor(normalized / 100)}.${String(
+    normalized % 100
+  ).padStart(2, "0")}`;
 }
 
 async function apiRequest<
