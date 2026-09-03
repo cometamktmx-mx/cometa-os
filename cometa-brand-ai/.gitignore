@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 /public/screenshots
+
+# Local browser session state (sensitive; generated outside the application)
+/instagram-session.json
