@@ -16,11 +16,13 @@ export async function getPrimaryBrandProductionAssignee(brandSlug: string, role?
   const brand = await client.from("brands").select("id,slug").eq("slug", brandSlug).maybeSingle();
   if (brand.error) throw brand.error;
   if (!brand.data) throw new Error("BRAND_NOT_FOUND");
-  let query = client.from("mercury_team_assignments").select("user_id,role").eq("brand_slug", brand.data.slug).eq("active", true).eq("is_primary", true);
-  if (role) query = query.eq("role", role);
-  const result = await query.limit(2);
+  const effectiveRole = role || "designer";
+  let query = client.from("mercury_team_assignments").select("user_id,role,is_primary").eq("brand_slug", brand.data.slug).eq("active", true).eq("role", effectiveRole);
+  const result = await query.limit(20);
   if (result.error) throw result.error;
   if (!result.data?.length) return { assignee: null, state: "missing" };
-  if (result.data.length !== 1) return { assignee: null, state: "ambiguous" };
-  return { assignee: { userId: String(result.data[0].user_id), role: String(result.data[0].role) }, state: "resolved" };
+  if (result.data.length === 1) return { assignee: { userId: String(result.data[0].user_id), role: String(result.data[0].role) }, state: "resolved" };
+  const primaries = result.data.filter((row) => row.is_primary === true);
+  if (primaries.length === 1) return { assignee: { userId: String(primaries[0].user_id), role: String(primaries[0].role) }, state: "resolved" };
+  return { assignee: null, state: "ambiguous" };
 }

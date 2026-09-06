@@ -9,7 +9,7 @@ type Draft = Record<string, string>;
 type Asset = { id: string; assetType?: string | null; url?: string | null; label?: string | null; provider?: string | null; mimeType?: string | null; size?: number | null };
 type Review = { id: string; status: string; submittedAt: string | null; decidedAt: string | null; decisionComment: string | null };
 type ReviewState = { state: string; isLocked: boolean; approvalIsCurrent: boolean; canSend: boolean; canResend: boolean };
-type AssignmentOption = { userId: string; name: string; email: string | null; role: string };
+type AssignmentOption = { userId: string; name: string; email: string | null; role: string; isPrimary?: boolean };
 export type DrawerProps = { brandSlug: string; brandName: string; assignmentOptions: AssignmentOption[]; mode: DrawerMode; contentItemId?: string | null; initialPublishDate?: string | null; onClose: () => void; onCreated?: (id: string) => void; onUpdated?: () => void; onRefreshCalendar: () => Promise<void> | void };
 
 const fields = ["title", "contentType", "platform", "objective", "brief", "copy", "cta", "visualDirection", "referenceNotes", "publishDate", "dueDate", "status", "priority", "assignedTo", "assignedRole", "clientNotes", "privateNotes"];
@@ -72,7 +72,7 @@ export default function ContentItemDrawer(props: DrawerProps) {
     // The same mounted drawer intentionally transitions create -> edit after
     // POST returns the new id, so its local form state must reset by mode.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (mode === "create") { setDraft({ ...empty(), publishDate: initialPublishDate || "" }); setReferenceNotes(""); setReferenceLinks([]); setAssets([]); setReviewState(null); setCurrentReview(null); setReviewHistory([]); setError(null); setSaved(false); }
+    if (mode === "create") { const designers = assignmentOptions.filter((option) => option.role === "designer"); const primary = designers.filter((option) => option.isPrimary); const inherited = designers.length === 1 ? designers[0] : primary.length === 1 ? primary[0] : null; setDraft({ ...empty(), publishDate: initialPublishDate || "", assignedTo: inherited?.userId || "", assignedRole: inherited ? "designer" : "" }); setReferenceNotes(""); setReferenceLinks([]); setAssets([]); setReviewState(null); setCurrentReview(null); setReviewHistory([]); setError(null); setSaved(false); }
     else void loadDetail();
     // loadDetail intentionally follows the identity props below; including the
     // function itself would recreate the effect on every render.
