@@ -1,5 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { safeInternalNext } from "@/lib/auth/safe-next";
+
+export function copySupabaseCookies(source: NextResponse, target: NextResponse) {
+  const headers = source.headers as Headers & { getSetCookie?: () => string[] };
+  const cookies = headers.getSetCookie?.();
+
+  if (cookies?.length) {
+    cookies.forEach((cookie) => target.headers.append("set-cookie", cookie));
+  } else {
+    source.cookies.getAll().forEach((cookie) => {
+      target.cookies.set(cookie.name, cookie.value, cookie);
+    });
+  }
+  return target;
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -40,13 +55,20 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    return NextResponse.redirect(url);
+    url.search = "";
+    url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+    return copySupabaseCookies(supabaseResponse, NextResponse.redirect(url));
   }
 
   if (user && isLoginPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url);
+    const destination = new URL(
+      safeInternalNext(request.nextUrl.searchParams.get("next")),
+      request.url,
+    );
+    url.pathname = destination.pathname;
+    url.search = destination.search;
+    return copySupabaseCookies(supabaseResponse, NextResponse.redirect(url));
   }
 
   return supabaseResponse;

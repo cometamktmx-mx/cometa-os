@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { updateSession } from "./lib/supabase/middleware";
+import { copySupabaseCookies, updateSession } from "./lib/supabase/middleware";
 import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
 
@@ -101,11 +101,7 @@ async function getProxyUser(request: NextRequest) {
 }
 
 function copyCookies(source: NextResponse, target: NextResponse) {
-  source.cookies.getAll().forEach((cookie) => {
-    target.cookies.set(cookie.name, cookie.value, cookie);
-  });
-
-  return target;
+  return copySupabaseCookies(source, target);
 }
 
 function redirectToLogin(
@@ -237,6 +233,7 @@ export async function proxy(request: NextRequest) {
     // Public does not mean "skip session maintenance": let the SSR client
     // rotate valid cookies or remove an invalid/stale refresh token, while
     // keeping the route accessible when there is no authenticated user.
+    if (pathname === "/login") return await updateSession(request);
     const { response } = await getProxyUser(request);
     return response;
   }
