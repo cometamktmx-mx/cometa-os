@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { copySupabaseCookies, updateSession } from "./lib/supabase/middleware";
+import { safeInternalNext } from "./lib/auth/safe-next";
 import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
 
@@ -234,7 +235,18 @@ export async function proxy(request: NextRequest) {
     // rotate valid cookies or remove an invalid/stale refresh token, while
     // keeping the route accessible when there is no authenticated user.
     if (pathname === "/login") return await updateSession(request);
-    const { response } = await getProxyUser(request);
+    const { user, response } = await getProxyUser(request);
+
+    if (pathname === "/" && user) {
+      const requestedNext = safeInternalNext(request.nextUrl.searchParams.get("next"), "/workspace");
+      const destination = requestedNext === "/" ? "/workspace" : requestedNext;
+      const target = new URL(destination, request.url);
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = target.pathname;
+      redirectUrl.search = target.search;
+      return copySupabaseCookies(response, NextResponse.redirect(redirectUrl));
+    }
+
     return response;
   }
 

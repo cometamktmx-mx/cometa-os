@@ -20,6 +20,8 @@ const checks = [
   ["authenticated login uses safe next", files.middleware.includes("safeInternalNext") && files.login.includes("searchParams.get(\"next\")")],
   ["safe next rejects external origins", files.safeNext.includes("url.origin === INTERNAL_ORIGIN")],
   ["login proxy uses session maintenance", files.proxy.includes('pathname === "/login"') && files.proxy.includes("updateSession(request)")],
+  ["authenticated root redirects to workspace", files.proxy.includes('pathname === "/" && user') && files.proxy.includes('"/workspace"')],
+  ["authenticated root preserves safe next", files.proxy.includes("safeInternalNext(request.nextUrl.searchParams.get(\"next\")")],
   ["sidebar uses canonical browser client", files.sidebar.includes('"@/lib/supabase/client"') && !files.sidebar.includes('"@/lib/supabase"')],
   ["explicit logout uses signOut", files.sidebar.includes("auth.signOut()") && files.sidebar.includes('window.location.assign("/login")')],
   ["operator PIN remains separate", !/(pos_staff_session|staff-server)/.test(files.login + files.sidebar)],
