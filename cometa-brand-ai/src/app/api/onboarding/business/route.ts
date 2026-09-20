@@ -7,6 +7,8 @@ import {
   requiredText,
 } from "@/lib/pos/server";
 import { createClient as createServerAuthClient } from "@/lib/supabase/server";
+import { isPosFoodOnboardingEnabled } from "@/lib/pos/features";
+import { resolvePosMode } from "@/lib/pos/staff-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,11 +43,15 @@ export async function POST(request: Request) {
     const profileCode = String(body.profileCode ?? "").trim().toLowerCase();
     const idempotencyKey = String(body.idempotencyKey ?? "").trim();
 
-    if (!new Set(["fashion", "retail"]).has(profileCode)) {
+    const standardProfiles = new Set(["fashion", "retail"]);
+    const foodProfiles = new Set(["restaurant", "coffee_shop"]);
+    const foodEnabled = isPosFoodOnboardingEnabled();
+
+    if (!standardProfiles.has(profileCode) && !(foodEnabled && foodProfiles.has(profileCode))) {
       throw new PosApiError(
         400,
         "POS_SELF_SERVICE_PROFILE_INVALID",
-        "Selecciona Moda / Ropa o Tienda / Retail."
+        foodEnabled ? "Selecciona un giro disponible." : "Selecciona Moda / Ropa o Tienda / Retail."
       );
     }
 
@@ -110,6 +116,13 @@ export async function POST(request: Request) {
     if (error) {
       const errorText = `${error.message || ""} ${error.details || ""}`;
 
+      if (errorText.includes("PROFILE_INACTIVE_OR_MISSING")) {
+        throw new PosApiError(403, "POS_ACCOUNT_ACCESS_DENIED", "Tu cuenta está inactiva. No se creó el negocio.");
+      }
+      if (errorText.includes("USER_NOT_FOUND")) {
+        throw new PosApiError(401, "POS_UNAUTHORIZED", "Inicia sesión nuevamente para crear tu negocio.");
+      }
+
       if (errorText.includes("POS_SELF_SERVICE_IDEMPOTENCY_CONFLICT")) {
         throw new PosApiError(
           409,
@@ -153,6 +166,7 @@ export async function POST(request: Request) {
 
     return ok({
       ...result,
+      posMode: resolvePosMode(result?.profileCode),
       destination: `/brand/${brandSlug}/pos`,
     }, result?.idempotentReplay ? 200 : 201);
   } catch (error) {

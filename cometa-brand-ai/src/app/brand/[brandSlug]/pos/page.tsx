@@ -182,7 +182,7 @@ export default function PosHomePage() {
       for (const result of responses.slice(1)) {
         const response = fulfilledResponse(result);
         if (response?.status === 401 || response?.status === 403) {
-          throw new Error("No tienes autorizaciÃ³n para consultar esta operaciÃ³n.");
+          throw new Error("No tienes autorizaci?n para consultar esta operaci?n.");
         }
       }
 
@@ -496,7 +496,7 @@ function FirstRunExperience({
   const steps = [
     {
       label: "Agregar mi primer producto",
-      detail: "Crea el artÃ­culo que vas a vender.",
+      detail: "Crea el art?culo que vas a vender.",
       complete: hasProduct,
       route: "products",
       icon: "product" as PosIconName,
@@ -511,7 +511,7 @@ function FirstRunExperience({
     {
       label: "Abrir caja",
       detail: hasCashHistory
-        ? "Ya abriste tu primera sesiÃ³n de caja."
+        ? "Ya abriste tu primera sesi?n de caja."
         : "Registra el fondo inicial de Caja 1.",
       complete: hasCashHistory,
       route: "cash",
@@ -542,20 +542,20 @@ function FirstRunExperience({
     { label: "Negocio creado", value: brandName, complete: true, icon: "store" as PosIconName },
     {
       label: activeLocation ? `${activeLocation.name} lista` : "Sucursal pendiente",
-      value: activeLocation ? "UbicaciÃ³n activa" : "Revisa configuraciÃ³n",
+      value: activeLocation ? "Ubicaci?n activa" : "Revisa configuraci?n",
       complete: Boolean(activeLocation),
       icon: "branch" as PosIconName,
     },
     {
       label: register ? `${register.name} configurada` : "Caja pendiente",
-      value: register ? "Lista para abrir" : "Revisa configuraciÃ³n",
+      value: register ? "Lista para abrir" : "Revisa configuraci?n",
       complete: Boolean(register),
       icon: "cash" as PosIconName,
     },
     {
       label: trialDays !== null ? "Prueba gratuita activa" : "Cometa POS activo",
       value: trialDays !== null
-        ? `${trialDays} ${trialDays === 1 ? "dÃ­a restante" : "dÃ­as restantes"}`
+        ? `${trialDays} ${trialDays === 1 ? "d?a restante" : "d?as restantes"}`
         : "Acceso operacional disponible",
       complete: Boolean(lifecycle?.accessAllowed),
       icon: "activity" as PosIconName,
@@ -568,10 +568,10 @@ function FirstRunExperience({
         <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full bg-cyan-300/10 blur-3xl" />
         <div className="relative max-w-3xl">
           <span className="inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/[0.07] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200">
-            Cometa POS Â· Listo para empezar
+            Cometa POS ? Listo para empezar
           </span>
           <h1 className="mt-5 text-4xl font-bold tracking-[-0.055em] text-white sm:text-5xl">
-            Tu negocio ya estÃ¡ listo.
+            Tu negocio ya est? listo.
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
             <strong className="font-semibold text-white">{brandName}</strong> ya tiene Cometa POS activo. Empieza a vender en minutos.
@@ -649,7 +649,7 @@ function FirstRunExperience({
       </PosCard>
 
       <div className="flex flex-col gap-2 text-xs text-[var(--pos-text-muted)] sm:flex-row sm:items-center sm:justify-between">
-        <p>{hasSecondaryWarning ? "Algunos indicadores secundarios se actualizarÃ¡n al recargar." : "El progreso se actualiza con tu operaciÃ³n real."}</p>
+        <p>{hasSecondaryWarning ? "Algunos indicadores secundarios se actualizar?n al recargar." : "El progreso se actualiza con tu operaci?n real."}</p>
         <Link href={buildPosHref(brandSlug, "onboarding")} className="font-semibold text-slate-400 hover:text-cyan-200">
           Perfil del negocio
         </Link>
@@ -673,12 +673,12 @@ function FirstRunUnavailable({
     <PosPage width="wide">
       <PosPageHeader
         eyebrow="Cometa POS"
-        title={summaryMode ? "Resumen de operaciÃ³n" : "Tu negocio ya estÃ¡ listo."}
+        title={summaryMode ? "Resumen de operaci?n" : "Tu negocio ya est? listo."}
         description={`${brandName} puede continuar operando. No pudimos confirmar todos los indicadores en este momento.`}
       />
       <PosCard className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold text-[var(--pos-text-primary)]">Tu informaciÃ³n permanece segura.</p>
+          <p className="font-semibold text-[var(--pos-text-primary)]">Tu informaci?n permanece segura.</p>
           <p className="mt-1 text-sm text-[var(--pos-text-muted)]">Reintenta la lectura o entra directamente al punto de venta.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">

@@ -123,6 +123,9 @@ type SalesResponse = {
 type Branding = {
   display_name: string;
   logo_url: string | null;
+  legal_name?: string | null;
+  tax_id?: string | null;
+  phone?: string | null;
   primary_color: string;
   secondary_color: string;
   accent_color: string;
@@ -1265,6 +1268,10 @@ function ThermalReceipt({
           {sale.location?.name ||
             "Sucursal"}
         </p>
+
+        {branding?.legal_name ? <p>{branding.legal_name}</p> : null}
+        {branding?.tax_id ? <p>RFC: {branding.tax_id}</p> : null}
+        {branding?.phone ? <p>{branding.phone}</p> : null}
 
         {branding?.whatsapp ? (
           <p>

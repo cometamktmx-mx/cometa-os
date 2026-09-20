@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { getPosAccountRole } from "@/lib/pos/surface-policy";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import {
@@ -85,7 +86,8 @@ export function getAdminClient() {
 }
 
 async function getAuthenticatedUser(
-  admin: SupabaseClient
+  admin: SupabaseClient,
+  requestCookies?: { getAll(): { name: string; value: string }[] }
 ): Promise<PosUserContext> {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new PosApiError(
@@ -95,7 +97,7 @@ async function getAuthenticatedUser(
     );
   }
 
-  const cookieStore = await cookies();
+  const writableCookieStore = requestCookies ? null : await cookies();
 
   const authClient = createServerClient(
     supabaseUrl,
@@ -103,13 +105,11 @@ async function getAuthenticatedUser(
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          return requestCookies ? requestCookies.getAll() : writableCookieStore?.getAll() || [];
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
+            cookiesToSet.forEach(({ name, value, options }) => writableCookieStore?.set(name, value, options));
           } catch {
             // Algunos contextos de Next.js no permiten escribir cookies.
           }
@@ -138,13 +138,13 @@ async function getAuthenticatedUser(
     .maybeSingle();
 
   if (profileError) {
-    console.warn("POS user profile warning:", profileError.message);
+    throw new PosApiError(500, "POS_ACCOUNT_LOOKUP_FAILED", "No se pudo resolver la cuenta de acceso.");
   }
 
-  const role: PosUserRole =
-    profile?.role === "admin" && profile?.status === "active"
-      ? "admin"
-      : "client";
+  const role = getPosAccountRole(profile);
+  if (!role) {
+    throw new PosApiError(403, "POS_ACCOUNT_ACCESS_DENIED", "Tu cuenta no tiene acceso a esta superficie POS.");
+  }
 
   if (role === "admin") {
     return {
@@ -163,7 +163,7 @@ async function getAuthenticatedUser(
     .eq("status", "active");
 
   if (accessError) {
-    console.warn("POS brand access warning:", accessError.message);
+    throw new PosApiError(500, "POS_MEMBERSHIP_LOOKUP_FAILED", "No se pudo resolver el acceso a tus marcas.");
   }
 
   const allowedBrandSlugs = Array.from(
@@ -186,7 +186,8 @@ async function getAuthenticatedUser(
 }
 
 export async function requirePosContext(
-  requestedBrandSlug: string
+  requestedBrandSlug: string,
+  requestCookies?: { getAll(): { name: string; value: string }[] }
 ): Promise<PosRequestContext> {
   const normalizedRequestedSlug = slugifyBrand(requestedBrandSlug || "");
 
@@ -199,7 +200,7 @@ export async function requirePosContext(
   }
 
   const admin = getAdminClient();
-  const user = await getAuthenticatedUser(admin);
+  const user = await getAuthenticatedUser(admin, requestCookies);
 
   const resolvedBrand = await resolveBrandFromSupabase(admin, {
     brandSlug: normalizedRequestedSlug,

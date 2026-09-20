@@ -215,7 +215,7 @@ async function collectBrands() {
   const [registryBrands, clients, brandAnalysis, cosmosMemory] = await Promise.all([
     safeSelect("brands"),
     safeSelect("clients"),
-    safeSelect("brand_analysis"),
+    safeSelect("brand_analysis", "created_at"),
     safeSelect("cosmos_memory"),
   ]);
 
@@ -229,12 +229,12 @@ async function collectBrands() {
   ].filter((brand) => brand.name || brand.slug);
 }
 
-async function safeSelect(tableName: string) {
+async function safeSelect(tableName: string, orderColumn = "updated_at") {
   try {
     const { data, error } = await supabase
       .from(tableName)
       .select("*")
-      .order("updated_at", { ascending: false })
+      .order(orderColumn, { ascending: false })
       .limit(300);
 
     if (error) {

@@ -296,7 +296,7 @@ export default function PosSettingsPage() {
 
   if (isLoading || !bootstrap) {
     return (
-      <section className="grid gap-5">
+      <section data-pos-settings className="grid gap-5">
         <div className="h-72 animate-pulse rounded-[30px] bg-white/[0.035]" />
         <div className="grid gap-5 xl:grid-cols-2">
           <div className="h-[620px] animate-pulse rounded-[30px] bg-white/[0.035]" />
@@ -311,7 +311,7 @@ export default function PosSettingsPage() {
     "unconfigured";
 
   return (
-    <section className="grid gap-5">
+    <section data-pos-settings className="grid gap-5">
       <header className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#081524] p-6 shadow-[0_30px_100px_rgba(0,0,0,0.2)] md:p-8">
         <div
           className="absolute right-[-100px] top-[-120px] h-80 w-80 rounded-full blur-[100px]"

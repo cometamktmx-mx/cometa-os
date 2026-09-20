@@ -20,6 +20,7 @@ export type UserWorkspaceContext = {
   profile: null | { role: "admin" | "client" | "team"; status: "active" | "inactive"; fullName: string | null };
   isCanonicalAdmin: boolean;
   isCanonicalTeam: boolean;
+  hasPendingInvitation: boolean;
   brands: WorkspaceBrandSummary[];
 };
 
@@ -41,13 +42,22 @@ export async function getUserWorkspaceContext(): Promise<UserWorkspaceContext> {
   const normalizedProfile = profile ? { role: profile.role === "admin" ? "admin" as const : profile.role === "team" ? "team" as const : "client" as const, status: profile.status === "inactive" ? "inactive" as const : "active" as const, fullName: profile.full_name ? String(profile.full_name) : null } : null;
   const isCanonicalAdmin = normalizedProfile?.role === "admin" && normalizedProfile.status === "active";
   const isCanonicalTeam = normalizedProfile?.role === "team" && normalizedProfile.status === "active";
-  if (isCanonicalAdmin || isCanonicalTeam || normalizedProfile?.status !== "active") return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, brands: [] };
+  if (isCanonicalAdmin || isCanonicalTeam || normalizedProfile?.status === "inactive") return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, hasPendingInvitation: false, brands: [] };
 
-  const { data: memberships, error: membershipError } = await admin.from("user_brand_access").select("brand_slug,access_role").eq("user_id", user.id).eq("status", "active");
-  if (membershipError) throw new BrandOsGuardError(500, "WORKSPACE_MEMBERSHIP_LOOKUP_FAILED", "No se pudieron resolver tus empresas.");
+  const normalizedEmail = user.email?.trim().toLowerCase() || null;
+  const [membershipResult, invitationResult] = await Promise.all([
+    admin.from("user_brand_access").select("brand_slug,access_role").eq("user_id", user.id).eq("status", "active"),
+    normalizedEmail
+      ? admin.from("pos_user_invitations").select("id", { count: "exact", head: true }).eq("email", normalizedEmail).eq("status", "pending").gt("expires_at", new Date().toISOString())
+      : Promise.resolve({ count: 0, error: null }),
+  ]);
+  if (membershipResult.error) throw new BrandOsGuardError(500, "WORKSPACE_MEMBERSHIP_LOOKUP_FAILED", "No se pudieron resolver tus empresas.");
+  if (invitationResult.error) throw new BrandOsGuardError(500, "WORKSPACE_INVITATION_LOOKUP_FAILED", "No se pudieron resolver tus invitaciones.");
+  const memberships = membershipResult.data;
+  const hasPendingInvitation = (invitationResult.count || 0) > 0;
   const roleBySlug = new Map((memberships || []).map((row) => [String(row.brand_slug), String(row.access_role)]));
   const slugs = [...roleBySlug.keys()];
-  if (!slugs.length) return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, brands: [] };
+  if (!slugs.length) return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, hasPendingInvitation, brands: [] };
 
   const { data: brands, error: brandError } = await admin.from("brands").select("id,slug,name").in("slug", slugs).order("name");
   if (brandError) throw new BrandOsGuardError(500, "WORKSPACE_BRAND_LOOKUP_FAILED", "No se pudieron resolver tus empresas.");
@@ -56,12 +66,14 @@ export async function getUserWorkspaceContext(): Promise<UserWorkspaceContext> {
     osStatus: (await getBrandOsAccess(admin, String(brand.slug))).status,
     pos: await getPassivePosProductAvailability(String(brand.slug)),
   }));
-  return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, brands: summaries };
+  return { user: { id: user.id, email: user.email || null }, profile: normalizedProfile, isCanonicalAdmin, isCanonicalTeam, hasPendingInvitation, brands: summaries };
 }
 
-export function getWorkspaceDestination(context: Pick<UserWorkspaceContext, "isCanonicalAdmin" | "isCanonicalTeam" | "brands">): string {
+export function getWorkspaceDestination(context: Pick<UserWorkspaceContext, "profile" | "isCanonicalAdmin" | "isCanonicalTeam" | "hasPendingInvitation" | "brands">): string {
   if (context.isCanonicalTeam) return "/studio";
-  if (context.isCanonicalAdmin || context.brands.length !== 1) return "/workspace";
+  if (context.profile?.status === "inactive") return "/workspace";
+  if (context.isCanonicalAdmin || context.brands.length > 1) return "/workspace";
+  if (context.brands.length === 0) return context.hasPendingInvitation ? "/invite" : "/onboarding/business";
   return `/brand/${encodeURIComponent(context.brands[0].slug)}`;
 }
 

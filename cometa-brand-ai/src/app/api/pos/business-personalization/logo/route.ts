@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getBrandSlugFromUrl, handlePosError, ok, PosApiError, readJsonBody, requirePosContext, type PosRequestContext } from "@/lib/pos/server";
+import { getBrandSlugFromUrl, handlePosError, ok, PosApiError, requirePosContext, type PosRequestContext } from "@/lib/pos/server";
 import { requirePosPermission } from "@/lib/pos/rbac";
 
 export const runtime = "nodejs";
@@ -22,7 +22,10 @@ export async function POST(request: Request) {
     if (!detected || detected.mime !== file.type) throw new PosApiError(415, "POS_BRAND_LOGO_SIGNATURE_INVALID", "El contenido no coincide con el tipo de imagen.");
     const path = `${context.brand.slug}/logo/${randomUUID()}.${detected.ext}`;
     const upload = await context.admin.storage.from(BUCKET).upload(path, bytes, { contentType: detected.mime, cacheControl: "3600", upsert: false });
-    if (upload.error) throw new PosApiError(500, "POS_BRAND_LOGO_UPLOAD_FAILED", "No se pudo subir el logotipo.");
+    if (upload.error) {
+      console.error("POS_BRAND_LOGO_UPLOAD_FAILED", { brandSlug: context.brand.slug, path, statusCode: upload.error.statusCode, storageMessage: upload.error.message });
+      throw new PosApiError(500, "POS_BRAND_LOGO_UPLOAD_FAILED", "No se pudo subir el logotipo.", { storageCode: upload.error.statusCode || null });
+    }
     const url = context.admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
     const previous = await context.admin.from("pos_branding").select("logo_url").eq("brand_slug", context.brand.slug).maybeSingle();
     const saved = await context.admin.from("pos_branding").update({ logo_url: url, updated_at: new Date().toISOString() }).eq("brand_slug", context.brand.slug);

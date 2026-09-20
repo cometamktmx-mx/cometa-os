@@ -178,6 +178,33 @@ export async function requirePosOperationalAccess({
   entitlement: ProductEntitlementCode;
 }): Promise<PosOperationalAccessContext> {
   const context = await requirePosContext(brandSlug);
+  return requirePosCommercialAccess(context, entitlement);
+}
+
+/** Surface access keeps setup and subscription recovery reachable. Commercial
+ * denial is a state, not a tenant authorization bypass. No setup is written. */
+export async function requirePosSurfaceAccess(brandSlug: string) {
+  const context = await requirePosContext(brandSlug);
+  const { data, error } = await context.admin.from("pos_subscriptions")
+    .select("id").eq("brand_slug", context.brand.slug).maybeSingle();
+  assertDatabaseResult(error, "No se pudo resolver la suscripción POS.");
+  if (!data) return { context, operationAllowed: false, setupRequired: true };
+  try {
+    await requirePosCommercialAccess(context, "pos.access");
+    return { context, operationAllowed: true, setupRequired: false };
+  } catch (error) {
+    if (error instanceof PosApiError &&
+        ["POS_SUBSCRIPTION_ACCESS_DENIED", "POS_ENTITLEMENT_REQUIRED"].includes(error.code)) {
+      return { context, operationAllowed: false, setupRequired: false };
+    }
+    throw error;
+  }
+}
+
+export async function requirePosCommercialAccess(
+  context: PosRequestContext,
+  entitlement: ProductEntitlementCode,
+): Promise<PosOperationalAccessContext> {
   const { admin, brand } = context;
 
   const [lifecycleResult, effectiveAccessResult, entitlementsResult] = await Promise.all([
@@ -244,7 +271,8 @@ export async function requirePosOperationalAccess({
     );
   }
 
-  if (!effectiveEntitlements.entitlements.includes(entitlement)) {
+  if (!effectiveEntitlements.entitlements.includes("pos.access") ||
+      !effectiveEntitlements.entitlements.includes(entitlement)) {
     throw new PosApiError(
       403,
       "POS_ENTITLEMENT_REQUIRED",

@@ -621,7 +621,7 @@ export default function PosLoyaltyPage() {
 
   return (
     <section className="grid gap-5">
-      <header className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#081524] p-6 shadow-[0_30px_100px_rgba(0,0,0,0.2)] md:p-8">
+      <header className="relative overflow-hidden rounded-[30px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-6 shadow-[0_30px_100px_rgba(0,0,0,0.2)] md:p-8">
         <div className="absolute right-[-100px] top-[-140px] h-96 w-96 rounded-full bg-emerald-400/10 blur-[120px]" />
         <div className="absolute bottom-[-180px] left-[25%] h-80 w-80 rounded-full bg-cyan-400/[0.07] blur-[110px]" />
 
@@ -634,11 +634,11 @@ export default function PosLoyaltyPage() {
               <StatusPill active={form.active} exists={Boolean(program)} />
             </div>
 
-            <h2 className="mt-6 max-w-4xl text-4xl font-black leading-[0.95] tracking-[-0.07em] text-white md:text-6xl">
+            <h2 className="mt-6 max-w-4xl text-4xl font-black leading-[0.95] tracking-[-0.07em] text-[var(--pos-text)] md:text-6xl">
               Convierte cada compra en una razón para volver.
             </h2>
 
-            <p className="mt-5 max-w-3xl text-sm font-semibold leading-7 text-slate-500 md:text-base">
+            <p className="mt-5 max-w-3xl text-sm font-semibold leading-7 text-[var(--pos-text-muted)] md:text-base">
               Define cuántos puntos genera cada peso gastado y cuánto valor
               recibe el cliente al canjearlos. La venta calcula los puntos con
               el total final confirmado en caja.
@@ -674,7 +674,7 @@ export default function PosLoyaltyPage() {
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_430px]">
         <form
           onSubmit={saveProgram}
-          className="rounded-[30px] border border-white/[0.08] bg-white/[0.035] p-6 md:p-8"
+          className="rounded-[30px] border border-[var(--pos-border)] bg-white/[0.035] p-6 md:p-8"
         >
           <SectionHeading
             eyebrow={program ? "Configuración actual" : "Primera configuración"}
@@ -765,8 +765,8 @@ export default function PosLoyaltyPage() {
             />
           </div>
 
-          <div className="mt-7 flex flex-col gap-3 border-t border-white/[0.08] pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-lg text-xs font-semibold leading-5 text-slate-600">
+          <div className="mt-7 flex flex-col gap-3 border-t border-[var(--pos-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-lg text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
               Guardar actualiza la configuración de esta marca. No modifica
               saldos existentes ni crea recompensas o niveles.
             </p>
@@ -774,7 +774,7 @@ export default function PosLoyaltyPage() {
             <button
               type="submit"
               disabled={isSaving}
-              className="flex h-13 shrink-0 items-center justify-center gap-2 rounded-[16px] bg-emerald-300 px-6 text-sm font-black text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600"
+              className="flex h-13 shrink-0 items-center justify-center gap-2 rounded-[16px] bg-emerald-300 px-6 text-sm font-black text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-[var(--pos-text-muted)]"
             >
               {isSaving
                 ? "Guardando programa..."
@@ -803,14 +803,14 @@ export default function PosLoyaltyPage() {
             )}
           />
 
-          <article className="rounded-[28px] border border-white/[0.08] bg-[#081524] p-6">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-300">
+          <article className="rounded-[28px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-6">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--pos-primary-text)]">
               Operación conectada
             </p>
-            <h3 className="mt-3 text-2xl font-black tracking-[-0.05em] text-white">
+            <h3 className="mt-3 text-2xl font-black tracking-[-0.05em] text-[var(--pos-text)]">
               Clientes y ventas
             </h3>
-            <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+            <p className="mt-3 text-sm font-semibold leading-6 text-[var(--pos-text-muted)]">
               Inscribe clientes al programa y después identifícalos en caja
               para que una venta elegible pueda acreditar puntos.
             </p>
@@ -818,13 +818,13 @@ export default function PosLoyaltyPage() {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <Link
                 href={buildPosHref(brand.slug, "customers")}
-                className="flex h-12 items-center justify-center rounded-[15px] border border-white/[0.08] text-xs font-black text-white transition hover:bg-white/[0.04]"
+                className="flex h-12 items-center justify-center rounded-[15px] border border-[var(--pos-border)] text-xs font-black text-[var(--pos-text)] transition hover:bg-[var(--pos-surface-2)]"
               >
                 Ver clientes
               </Link>
               <Link
                 href={buildPosHref(brand.slug, "register")}
-                className="flex h-12 items-center justify-center rounded-[15px] bg-cyan-300 text-xs font-black text-slate-950 transition hover:bg-cyan-200"
+                className="flex h-12 items-center justify-center rounded-[15px] bg-[var(--pos-primary)] text-xs font-black text-slate-950 transition hover:bg-[var(--pos-primary-hover)]"
               >
                 Nueva venta
               </Link>
@@ -1135,15 +1135,15 @@ function HeaderMetric({
   tone: "cyan" | "emerald";
 }) {
   return (
-    <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4 text-center">
+    <div className="rounded-[20px] border border-[var(--pos-border)] bg-white/[0.035] p-4 text-center">
       <p
         className={`text-2xl font-black tracking-[-0.05em] ${
-          tone === "emerald" ? "text-emerald-300" : "text-cyan-300"
+          tone === "emerald" ? "text-emerald-300" : "text-[var(--pos-primary-text)]"
         }`}
       >
         {value}
       </p>
-      <p className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-slate-600">
+      <p className="mt-2 text-[8px] font-black uppercase tracking-[0.14em] text-[var(--pos-text-muted)]">
         {label}
       </p>
     </div>
@@ -1158,10 +1158,10 @@ function InitialSetupCard({ brandName }: { brandName: string }) {
           <PosIcon name="loyalty" className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-black text-white">
+          <p className="text-sm font-black text-[var(--pos-text)]">
             {brandName} todavía no tiene un programa configurado.
           </p>
-          <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+          <p className="mt-2 text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
             Revisa las reglas iniciales, ajusta la tasa y crea el programa para
             comenzar a acreditar puntos en compras con clientes inscritos.
           </p>
@@ -1188,10 +1188,10 @@ function SectionHeading({
       <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-300">
         {eyebrow}
       </p>
-      <h3 className="mt-3 text-3xl font-black tracking-[-0.055em] text-white">
+      <h3 className="mt-3 text-3xl font-black tracking-[-0.055em] text-[var(--pos-text)]">
         {title}
       </h3>
-      <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600">
+      <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-[var(--pos-text-muted)]">
         {description}
       </p>
     </div>
@@ -1215,7 +1215,7 @@ function TextField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--pos-text-muted)]">
         {label}
       </span>
       <input
@@ -1223,9 +1223,9 @@ function TextField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         maxLength={maxLength}
-        className="h-13 rounded-[16px] border border-white/[0.08] bg-[#06111f] px-4 text-sm font-bold text-white outline-none placeholder:text-slate-700 focus:border-emerald-300/30"
+        className="h-13 rounded-[16px] border border-[var(--pos-border)] bg-[var(--pos-surface)] px-4 text-sm font-bold text-[var(--pos-text)] outline-none placeholder:text-[var(--pos-text-disabled)] focus:border-emerald-300/30"
       />
-      <span className="text-[10px] font-semibold leading-5 text-slate-700">
+      <span className="text-[10px] font-semibold leading-5 text-[var(--pos-text-disabled)]">
         {help}
       </span>
     </label>
@@ -1251,7 +1251,7 @@ function NumberField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+      <span className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--pos-text-muted)]">
         {label}
       </span>
       <input
@@ -1262,9 +1262,9 @@ function NumberField({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="h-13 rounded-[16px] border border-white/[0.08] bg-[#06111f] px-4 text-sm font-black text-white outline-none focus:border-emerald-300/30 disabled:cursor-not-allowed disabled:opacity-35"
+        className="h-13 rounded-[16px] border border-[var(--pos-border)] bg-[var(--pos-surface)] px-4 text-sm font-black text-[var(--pos-text)] outline-none focus:border-emerald-300/30 disabled:cursor-not-allowed disabled:opacity-35"
       />
-      <span className="text-[10px] font-semibold leading-5 text-slate-700">
+      <span className="text-[10px] font-semibold leading-5 text-[var(--pos-text-disabled)]">
         {help}
       </span>
     </label>
@@ -1290,13 +1290,13 @@ function ToggleRow({
         checked
           ? accent
             ? "border-emerald-300/20 bg-emerald-300/[0.055]"
-            : "border-cyan-300/20 bg-cyan-300/[0.045]"
-          : "border-white/[0.08] bg-[#06111f]/70"
+            : "border-cyan-300/20 bg-[var(--pos-primary)]/[0.045]"
+          : "border-[var(--pos-border)] bg-[var(--pos-surface)]/70"
       }`}
     >
       <div>
-        <p className="text-sm font-black text-white">{label}</p>
-        <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+        <p className="text-sm font-black text-[var(--pos-text)]">{label}</p>
+        <p className="mt-2 text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
           {description}
         </p>
       </div>
@@ -1336,7 +1336,7 @@ function RulePreview({
             <p className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-300">
               Vista previa de la regla
             </p>
-            <h3 className="mt-3 text-2xl font-black tracking-[-0.05em] text-white">
+            <h3 className="mt-3 text-2xl font-black tracking-[-0.05em] text-[var(--pos-text)]">
               {programName}
             </h3>
           </div>
@@ -1345,30 +1345,30 @@ function RulePreview({
           </div>
         </div>
 
-        <div className="mt-6 rounded-[22px] border border-white/[0.08] bg-[#06111f]/85 p-5">
-          <p className="text-xs font-semibold leading-6 text-slate-500">
+        <div className="mt-6 rounded-[22px] border border-[var(--pos-border)] bg-[var(--pos-surface)]/85 p-5">
+          <p className="text-xs font-semibold leading-6 text-[var(--pos-text-muted)]">
             Una compra de {formatMoney(PURCHASE_EXAMPLE)} genera
           </p>
           <p className="mt-2 text-5xl font-black tracking-[-0.07em] text-emerald-300">
             {formatInteger(earnedPoints)}
           </p>
-          <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-slate-600">
+          <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-[var(--pos-text-muted)]">
             puntos
           </p>
         </div>
 
-        <div className="mt-4 rounded-[22px] border border-white/[0.08] bg-[#06111f]/85 p-5">
-          <p className="text-sm font-black text-white">
+        <div className="mt-4 rounded-[22px] border border-[var(--pos-border)] bg-[var(--pos-surface)]/85 p-5">
+          <p className="text-sm font-black text-[var(--pos-text)]">
             {POINTS_EXAMPLE} puntos equivalen a {formatMoney(redemptionAmount)}
           </p>
-          <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+          <p className="mt-2 text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
             El cliente necesita al menos {formatInteger(minimumRedeemPoints)}
             {" "}puntos para canjear.
           </p>
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-[18px] border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-          <span className="text-xs font-bold text-slate-500">
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-[18px] border border-[var(--pos-border)] bg-white/[0.03] px-4 py-3">
+          <span className="text-xs font-bold text-[var(--pos-text-muted)]">
             {pointsExpire
               ? `Vigencia: ${formatInteger(pointsExpireDays)} días`
               : "Puntos sin expiración"}
@@ -1408,8 +1408,8 @@ function PointsHistory({
   onPageChange: (page: number) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-[30px] border border-white/[0.08] bg-white/[0.035]">
-      <div className="flex flex-col gap-4 border-b border-white/[0.08] p-6 md:flex-row md:items-center md:justify-between md:p-8">
+    <section className="overflow-hidden rounded-[30px] border border-[var(--pos-border)] bg-white/[0.035]">
+      <div className="flex flex-col gap-4 border-b border-[var(--pos-border)] p-6 md:flex-row md:items-center md:justify-between md:p-8">
         <SectionHeading
           eyebrow="Historial de puntos"
           title="Movimientos de fidelización"
@@ -1426,7 +1426,7 @@ function PointsHistory({
               ? undefined
               : "Configura el programa y registra al menos un cliente para ajustar puntos."
           }
-          className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-[15px] bg-cyan-300 px-5 text-xs font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600"
+          className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-[15px] bg-[var(--pos-primary)] px-5 text-xs font-black text-slate-950 transition hover:bg-[var(--pos-primary-hover)] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-[var(--pos-text-muted)]"
         >
           Ajustar puntos
           <PosIcon name="arrow" className="h-4 w-4" />
@@ -1438,7 +1438,7 @@ function PointsHistory({
           {[0, 1, 2].map((item) => (
             <div
               key={item}
-              className="h-20 animate-pulse rounded-[18px] bg-white/[0.04]"
+              className="h-20 animate-pulse rounded-[18px] bg-[var(--pos-surface-2)]"
             />
           ))}
         </div>
@@ -1446,7 +1446,7 @@ function PointsHistory({
         <>
           <div className="overflow-x-auto">
             <table className="min-w-[980px] w-full text-left">
-              <thead className="bg-[#081524]/70 text-[9px] font-black uppercase tracking-[0.16em] text-slate-600">
+              <thead className="bg-[var(--pos-surface)]/70 text-[9px] font-black uppercase tracking-[0.16em] text-[var(--pos-text-muted)]">
                 <tr>
                   <th className="px-6 py-4">Fecha</th>
                   <th className="px-4 py-4">Cliente</th>
@@ -1468,8 +1468,8 @@ function PointsHistory({
             </table>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-white/[0.08] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-bold text-slate-600">
+          <div className="flex flex-col gap-3 border-t border-[var(--pos-border)] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-bold text-[var(--pos-text-muted)]">
               Página {page} de {Math.max(totalPages, 1)}
             </p>
             <div className="flex gap-2">
@@ -1488,13 +1488,13 @@ function PointsHistory({
         </>
       ) : (
         <div className="p-8 text-center md:p-12">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[18px] bg-white/[0.05] text-cyan-300">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[18px] bg-[var(--pos-surface-2)] text-[var(--pos-primary-text)]">
             <PosIcon name="loyalty" className="h-6 w-6" />
           </div>
-          <h3 className="mt-5 text-xl font-black text-white">
+          <h3 className="mt-5 text-xl font-black text-[var(--pos-text)]">
             Aún no hay movimientos
           </h3>
-          <p className="mx-auto mt-2 max-w-lg text-sm font-semibold leading-6 text-slate-600">
+          <p className="mx-auto mt-2 max-w-lg text-sm font-semibold leading-6 text-[var(--pos-text-muted)]">
             Las compras con puntos y los ajustes manuales aparecerán aquí en
             orden cronológico.
           </p>
@@ -1518,11 +1518,11 @@ function TransactionRow({
   const type = transactionTypeMeta(transaction.transactionType);
 
   return (
-    <tr className="text-sm font-semibold text-slate-500 transition hover:bg-white/[0.025]">
+    <tr className="text-sm font-semibold text-[var(--pos-text-muted)] transition hover:bg-[var(--pos-surface-2)]">
       <td className="whitespace-nowrap px-6 py-5 text-xs">
         {formatDateTime(transaction.createdAt)}
       </td>
-      <td className="px-4 py-5 font-black text-white">
+      <td className="px-4 py-5 font-black text-[var(--pos-text)]">
         {customerName || "Cliente no disponible"}
       </td>
       <td className="px-4 py-5">
@@ -1539,7 +1539,7 @@ function TransactionRow({
       >
         {formatSignedPoints(transaction.points)}
       </td>
-      <td className="px-4 py-5 text-right font-black text-white">
+      <td className="px-4 py-5 text-right font-black text-[var(--pos-text)]">
         {formatInteger(transaction.balanceAfter)}
       </td>
       <td className="max-w-[260px] px-4 py-5 text-xs leading-5">
@@ -1548,10 +1548,10 @@ function TransactionRow({
       <td className="px-6 py-5">
         {transaction.sale ? (
           <div>
-            <p className="font-black text-cyan-300">
+            <p className="font-black text-[var(--pos-primary-text)]">
               {transaction.sale.saleNumber}
             </p>
-            <p className="mt-1 text-[10px] text-slate-600">
+            <p className="mt-1 text-[10px] text-[var(--pos-text-muted)]">
               {formatCurrency(
                 transaction.sale.total,
                 transaction.sale.currency
@@ -1559,7 +1559,7 @@ function TransactionRow({
             </p>
           </div>
         ) : (
-          <span className="text-xs text-slate-700">Sin venta</span>
+          <span className="text-xs text-[var(--pos-text-disabled)]">Sin venta</span>
         )}
       </td>
     </tr>
@@ -1580,7 +1580,7 @@ function PaginationButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="h-10 rounded-[13px] border border-white/[0.08] px-4 text-xs font-black text-white transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:text-slate-700"
+      className="h-10 rounded-[13px] border border-[var(--pos-border)] px-4 text-xs font-black text-[var(--pos-text)] transition hover:bg-[var(--pos-surface-2)] disabled:cursor-not-allowed disabled:text-[var(--pos-text-disabled)]"
     >
       {label}
     </button>
@@ -1613,16 +1613,16 @@ function AdjustmentPanel({
     >
       <form
         onSubmit={onSubmit}
-        className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[28px] border border-white/[0.1] bg-[#081524] p-6 shadow-[0_35px_120px_rgba(0,0,0,0.55)] md:p-8"
+        className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[28px] border border-white/[0.1] bg-[var(--pos-surface)] p-6 shadow-[0_35px_120px_rgba(0,0,0,0.55)] md:p-8"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-cyan-300">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--pos-primary-text)]">
               Ajuste manual
             </p>
             <h2
               id="adjustment-title"
-              className="mt-2 text-3xl font-black tracking-[-0.055em] text-white"
+              className="mt-2 text-3xl font-black tracking-[-0.055em] text-[var(--pos-text)]"
             >
               Ajustar puntos
             </h2>
@@ -1631,7 +1631,7 @@ function AdjustmentPanel({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] text-lg font-bold text-slate-500 hover:bg-white/[0.05] hover:text-white disabled:opacity-40"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--pos-border)] text-lg font-bold text-[var(--pos-text-muted)] hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-text)] disabled:opacity-70"
             aria-label="Cerrar ajuste"
           >
             ×
@@ -1640,14 +1640,14 @@ function AdjustmentPanel({
 
         <div className="mt-7 grid gap-5">
           <label className="grid gap-2">
-            <span className="text-xs font-black text-white">Cliente</span>
+            <span className="text-xs font-black text-[var(--pos-text)]">Cliente</span>
             <select
               value={form.customerId}
               onChange={(event) =>
                 onChange({ ...form, customerId: event.target.value })
               }
               required
-              className="h-13 rounded-[15px] border border-white/[0.09] bg-white/[0.04] px-4 text-sm font-bold text-white outline-none transition focus:border-cyan-300/50"
+              className="h-13 rounded-[15px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-4 text-sm font-bold text-[var(--pos-text)] outline-none transition focus:border-cyan-300/50"
             >
               <option value="" className="bg-slate-950">
                 Selecciona un cliente
@@ -1672,7 +1672,7 @@ function AdjustmentPanel({
           </label>
 
           <fieldset>
-            <legend className="text-xs font-black text-white">Acción</legend>
+            <legend className="text-xs font-black text-[var(--pos-text)]">Acción</legend>
             <div className="mt-2 grid grid-cols-2 gap-3">
               {(["add", "subtract"] as const).map((direction) => (
                 <button
@@ -1684,7 +1684,7 @@ function AdjustmentPanel({
                       ? direction === "add"
                         ? "border-emerald-300/40 bg-emerald-300/[0.12] text-emerald-200"
                         : "border-rose-300/40 bg-rose-300/[0.12] text-rose-200"
-                      : "border-white/[0.08] text-slate-500 hover:bg-white/[0.04]"
+                      : "border-[var(--pos-border)] text-[var(--pos-text-muted)] hover:bg-[var(--pos-surface-2)]"
                   }`}
                 >
                   {direction === "add" ? "Agregar puntos" : "Restar puntos"}
@@ -1701,7 +1701,7 @@ function AdjustmentPanel({
           ) : null}
 
           <label className="grid gap-2">
-            <span className="text-xs font-black text-white">Cantidad</span>
+            <span className="text-xs font-black text-[var(--pos-text)]">Cantidad</span>
             <input
               type="number"
               inputMode="numeric"
@@ -1713,16 +1713,16 @@ function AdjustmentPanel({
               }
               placeholder="50"
               required
-              className="h-13 rounded-[15px] border border-white/[0.09] bg-white/[0.04] px-4 text-sm font-bold text-white outline-none transition placeholder:text-slate-700 focus:border-cyan-300/50"
+              className="h-13 rounded-[15px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-4 text-sm font-bold text-[var(--pos-text)] outline-none transition placeholder:text-[var(--pos-text-disabled)] focus:border-cyan-300/50"
             />
-            <span className="text-[11px] font-semibold text-slate-600">
+            <span className="text-[11px] font-semibold text-[var(--pos-text-muted)]">
               Introduce un entero positivo; el tipo de acción determina el
               signo enviado.
             </span>
           </label>
 
           <label className="grid gap-2">
-            <span className="text-xs font-black text-white">Motivo</span>
+            <span className="text-xs font-black text-[var(--pos-text)]">Motivo</span>
             <textarea
               value={form.description}
               onChange={(event) =>
@@ -1732,27 +1732,27 @@ function AdjustmentPanel({
               rows={4}
               placeholder="Describe por qué se realiza este ajuste..."
               required
-              className="resize-none rounded-[15px] border border-white/[0.09] bg-white/[0.04] px-4 py-3 text-sm font-bold leading-6 text-white outline-none transition placeholder:text-slate-700 focus:border-cyan-300/50"
+              className="resize-none rounded-[15px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-4 py-3 text-sm font-bold leading-6 text-[var(--pos-text)] outline-none transition placeholder:text-[var(--pos-text-disabled)] focus:border-cyan-300/50"
             />
-            <span className="text-right text-[10px] font-bold text-slate-700">
+            <span className="text-right text-[10px] font-bold text-[var(--pos-text-disabled)]">
               {form.description.length}/500
             </span>
           </label>
         </div>
 
-        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-white/[0.08] pt-5 sm:flex-row sm:justify-end">
+        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-[var(--pos-border)] pt-5 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-12 rounded-[15px] border border-white/[0.08] px-5 text-xs font-black text-white hover:bg-white/[0.04] disabled:opacity-40"
+            className="h-12 rounded-[15px] border border-[var(--pos-border)] px-5 text-xs font-black text-[var(--pos-text)] hover:bg-[var(--pos-surface-2)] disabled:opacity-70"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="h-12 rounded-[15px] bg-cyan-300 px-6 text-xs font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600"
+            className="h-12 rounded-[15px] bg-[var(--pos-primary)] px-6 text-xs font-black text-slate-950 transition hover:bg-[var(--pos-primary-hover)] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-[var(--pos-text-muted)]"
           >
             {saving ? "Aplicando ajuste..." : "Confirmar ajuste"}
           </button>
@@ -1845,32 +1845,32 @@ function TiersSection({ brandSlug, programExists }: { brandSlug: string; program
   }
 
   return (
-    <section className="rounded-[24px] border border-white/[0.08] bg-[#081524] p-5 md:p-6">
+    <section className="rounded-[24px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-5 md:p-6">
       <SectionHeading eyebrow="Niveles" title="Multiplicadores por puntos históricos" description="La venta usa el nivel vigente antes de acreditar puntos. Una promoción aplica desde la siguiente compra." />
-      {message ? <p className="mt-4 text-xs font-semibold text-cyan-200">{message}</p> : null}
+      {message ? <p className="mt-4 text-xs font-semibold text-[var(--pos-primary-text)]">{message}</p> : null}
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="divide-y divide-white/[0.06] rounded-[16px] bg-white/[0.025] px-4">
-          {loading ? <p className="py-5 text-sm text-slate-500">Cargando niveles...</p> : tiers.length ? tiers.map((tier) => (
+        <div className="divide-y divide-white/[0.06] rounded-[16px] bg-[var(--pos-surface-2)] px-4">
+          {loading ? <p className="py-5 text-sm text-[var(--pos-text-muted)]">Cargando niveles...</p> : tiers.length ? tiers.map((tier) => (
             <div key={tier.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
               <div>
-                <p className="text-sm font-bold text-white">{tier.name}</p>
-                <p className="mt-1 text-xs text-slate-400">{formatInteger(tier.minimumLifetimePoints)} pts históricos · {tier.pointsMultiplier.toFixed(2)}x</p>
+                <p className="text-sm font-bold text-[var(--pos-text)]">{tier.name}</p>
+                <p className="mt-1 text-xs text-[var(--pos-text-muted)]">{formatInteger(tier.minimumLifetimePoints)} pts históricos · {tier.pointsMultiplier.toFixed(2)}x</p>
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setForm({ id: tier.id, name: tier.name, minimumLifetimePoints: String(tier.minimumLifetimePoints), pointsMultiplier: String(tier.pointsMultiplier), active: tier.active })} className="h-9 rounded-[10px] border border-white/[0.08] px-3 text-xs font-bold text-white">Editar</button>
-                <button type="button" onClick={() => void toggleTier(tier)} className="h-9 rounded-[10px] border border-white/[0.08] px-3 text-xs font-bold text-slate-300">{tier.active ? "Desactivar" : "Activar"}</button>
+                <button type="button" onClick={() => setForm({ id: tier.id, name: tier.name, minimumLifetimePoints: String(tier.minimumLifetimePoints), pointsMultiplier: String(tier.pointsMultiplier), active: tier.active })} className="h-9 rounded-[10px] border border-[var(--pos-border)] px-3 text-xs font-bold text-[var(--pos-text)]">Editar</button>
+                <button type="button" onClick={() => void toggleTier(tier)} className="h-9 rounded-[10px] border border-[var(--pos-border)] px-3 text-xs font-bold text-[var(--pos-text-secondary)]">{tier.active ? "Desactivar" : "Activar"}</button>
               </div>
             </div>
-          )) : <p className="py-5 text-sm text-slate-500">Aún no hay niveles configurados.</p>}
+          )) : <p className="py-5 text-sm text-[var(--pos-text-muted)]">Aún no hay niveles configurados.</p>}
         </div>
-        <form onSubmit={submitTier} className="space-y-4 rounded-[16px] bg-white/[0.025] p-4">
+        <form onSubmit={submitTier} className="space-y-4 rounded-[16px] bg-[var(--pos-surface-2)] p-4">
           <TextField label="Nombre" value={form.name} onChange={(name) => setForm((current) => ({ ...current, name }))} placeholder="Bronce" maxLength={120} help="Nombre visible del nivel." />
           <NumberField label="Puntos históricos mínimos" value={form.minimumLifetimePoints} onChange={(minimumLifetimePoints) => setForm((current) => ({ ...current, minimumLifetimePoints }))} min="0" step="1" help="Umbral basado en lifetime points." />
           <NumberField label="Multiplicador" value={form.pointsMultiplier} onChange={(pointsMultiplier) => setForm((current) => ({ ...current, pointsMultiplier }))} min="0.0001" step="0.0001" help="Se aplica a los puntos base desde la siguiente venta." />
           <ToggleRow label="Nivel activo" description="Sólo los niveles activos se asignan automáticamente." checked={form.active} onChange={(active) => setForm((current) => ({ ...current, active }))} />
           <div className="flex gap-2">
-            {form.id ? <button type="button" onClick={() => setForm({ id: null, name: "", minimumLifetimePoints: "0", pointsMultiplier: "1", active: true })} className="h-10 flex-1 rounded-[11px] border border-white/[0.08] text-xs font-bold text-white">Cancelar</button> : null}
-            <button type="submit" disabled={!programExists || saving} className="h-10 flex-1 rounded-[11px] bg-cyan-300 px-4 text-xs font-black text-slate-950 disabled:opacity-40">{saving ? "Guardando..." : form.id ? "Guardar" : "Crear nivel"}</button>
+            {form.id ? <button type="button" onClick={() => setForm({ id: null, name: "", minimumLifetimePoints: "0", pointsMultiplier: "1", active: true })} className="h-10 flex-1 rounded-[11px] border border-[var(--pos-border)] text-xs font-bold text-[var(--pos-text)]">Cancelar</button> : null}
+            <button type="submit" disabled={!programExists || saving} className="h-10 flex-1 rounded-[11px] bg-[var(--pos-primary)] px-4 text-xs font-black text-slate-950 disabled:opacity-70">{saving ? "Guardando..." : form.id ? "Guardar" : "Crear nivel"}</button>
           </div>
         </form>
       </div>
@@ -1902,7 +1902,7 @@ function RewardsSection({
   onToggle: (reward: LoyaltyReward) => void;
 }) {
   return (
-    <section className="rounded-[30px] border border-white/[0.08] bg-[#081524] p-6 md:p-8">
+    <section className="rounded-[30px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-6 md:p-8">
       <SectionHeading
         eyebrow="Recompensas"
         title="Descuentos fijos"
@@ -1912,27 +1912,27 @@ function RewardsSection({
       <div className="mt-7 grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="grid content-start gap-3">
           {loading ? (
-            <div className="h-32 animate-pulse rounded-[20px] bg-white/[0.04]" />
+            <div className="h-32 animate-pulse rounded-[20px] bg-[var(--pos-surface-2)]" />
           ) : rewards.length ? (
             rewards.map((reward) => (
-              <article key={reward.id} className="rounded-[20px] border border-white/[0.08] bg-white/[0.025] p-5">
+              <article key={reward.id} className="rounded-[20px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-black text-white">{reward.name}</h3>
-                      <span className={`rounded-full px-3 py-1 text-[8px] font-black uppercase ${reward.active ? "bg-emerald-300/[0.1] text-emerald-200" : "bg-white/[0.06] text-slate-500"}`}>
+                      <h3 className="text-lg font-black text-[var(--pos-text)]">{reward.name}</h3>
+                      <span className={`rounded-full px-3 py-1 text-[8px] font-black uppercase ${reward.active ? "bg-emerald-300/[0.1] text-emerald-200" : "bg-[var(--pos-surface-2)] text-[var(--pos-text-muted)]"}`}>
                         {reward.active ? "Activa" : "Inactiva"}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs font-semibold text-slate-600">{reward.description || "Sin descripción"}</p>
-                    <p className="mt-3 text-sm font-black text-cyan-300">
+                    <p className="mt-2 text-xs font-semibold text-[var(--pos-text-muted)]">{reward.description || "Sin descripción"}</p>
+                    <p className="mt-3 text-sm font-black text-[var(--pos-primary-text)]">
                       {formatInteger(reward.pointsCost)} puntos · {formatMoney(reward.rewardValue)} de descuento
                     </p>
-                    <p className="mt-1 text-[9px] font-black uppercase tracking-[0.12em] text-slate-700">Descuento fijo</p>
+                    <p className="mt-1 text-[9px] font-black uppercase tracking-[0.12em] text-[var(--pos-text-disabled)]">Descuento fijo</p>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => onEdit(reward)} className="h-10 rounded-[12px] border border-white/[0.08] px-4 text-xs font-black text-white">Editar</button>
-                    <button type="button" onClick={() => onToggle(reward)} className="h-10 rounded-[12px] border border-cyan-300/15 px-4 text-xs font-black text-cyan-300">
+                    <button type="button" onClick={() => onEdit(reward)} className="h-10 rounded-[12px] border border-[var(--pos-border)] px-4 text-xs font-black text-[var(--pos-text)]">Editar</button>
+                    <button type="button" onClick={() => onToggle(reward)} className="h-10 rounded-[12px] border border-cyan-300/15 px-4 text-xs font-black text-[var(--pos-primary-text)]">
                       {reward.active ? "Desactivar" : "Activar"}
                     </button>
                   </div>
@@ -1940,15 +1940,15 @@ function RewardsSection({
               </article>
             ))
           ) : (
-            <div className="rounded-[20px] border border-dashed border-white/[0.09] p-7 text-center text-sm font-semibold text-slate-600">
+            <div className="rounded-[20px] border border-dashed border-[var(--pos-border)] p-7 text-center text-sm font-semibold text-[var(--pos-text-muted)]">
               Aún no hay recompensas de descuento fijo.
             </div>
           )}
         </div>
 
-        <form onSubmit={onSubmit} className="rounded-[22px] border border-white/[0.08] bg-white/[0.025] p-5">
-          <h3 className="text-xl font-black text-white">{form.id ? "Editar recompensa" : "Nueva recompensa"}</h3>
-          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-300">Descuento fijo</p>
+        <form onSubmit={onSubmit} className="rounded-[22px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] p-5">
+          <h3 className="text-xl font-black text-[var(--pos-text)]">{form.id ? "Editar recompensa" : "Nueva recompensa"}</h3>
+          <p className="mt-1 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--pos-primary-text)]">Descuento fijo</p>
           <div className="mt-5 grid gap-4">
             <TextField label="Nombre" value={form.name} onChange={(name) => onFormChange({ ...form, name })} placeholder="$50 de descuento" maxLength={140} help="Nombre visible para el equipo de caja." />
             <TextField label="Descripción" value={form.description} onChange={(description) => onFormChange({ ...form, description })} placeholder="Beneficio opcional" maxLength={500} help="Explica brevemente el beneficio." />
@@ -1960,9 +1960,9 @@ function RewardsSection({
           </div>
           <div className="mt-5 flex gap-2">
             {form.id ? (
-              <button type="button" onClick={onCancelEdit} disabled={saving} className="h-11 flex-1 rounded-[13px] border border-white/[0.08] text-xs font-black text-white">Cancelar</button>
+              <button type="button" onClick={onCancelEdit} disabled={saving} className="h-11 flex-1 rounded-[13px] border border-[var(--pos-border)] text-xs font-black text-[var(--pos-text)]">Cancelar</button>
             ) : null}
-            <button type="submit" disabled={!programExists || saving} className="h-11 flex-1 rounded-[13px] bg-cyan-300 px-4 text-xs font-black text-slate-950 disabled:bg-slate-800 disabled:text-slate-600">
+            <button type="submit" disabled={!programExists || saving} className="h-11 flex-1 rounded-[13px] bg-[var(--pos-primary)] px-4 text-xs font-black text-slate-950 disabled:bg-slate-800 disabled:text-[var(--pos-text-muted)]">
               {saving ? "Guardando..." : form.id ? "Guardar" : "Crear"}
             </button>
           </div>
@@ -1982,17 +1982,17 @@ function ComingSoonCard({
   description: string;
 }) {
   return (
-    <article className="rounded-[25px] border border-white/[0.07] bg-white/[0.025] p-5 opacity-75">
+    <article className="rounded-[25px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] p-5 opacity-75">
       <div className="flex items-start justify-between gap-4">
-        <span className="flex h-10 w-10 items-center justify-center rounded-[13px] bg-white/[0.05] text-[9px] font-black text-slate-500">
+        <span className="flex h-10 w-10 items-center justify-center rounded-[13px] bg-[var(--pos-surface-2)] text-[9px] font-black text-[var(--pos-text-muted)]">
           {code}
         </span>
         <span className="rounded-full bg-amber-300/[0.08] px-3 py-1 text-[8px] font-black uppercase tracking-[0.12em] text-amber-200">
           Próximamente
         </span>
       </div>
-      <h3 className="mt-4 text-xl font-black text-white">{title}</h3>
-      <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+      <h3 className="mt-4 text-xl font-black text-[var(--pos-text)]">{title}</h3>
+      <p className="mt-2 text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
         {description}
       </p>
     </article>
@@ -2037,13 +2037,13 @@ function transactionTypeMeta(type: string) {
   if (type === "adjust") {
     return {
       label: "Ajuste",
-      className: "bg-cyan-300/[0.1] text-cyan-200",
+      className: "bg-[var(--pos-primary)]/[0.1] text-[var(--pos-primary-text)]",
     };
   }
 
   return {
     label: type || "Desconocido",
-    className: "bg-white/[0.06] text-slate-400",
+    className: "bg-[var(--pos-surface-2)] text-[var(--pos-text-muted)]",
   };
 }
 
@@ -2081,18 +2081,18 @@ function VisitProgramsSection({
   onToggle: (program: VisitProgram) => void;
 }) {
   return (
-    <section className="rounded-[24px] border border-white/[0.08] bg-[#081524] p-5 md:p-6">
+    <section className="rounded-[24px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-5 md:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-300">Programas por visitas</p>
-          <h3 className="mt-2 text-xl font-black tracking-[-0.04em] text-white">Compras frecuentes</h3>
-          <p className="mt-2 text-xs leading-5 text-slate-500">Cada venta elegible suma una visita y desbloquea la recompensa al completar la meta.</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.18em] text-[var(--pos-primary-text)]">Programas por visitas</p>
+          <h3 className="mt-2 text-xl font-black tracking-[-0.04em] text-[var(--pos-text)]">Compras frecuentes</h3>
+          <p className="mt-2 text-xs leading-5 text-[var(--pos-text-muted)]">Cada venta elegible suma una visita y desbloquea la recompensa al completar la meta.</p>
         </div>
-        <button type="button" onClick={onCreate} className="h-10 rounded-[12px] bg-cyan-300 px-4 text-xs font-black text-slate-950">Crear programa</button>
+        <button type="button" onClick={onCreate} className="h-10 rounded-[12px] bg-[var(--pos-primary)] px-4 text-xs font-black text-slate-950">Crear programa</button>
       </div>
 
       {error ? <p className="mt-4 rounded-[12px] bg-amber-300/[0.06] px-3 py-2 text-xs text-amber-200">No se pudieron cargar los programas por visitas.</p> : null}
-      {loading ? <p className="mt-5 text-sm text-slate-500">Cargando programas...</p> : programs.length ? (
+      {loading ? <p className="mt-5 text-sm text-[var(--pos-text-muted)]">Cargando programas...</p> : programs.length ? (
         <div className="mt-5 divide-y divide-white/[0.07]">
           {programs.map((program) => {
             const status = getVisitProgramStatus(program);
@@ -2100,26 +2100,26 @@ function VisitProgramsSection({
               <div key={program.id} className="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-white">{program.name}</p>
+                    <p className="truncate text-sm font-semibold text-[var(--pos-text)]">{program.name}</p>
                     <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${status.tone}`}>{status.label}</span>
                   </div>
-                  <p className="mt-1.5 text-xs text-slate-400">{program.requiredVisits} visitas · Compra mínima {formatMoney(program.minimumSaleAmount)}</p>
-                  <p className="mt-1 text-xs text-slate-500">Recompensa: {program.reward?.name || "No disponible"}{program.reward ? ` · ${formatMoney(program.reward.rewardValue)}` : ""}</p>
-                  <p className="mt-1 text-[10px] text-slate-600">{formatVisitProgramValidity(program)}</p>
+                  <p className="mt-1.5 text-xs text-[var(--pos-text-muted)]">{program.requiredVisits} visitas · Compra mínima {formatMoney(program.minimumSaleAmount)}</p>
+                  <p className="mt-1 text-xs text-[var(--pos-text-muted)]">Recompensa: {program.reward?.name || "No disponible"}{program.reward ? ` · ${formatMoney(program.reward.rewardValue)}` : ""}</p>
+                  <p className="mt-1 text-[10px] text-[var(--pos-text-muted)]">{formatVisitProgramValidity(program)}</p>
                 </div>
                 <div className="flex gap-2 md:justify-end">
-                  <button type="button" onClick={() => onEdit(program)} className="h-9 rounded-[10px] border border-white/[0.08] px-3 text-xs font-bold text-white">Editar</button>
-                  <button type="button" disabled={togglingId === program.id} onClick={() => onToggle(program)} className="h-9 rounded-[10px] border border-white/[0.08] px-3 text-xs font-bold text-slate-300 disabled:opacity-50">{togglingId === program.id ? "Guardando..." : program.active ? "Desactivar" : "Activar"}</button>
+                  <button type="button" onClick={() => onEdit(program)} className="h-9 rounded-[10px] border border-[var(--pos-border)] px-3 text-xs font-bold text-[var(--pos-text)]">Editar</button>
+                  <button type="button" disabled={togglingId === program.id} onClick={() => onToggle(program)} className="h-9 rounded-[10px] border border-[var(--pos-border)] px-3 text-xs font-bold text-[var(--pos-text-secondary)] disabled:opacity-50">{togglingId === program.id ? "Guardando..." : program.active ? "Desactivar" : "Activar"}</button>
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="mt-5 rounded-[16px] bg-white/[0.025] p-5 text-center">
-          <p className="text-sm font-semibold text-white">Aún no tienes programas por visitas.</p>
-          <p className="mt-2 text-xs text-slate-500">Crea una campaña para premiar compras frecuentes.</p>
-          <button type="button" onClick={onCreate} className="mt-4 h-10 rounded-[12px] bg-cyan-300 px-4 text-xs font-black text-slate-950">Crear programa</button>
+        <div className="mt-5 rounded-[16px] bg-[var(--pos-surface-2)] p-5 text-center">
+          <p className="text-sm font-semibold text-[var(--pos-text)]">Aún no tienes programas por visitas.</p>
+          <p className="mt-2 text-xs text-[var(--pos-text-muted)]">Crea una campaña para premiar compras frecuentes.</p>
+          <button type="button" onClick={onCreate} className="mt-4 h-10 rounded-[12px] bg-[var(--pos-primary)] px-4 text-xs font-black text-slate-950">Crear programa</button>
         </div>
       )}
     </section>
@@ -2128,7 +2128,7 @@ function VisitProgramsSection({
 
 function getVisitProgramStatus(program: VisitProgram) {
   const now = Date.now();
-  if (!program.active) return { label: "Inactiva", tone: "bg-white/[0.06] text-slate-400" };
+  if (!program.active) return { label: "Inactiva", tone: "bg-[var(--pos-surface-2)] text-[var(--pos-text-muted)]" };
   if (program.startsAt && new Date(program.startsAt).getTime() > now) return { label: "Próxima", tone: "bg-amber-300/[0.08] text-amber-200" };
   if (program.endsAt && new Date(program.endsAt).getTime() < now) return { label: "Finalizada", tone: "bg-rose-300/[0.08] text-rose-200" };
   return { label: "Activa", tone: "bg-emerald-300/[0.08] text-emerald-300" };
@@ -2154,35 +2154,35 @@ function VisitProgramModal({ form, rewards, saving, frozen, error, onChange, onC
   const mechanicsDisabled = frozen;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/80 p-3 backdrop-blur-sm md:items-center md:p-6" role="dialog" aria-modal="true" aria-labelledby="visit-program-title">
-      <form onSubmit={onSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[24px] border border-white/[0.08] bg-[#081524] p-5 shadow-2xl md:p-6">
+      <form onSubmit={onSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[24px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-5 shadow-2xl md:p-6">
         <div className="flex items-start justify-between gap-4">
-          <div><p className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-300">Programa por visitas</p><h3 id="visit-program-title" className="mt-2 text-xl font-black text-white">{form.id ? "Editar programa" : "Crear programa"}</h3></div>
-          <button type="button" onClick={onClose} disabled={saving} className="text-sm font-bold text-slate-400">Cerrar</button>
+          <div><p className="text-[9px] font-black uppercase tracking-[0.18em] text-[var(--pos-primary-text)]">Programa por visitas</p><h3 id="visit-program-title" className="mt-2 text-xl font-black text-[var(--pos-text)]">{form.id ? "Editar programa" : "Crear programa"}</h3></div>
+          <button type="button" onClick={onClose} disabled={saving} className="text-sm font-bold text-[var(--pos-text-muted)]">Cerrar</button>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">Cada venta que cumpla el mínimo suma una visita. Al completar la meta, el cliente desbloquea la recompensa.</p>
+        <p className="mt-3 text-xs leading-5 text-[var(--pos-text-muted)]">Cada venta que cumpla el mínimo suma una visita. Al completar la meta, el cliente desbloquea la recompensa.</p>
         {error ? <p className="mt-4 rounded-[12px] bg-rose-300/[0.08] px-3 py-2 text-xs font-semibold text-rose-200">{error}</p> : null}
         {frozen ? <p className="mt-3 rounded-[12px] bg-amber-300/[0.07] px-3 py-2 text-xs text-amber-200">La mecánica está congelada. Puedes cambiar nombre, estado y fechas.</p> : null}
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <VisitField label="Nombre" className="sm:col-span-2"><input value={form.name} onChange={(e) => onChange("name", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white" /></VisitField>
-          <VisitField label="Visitas necesarias"><input type="number" min="1" step="1" disabled={mechanicsDisabled} value={form.requiredVisits} onChange={(e) => onChange("requiredVisits", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white disabled:opacity-50" /></VisitField>
-          <VisitField label="Compra mínima"><input type="number" min="0" step="0.01" disabled={mechanicsDisabled} value={form.minimumSaleAmount} onChange={(e) => onChange("minimumSaleAmount", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white disabled:opacity-50" /></VisitField>
-          <VisitField label="Recompensa" className="sm:col-span-2"><select disabled={mechanicsDisabled || !rewards.length} value={form.rewardId} onChange={(e) => onChange("rewardId", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-[#0b1928] px-3 text-sm text-white disabled:opacity-50"><option value="">Selecciona una recompensa</option>{rewards.map((reward) => <option key={reward.id} value={reward.id}>{reward.name} — {formatMoney(reward.rewardValue)}</option>)}</select>{!rewards.length ? <span className="mt-1 block text-[10px] text-amber-200">Primero crea una recompensa de descuento para usarla en este programa.</span> : null}</VisitField>
-          <VisitField label="Fecha de inicio (opcional)"><input type="datetime-local" value={form.startsAt} onChange={(e) => onChange("startsAt", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white" /></VisitField>
-          <VisitField label="Fecha de fin (opcional)"><input type="datetime-local" value={form.endsAt} onChange={(e) => onChange("endsAt", e.target.value)} className="h-11 w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white" /></VisitField>
-          <label className="flex items-center gap-3 text-sm font-semibold text-white sm:col-span-2"><input type="checkbox" checked={form.active} onChange={(e) => onChange("active", e.target.checked)} className="h-4 w-4 accent-cyan-300" />Programa activo</label>
+          <VisitField label="Nombre" className="sm:col-span-2"><input value={form.name} onChange={(e) => onChange("name", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-3 text-sm text-[var(--pos-text)]" /></VisitField>
+          <VisitField label="Visitas necesarias"><input type="number" min="1" step="1" disabled={mechanicsDisabled} value={form.requiredVisits} onChange={(e) => onChange("requiredVisits", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-3 text-sm text-[var(--pos-text)] disabled:opacity-50" /></VisitField>
+          <VisitField label="Compra mínima"><input type="number" min="0" step="0.01" disabled={mechanicsDisabled} value={form.minimumSaleAmount} onChange={(e) => onChange("minimumSaleAmount", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-3 text-sm text-[var(--pos-text)] disabled:opacity-50" /></VisitField>
+          <VisitField label="Recompensa" className="sm:col-span-2"><select disabled={mechanicsDisabled || !rewards.length} value={form.rewardId} onChange={(e) => onChange("rewardId", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[#0b1928] px-3 text-sm text-[var(--pos-text)] disabled:opacity-50"><option value="">Selecciona una recompensa</option>{rewards.map((reward) => <option key={reward.id} value={reward.id}>{reward.name} — {formatMoney(reward.rewardValue)}</option>)}</select>{!rewards.length ? <span className="mt-1 block text-[10px] text-amber-200">Primero crea una recompensa de descuento para usarla en este programa.</span> : null}</VisitField>
+          <VisitField label="Fecha de inicio (opcional)"><input type="datetime-local" value={form.startsAt} onChange={(e) => onChange("startsAt", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-3 text-sm text-[var(--pos-text)]" /></VisitField>
+          <VisitField label="Fecha de fin (opcional)"><input type="datetime-local" value={form.endsAt} onChange={(e) => onChange("endsAt", e.target.value)} className="h-11 w-full rounded-[12px] border border-[var(--pos-border)] bg-[var(--pos-surface-2)] px-3 text-sm text-[var(--pos-text)]" /></VisitField>
+          <label className="flex items-center gap-3 text-sm font-semibold text-[var(--pos-text)] sm:col-span-2"><input type="checkbox" checked={form.active} onChange={(e) => onChange("active", e.target.checked)} className="h-4 w-4 accent-cyan-300" />Programa activo</label>
         </div>
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} disabled={saving} className="h-11 rounded-[12px] border border-white/[0.08] px-4 text-sm font-bold text-white">Cancelar</button><button type="submit" disabled={saving || !rewards.length} className="h-11 rounded-[12px] bg-cyan-300 px-5 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? "Guardando..." : form.id ? "Guardar cambios" : "Crear programa"}</button></div>
+        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onClose} disabled={saving} className="h-11 rounded-[12px] border border-[var(--pos-border)] px-4 text-sm font-bold text-[var(--pos-text)]">Cancelar</button><button type="submit" disabled={saving || !rewards.length} className="h-11 rounded-[12px] bg-[var(--pos-primary)] px-5 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? "Guardando..." : form.id ? "Guardar cambios" : "Crear programa"}</button></div>
       </form>
     </div>
   );
 }
 
 function VisitField({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
-  return <label className={`text-xs font-semibold text-slate-400 ${className}`}><span className="mb-1.5 block">{label}</span>{children}</label>;
+  return <label className={`text-xs font-semibold text-[var(--pos-text-muted)] ${className}`}><span className="mb-1.5 block">{label}</span>{children}</label>;
 }
 
 function VisitProgramDisableModal({ program, saving, onClose, onConfirm }: { program: VisitProgram; saving: boolean; onClose: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-[24px] border border-white/[0.08] bg-[#081524] p-6"><h3 className="text-xl font-black text-white">¿Desactivar este programa?</h3><p className="mt-3 text-sm leading-6 text-slate-400">Las ventas nuevas dejarán de sumar visitas en {program.name}, pero las recompensas ya desbloqueadas seguirán disponibles.</p><div className="mt-6 flex justify-end gap-2"><button type="button" disabled={saving} onClick={onClose} className="h-11 rounded-[12px] border border-white/[0.08] px-4 text-sm font-bold text-white">Cancelar</button><button type="button" disabled={saving} onClick={onConfirm} className="h-11 rounded-[12px] bg-amber-300 px-4 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? "Guardando..." : "Desactivar"}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-[24px] border border-[var(--pos-border)] bg-[var(--pos-surface)] p-6"><h3 className="text-xl font-black text-[var(--pos-text)]">¿Desactivar este programa?</h3><p className="mt-3 text-sm leading-6 text-[var(--pos-text-muted)]">Las ventas nuevas dejarán de sumar visitas en {program.name}, pero las recompensas ya desbloqueadas seguirán disponibles.</p><div className="mt-6 flex justify-end gap-2"><button type="button" disabled={saving} onClick={onClose} className="h-11 rounded-[12px] border border-[var(--pos-border)] px-4 text-sm font-bold text-[var(--pos-text)]">Cancelar</button><button type="button" disabled={saving} onClick={onConfirm} className="h-11 rounded-[12px] bg-amber-300 px-4 text-sm font-black text-slate-950 disabled:opacity-50">{saving ? "Guardando..." : "Desactivar"}</button></div></div></div>;
 }
 
 function formatCurrency(value: number, currency: string) {

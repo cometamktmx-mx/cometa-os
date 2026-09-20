@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { getPosMode, requireStaffSession } from "@/lib/pos/staff-server";
 import {
   assertDatabaseResult,
   fail,
@@ -5,6 +7,7 @@ import {
   getPagination,
   handlePosError,
   numberValue,
+  PosApiError,
   ok,
   optionalText,
   readJsonBody,
@@ -22,6 +25,9 @@ type MovementType = (typeof MOVEMENT_TYPES)[number];
 
 type CashMovementBody = {
   cashSessionId?: unknown;
+  requestKey?: unknown;
+  adjustment?: unknown;
+  authorizationToken?: unknown;
   movementType?: unknown;
   amount?: unknown;
   reason?: unknown;
@@ -122,7 +128,7 @@ export async function GET(request: Request) {
 
     const { data: session, error: sessionError } = await admin
       .from("pos_cash_sessions")
-      .select("id,status")
+      .select("id,status,location_id")
       .eq("id", cashSessionId)
       .eq("brand_slug", brand.slug)
       .maybeSingle();
@@ -140,6 +146,7 @@ export async function GET(request: Request) {
       );
     }
 
+    if (await getPosMode(access) !== "RETAIL") await requireStaffSession(access, "CASH_OPERATE", session.location_id);
     const { data, error } = await admin
       .from("pos_cash_movements")
       .select("id,cash_session_id,movement_type,amount,reason,created_by,created_at")
@@ -216,7 +223,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data, error } = await admin.rpc("pos_create_cash_movement", {
+    const staffSession = await getPosMode(access) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
+    const { data, error } = await admin.rpc(staffSession ? "pos_cash_command_v2" : "pos_create_cash_movement", staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "movement", p_payload: { sessionId: cashSessionId, movementType, amount: cents / 100, reason, adjustment: body.adjustment === true }, p_key: uuidValue(body.requestKey, "requestKey"), p_authorization_hash: typeof body.authorizationToken === "string" ? createHash("sha256").update(body.authorizationToken).digest("hex") : null } : {
       p_brand_slug: brand.slug,
       p_cash_session_id: cashSessionId,
       p_movement_type: movementType,
@@ -225,6 +233,9 @@ export async function POST(request: Request) {
       p_user_id: user.userId,
     });
 
+    if (error?.message?.includes("POS_SUPERVISOR_AUTH_INVALID")) throw new PosApiError(403, "POS_SUPERVISOR_AUTH_INVALID", "La autorización expiró o no corresponde a este ajuste. Solicita una nueva autorización.");
+    if (error?.message?.includes("POS_STAFF_PERMISSION_REQUIRED")) throw new PosApiError(403, "POS_STAFF_PERMISSION_REQUIRED", "El operador no tiene permiso para esta acción.");
+    if (error?.message?.includes("POS_FOOD_CONFLICT")) throw new PosApiError(409, "POS_FOOD_CONFLICT", "El reintento no coincide con el movimiento original.");
     const mappedFailure = cashMovementRpcFailure(error);
 
     if (mappedFailure) {

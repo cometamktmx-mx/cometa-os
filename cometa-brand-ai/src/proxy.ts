@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { updateSession } from "./lib/supabase/middleware";
+import { requirePosPageAccess } from "./lib/pos/admin-access";
+import { PosApiError } from "./lib/pos/server";
 
 const publicRoutes = [
   "/",
@@ -202,6 +204,30 @@ export async function proxy(request: NextRequest) {
    */
   if (pathname.startsWith("/api/")) {
     return NextResponse.next();
+  }
+
+  const posPage = pathname.match(/^\/brand\/([^/]+)\/pos(?:\/|$)/);
+  if (posPage) {
+    const response = await updateSession(request);
+    if (response.headers.has("location")) return response;
+    try {
+      await requirePosPageAccess(decodeURIComponent(posPage[1]), pathname, request.cookies);
+      // Operator-protected RSC responses must not be cached across sessions.
+      response.headers.set("Cache-Control", "private, no-store");
+      return response;
+    } catch (error) {
+      if (error instanceof PosApiError && [401, 403].includes(error.status)) {
+        const url = request.nextUrl.clone();
+        url.pathname = `/brand/${posPage[1]}/pos`;
+        url.search = "";
+        if (pathname.replace(/\/$/, "") !== url.pathname) return copyCookies(response, NextResponse.redirect(url));
+      }
+      // The root's bootstrap owns the retry UI; never render a protected child on failure.
+      if (pathname.replace(/\/$/, "") === `/brand/${posPage[1]}/pos`) return response;
+      const url = request.nextUrl.clone();
+      url.pathname = `/brand/${posPage[1]}/pos`; url.search = "";
+      return copyCookies(response, NextResponse.redirect(url));
+    }
   }
 
   /**

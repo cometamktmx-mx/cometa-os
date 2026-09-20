@@ -643,7 +643,7 @@ async function collectBrands() {
     safeSelect("mercury_brand_settings", "updated_at"),
     safeSelect("mercury_calendars", "created_at"),
     safeSelect("clients", "updated_at"),
-    safeSelect("brand_analysis", "updated_at"),
+    safeSelect("brand_analysis", "created_at"),
     safeSelect("cosmos_memory", "updated_at"),
   ]);
 

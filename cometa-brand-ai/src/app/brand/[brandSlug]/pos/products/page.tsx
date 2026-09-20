@@ -16,6 +16,8 @@ import { usePosContext } from "../../components/pos-shell";
 import { buildPosHref } from "../../components/pos-sidebar";
 import { PosIcon } from "../../components/pos-icons";
 import { PosProductImage } from "../../components/pos-product-image";
+import { PosFoodRecipesAdmin } from "../../components/pos-food-recipes-admin";
+import { isFoodProfile } from "@/lib/pos/surface-policy";
 import {
   PosBadge,
   PosButton,
@@ -307,7 +309,7 @@ function createVariant(
     name: isService
       ? "Servicio"
       : index === 0
-      ? "Única"
+      ? "?nica"
       : `Variante ${index + 1}`,
     sku: "",
     barcode: "",
@@ -330,6 +332,14 @@ function createVariant(
 }
 
 export default function PosProductsPage() {
+  const { brand, profileCode, isLoading } = usePosContext();
+  const [direct, setDirect] = useState(false);
+  if (isLoading) return <p role="status">Cargando cat?logo?</p>;
+  if (!isFoodProfile(profileCode)) return <PosRetailProductsPage />;
+  return <div className="space-y-5"><nav className="flex gap-3" aria-label="Tipo de cat?logo Food"><PosButton variant={direct ? "secondary" : "primary"} onClick={() => setDirect(false)}>Preparados y recetas</PosButton><PosButton variant={direct ? "primary" : "secondary"} onClick={() => setDirect(true)}>Productos directos</PosButton></nav>{direct ? <PosRetailProductsPage foodDirect /> : <PosFoodRecipesAdmin brandSlug={brand.slug} kind="products" />}</div>;
+}
+
+function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean }) {
   const { brand } = usePosContext();
 
   const [locations, setLocations] = useState<Location[]>([]);
@@ -419,7 +429,7 @@ export default function PosProductsPage() {
         apiRequest<ProductsResponse>(
           `/api/pos/products?brandSlug=${encodeURIComponent(
             brand.slug
-          )}&pageSize=100${searchQuery}`
+          )}&pageSize=100${searchQuery}${foodDirect ? "&productType=physical" : ""}`
         ),
       ]);
 
@@ -470,7 +480,7 @@ export default function PosProductsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [brand.slug, appliedSearch]);
+  }, [brand.slug, appliedSearch, foodDirect]);
 
   useEffect(() => {
     loadData();
@@ -654,7 +664,7 @@ export default function PosProductsPage() {
     );
     if (
       affectsExisting &&
-      !window.confirm("Quitar este valor dejará fuera las combinaciones existentes que lo usan. Se conservarán como inactivas. ¿Continuar?")
+      !window.confirm("Quitar este valor dejar? fuera las combinaciones existentes que lo usan. Se conservar?n como inactivas. ?Continuar?")
     ) {
       return;
     }
@@ -696,7 +706,7 @@ export default function PosProductsPage() {
     );
 
     if (combinations.length > 250) {
-      setError("La combinación supera el límite de 250 variantes por producto.");
+      setError("La combinaci?n supera el l?mite de 250 variantes por producto.");
       return;
     }
 
@@ -785,7 +795,7 @@ export default function PosProductsPage() {
     );
     if (mode === "all" && withOwnImage.length > 0) {
       const confirmed = window.confirm(
-        `${withOwnImage.length} variantes ya tienen imagen propia. ¿Quieres reemplazarlas todas?`
+        `${withOwnImage.length} variantes ya tienen imagen propia. ?Quieres reemplazarlas todas?`
       );
       if (!confirmed) return;
     }
@@ -916,7 +926,7 @@ export default function PosProductsPage() {
     if (!enabled && isEditing) {
       const activeVariants = variants.filter((variant) => variant.active);
       if (activeVariants.length > 1 || activeVariants.some((variant) => variant.currentStock > 0)) {
-        setError("No puedes convertir este producto a simple mientras tenga varias variantes activas o stock. Desactiva variantes explícitamente desde el editor.");
+        setError("No puedes convertir este producto a simple mientras tenga varias variantes activas o stock. Desactiva variantes expl?citamente desde el editor.");
         return;
       }
     }
@@ -935,7 +945,7 @@ export default function PosProductsPage() {
               productForm.defaultUnitCode,
               attributes
             )),
-          name: "Única",
+          name: "?nica",
         },
       ]);
     }
@@ -982,7 +992,7 @@ export default function PosProductsPage() {
         categoryId: response.category.id,
       }));
       setNotice(
-        `Categoría “${response.category.name}” creada.`
+        `Categor?a ?${response.category.name}? creada.`
       );
 
       await loadData();
@@ -1075,7 +1085,7 @@ export default function PosProductsPage() {
           ? variant
           : { ...variant, barcode: generated.get(index) || variant.barcode }
       ));
-      setNotice(response.barcodes.length ? `${response.barcodes.length} códigos internos generados.` : "No hay variantes sin código de barras.");
+      setNotice(response.barcodes.length ? `${response.barcodes.length} c?digos internos generados.` : "No hay variantes sin c?digo de barras.");
     } catch (barcodeError) {
       setError(getErrorMessage(barcodeError));
     }
@@ -1103,7 +1113,7 @@ export default function PosProductsPage() {
           ? { ...variant, barcode: generated.barcode }
           : variant
       ));
-      setNotice("Código interno generado.");
+      setNotice("C?digo interno generado.");
     } catch (barcodeError) {
       setError(getErrorMessage(barcodeError));
     }
@@ -1147,7 +1157,7 @@ export default function PosProductsPage() {
       )
     ) {
       setError(
-        "Cada variante necesita un precio válido."
+        "Cada variante necesita un precio v?lido."
       );
       return;
     }
@@ -1165,7 +1175,7 @@ export default function PosProductsPage() {
 
       if (missing) {
         setError(
-          `Completa el atributo obligatorio “${attribute.name}” en todas las variantes.`
+          `Completa el atributo obligatorio ?${attribute.name}? en todas las variantes.`
         );
         return;
       }
@@ -1179,21 +1189,21 @@ export default function PosProductsPage() {
       const label = buildVariantName(variant, attributes, 0);
       const signature = variantSignature(variant.attributes);
       if (seenSignatures.has(signature)) {
-        setError(`La combinación ${label} está duplicada.`);
+        setError(`La combinaci?n ${label} est? duplicada.`);
         return;
       }
       seenSignatures.set(signature, label);
 
       const sku = variant.sku.trim().toLowerCase();
       if (sku && seenSkus.has(sku)) {
-        setError(`El SKU ${variant.sku.trim()} está repetido en el producto.`);
+        setError(`El SKU ${variant.sku.trim()} est? repetido en el producto.`);
         return;
       }
       if (sku) seenSkus.set(sku, label);
 
       const barcode = variant.barcode.trim().toLowerCase();
       if (barcode && seenBarcodes.has(barcode)) {
-        setError(`El código de barras ${variant.barcode.trim()} está repetido en el producto.`);
+        setError(`El c?digo de barras ${variant.barcode.trim()} est? repetido en el producto.`);
         return;
       }
       if (barcode) seenBarcodes.set(barcode, label);
@@ -1303,8 +1313,8 @@ export default function PosProductsPage() {
 
       setNotice(
         isEditing
-          ? `Producto “${productForm.name}” actualizado correctamente.`
-          : `Producto “${productForm.name}” creado correctamente.`
+          ? `Producto ?${productForm.name}? actualizado correctamente.`
+          : `Producto ?${productForm.name}? creado correctamente.`
       );
 
       if (
@@ -1317,7 +1327,7 @@ export default function PosProductsPage() {
           await deleteManagedProductImage(editingProduct.image_url, brand.slug);
         } catch {
           setNotice(
-            `Producto “${productForm.name}” actualizado; la imagen anterior quedó pendiente de limpieza.`
+            `Producto ?${productForm.name}? actualizado; la imagen anterior qued? pendiente de limpieza.`
           );
         }
       }
@@ -1376,6 +1386,11 @@ export default function PosProductsPage() {
   function openCreateProduct() {
     setEditingProduct(null);
     resetForm();
+    if (foodDirect) {
+      const directUnit = units.some((unit) => unit.code === "piece") ? "piece" : units[0]?.code || "piece";
+      setProductForm((current) => ({ ...current, productType: "physical", inventoryMode: "direct", defaultUnitCode: directUnit, hasVariants: false, purchasable: true }));
+      setVariants([createVariant(0, directUnit, [])]);
+    }
     setIsEditorOpen(true);
   }
 
@@ -1450,8 +1465,8 @@ export default function PosProductsPage() {
 
       setNotice(
         nextActive
-          ? `Producto “${activeChangeProduct.name}” activado.`
-          : `Producto “${activeChangeProduct.name}” desactivado.`
+          ? `Producto ?${activeChangeProduct.name}? activado.`
+          : `Producto ?${activeChangeProduct.name}? desactivado.`
       );
       setActiveChangeProduct(null);
       await loadData();
@@ -1466,7 +1481,7 @@ export default function PosProductsPage() {
     setImageUploadError(null);
 
     if (file.size <= 0) {
-      setImageUploadError("La imagen está vacía.");
+      setImageUploadError("La imagen est? vac?a.");
       return;
     }
 
@@ -1509,7 +1524,7 @@ export default function PosProductsPage() {
           await deleteManagedProductImage(previousImageUrl, brand.slug);
         } catch {
           setImageUploadError(
-            "La nueva imagen se guardó, pero no fue posible limpiar la anterior."
+            "La nueva imagen se guard?, pero no fue posible limpiar la anterior."
           );
         }
       }
@@ -1561,7 +1576,7 @@ export default function PosProductsPage() {
 
     if (!normalizedCode) {
       setError(
-        "Escanea o escribe un SKU o código de barras."
+        "Escanea o escribe un SKU o c?digo de barras."
       );
       scanInputRef.current?.focus();
       return;
@@ -1594,7 +1609,7 @@ export default function PosProductsPage() {
           result.variant.product.id
         );
         setNotice(
-          `Código reconocido: ${result.variant.product.name} · ${result.variant.name}.`
+          `C?digo reconocido: ${result.variant.product.name} ? ${result.variant.name}.`
         );
 
         window.setTimeout(() => {
@@ -1652,7 +1667,7 @@ export default function PosProductsPage() {
       });
 
       setNotice(
-        `El código ${result.code} no existe. Ya lo colocamos en el formulario para registrar el producto.`
+        `El c?digo ${result.code} no existe. Ya lo colocamos en el formulario para registrar el producto.`
       );
       setIsEditorOpen(true);
 
@@ -1735,7 +1750,7 @@ export default function PosProductsPage() {
       <PosPageHeader
         compact
         title="Productos"
-        description="Administración de catálogo, precios, variantes y disponibilidad."
+        description="Administraci?n de cat?logo, precios, variantes y disponibilidad."
         meta={`${productTotal} productos registrados`}
         actions={
           <PosButton
@@ -1747,7 +1762,7 @@ export default function PosProductsPage() {
         }
       />
 
-      <section aria-label="Resumen del catálogo" className="grid grid-cols-3 gap-3">
+      <section aria-label="Resumen del cat?logo" className="grid grid-cols-3 gap-3">
         <Metric label="Productos" value={String(productTotal)} />
         <Metric label="Variantes" value={String(totalVariants)} />
         <Metric label="Unidades" value={formatQuantity(totalUnits)} />
@@ -1777,7 +1792,7 @@ export default function PosProductsPage() {
         <RequiredConfiguration
           brandSlug={brand.slug}
           title="Primero configura el giro"
-          description="El Product Engine necesita conocer la operación del negocio antes de crear productos."
+          description="El Product Engine necesita conocer la operaci?n del negocio antes de crear productos."
         />
       ) : null}
 
@@ -1786,7 +1801,7 @@ export default function PosProductsPage() {
         <RequiredConfiguration
           brandSlug={brand.slug}
           title="Crea una sucursal"
-          description="Los productos con inventario directo necesitan una ubicación para guardar su existencia."
+          description="Los productos con inventario directo necesitan una ubicaci?n para guardar su existencia."
         />
       ) : null}
 
@@ -1798,11 +1813,11 @@ export default function PosProductsPage() {
             setEditingProduct(null);
           }}
           width="large"
-          title={isEditing ? "Editar producto" : "Nuevo producto"}
+          title={isEditing ? "Editar producto" : foodDirect ? "Nuevo producto directo" : "Nuevo producto"}
           description={
             isEditing
-              ? "Actualiza catálogo y variantes sin modificar existencias."
-              : "Configura información, variantes, precios e inventario."
+              ? "Actualiza cat?logo y variantes sin modificar existencias."
+              : "Configura informaci?n, variantes, precios e inventario."
           }
           dismissible={!isSavingProduct}
         >
@@ -1812,16 +1827,16 @@ export default function PosProductsPage() {
           className="scroll-mt-5"
         >
           <SectionTitle
-            eyebrow="Información"
+            eyebrow="Informaci?n"
             title="Datos del producto"
-            description="Los campos disponibles responden a la configuración real del negocio."
+            description="Los campos disponibles responden a la configuraci?n real del negocio."
           />
 
           <form
             className="mt-6 grid gap-5"
             onSubmit={handleSaveProduct}
           >
-            <div className="grid gap-3 md:grid-cols-2">
+            {!foodDirect ? <div className="grid gap-3 md:grid-cols-2">
               {liveProductTypes.map((option) => {
                 const active =
                   productForm.productType ===
@@ -1840,26 +1855,26 @@ export default function PosProductsPage() {
                     }
                     className={`rounded-[20px] border p-4 text-left transition ${
                       active
-                        ? "border-cyan-300/30 bg-cyan-300/[0.075]"
-                        : "border-white/[0.08] bg-[#06111f]/75"
+                        ? "border-cyan-300/30 bg-[var(--pos-primary)]/[0.075]"
+                        : "border-[var(--pos-border)] bg-[var(--pos-surface)]/75"
                     }`}
                   >
                     <p
                       className={`text-sm font-black ${
                         active
-                          ? "text-cyan-300"
-                          : "text-white"
+                          ? "text-[var(--pos-primary-text)]"
+                          : "text-[var(--pos-text)]"
                       }`}
                     >
                       {option.name}
                     </p>
-                    <p className="mt-2 text-xs font-semibold leading-5 text-slate-600">
+                    <p className="mt-2 text-xs font-semibold leading-5 text-[var(--pos-text-muted)]">
                       {option.description}
                     </p>
                   </button>
                 );
               })}
-            </div>
+            </div> : <InfoBox>Producto directo Food. Se vende tal cual y descuenta existencia de la sucursal.</InfoBox>}
 
             <Field
               inputRef={productNameInputRef}
@@ -1885,7 +1900,9 @@ export default function PosProductsPage() {
               }
             />
 
-            <div className="grid gap-2 rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-cyan-300/[0.03] p-3">
+            <details className="rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-[var(--pos-primary)]/[0.03] p-3" open={!foodDirect}>
+              <summary className="cursor-pointer text-sm font-black text-[var(--pos-text)]">{foodDirect ? "Opciones avanzadas" : "Clave del producto"}</summary>
+              <div className="mt-3 grid gap-2">
               <Field
                 label="Clave del producto"
                 value={productForm.productCode}
@@ -1896,7 +1913,7 @@ export default function PosProductsPage() {
                     productCode: value.toUpperCase(),
                   })))
                 }
-                placeholder="Opcional · LEG001"
+                placeholder="Opcional ? LEG001"
               />
               <p className="text-[11px] text-[var(--pos-text-muted)]">
                 Se utiliza como base para proponer los SKU de las variantes.
@@ -1905,18 +1922,19 @@ export default function PosProductsPage() {
                 <button
                   type="button"
                   onClick={() => void suggestProductCode()}
-                  className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-cyan-300 px-3 text-xs font-black text-slate-950"
+                  className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary)] px-3 text-xs font-black text-slate-950"
                 >
                   {productForm.productCode ? "Regenerar sugerencia" : "Sugerir clave"}
                 </button>
                 {productCodeSuggested ? (
-                  <span className="text-[11px] font-semibold text-cyan-300">Sugerida por Cometa</span>
+                  <span className="text-[11px] font-semibold text-[var(--pos-primary-text)]">Sugerida por Cometa</span>
                 ) : null}
               </div>
-            </div>
+              </div>
+            </details>
 
             <TextAreaField
-              label="Descripción"
+              label="Descripci?n"
               value={productForm.description}
               onChange={(value) =>
                 setProductForm((current) => ({
@@ -1924,12 +1942,12 @@ export default function PosProductsPage() {
                   description: value,
                 }))
               }
-              placeholder="Descripción comercial"
+              placeholder="Descripci?n comercial"
             />
 
             <div className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="Categoría"
+                label="Categor?a"
                 value={productForm.categoryId}
                 onChange={(value) =>
                   setProductForm((current) => ({
@@ -1968,7 +1986,7 @@ export default function PosProductsPage() {
               isSaving={isSavingCategory}
             />
 
-            <div className="grid gap-4 md:grid-cols-2">
+            {!foodDirect ? <div className="grid gap-4 md:grid-cols-2">
               <SelectField
                 label="Modo de inventario"
                 value={productForm.inventoryMode}
@@ -2001,10 +2019,10 @@ export default function PosProductsPage() {
                 onChange={changeDefaultUnit}
                 options={units.map((unit) => [
                   unit.code,
-                  `${unit.name} · ${unit.symbol}`,
+                  `${unit.name} ? ${unit.symbol}`,
                 ])}
               />
-            </div>
+            </div> : <InfoBox>Inventario directo - unidad base {productForm.defaultUnitCode}.</InfoBox>}
 
             {needsInitialInventory ? (
               <SelectField
@@ -2027,7 +2045,7 @@ export default function PosProductsPage() {
                 options={locations.map(
                   (location) => [
                     location.id,
-                    `${location.name} · ${location.code}`,
+                    `${location.name} ? ${location.code}`,
                   ]
                 )}
               />
@@ -2037,7 +2055,7 @@ export default function PosProductsPage() {
               </InfoBox>
             ) : (
               <InfoBox>
-                Este concepto no descontará inventario al
+                Este concepto no descontar? inventario al
                 venderse.
               </InfoBox>
             )}
@@ -2064,7 +2082,7 @@ export default function PosProductsPage() {
               ?.variants ? (
               <ToggleRow
                 title="Producto con variantes"
-                description="Cada combinación puede tener precio, SKU y existencia independiente."
+                description="Cada combinaci?n puede tener precio, SKU y existencia independiente."
                 checked={productForm.hasVariants}
                 onChange={toggleVariants}
               />
@@ -2073,7 +2091,7 @@ export default function PosProductsPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <ToggleRow
                 title="Disponible para venta"
-                description="Aparecerá en la terminal."
+                description="Aparecer? en la terminal."
                 checked={productForm.sellable}
                 onChange={(checked) =>
                   setProductForm((current) => ({
@@ -2085,7 +2103,7 @@ export default function PosProductsPage() {
 
               <ToggleRow
                 title="Disponible para compra"
-                description="Podrá recibir costo y reposición."
+                description="Podr? recibir costo y reposici?n."
                 checked={productForm.purchasable}
                 disabled={
                   productForm.productType ===
@@ -2100,17 +2118,17 @@ export default function PosProductsPage() {
               />
             </div>
 
-            <div className="border-t border-white/[0.08] pt-5">
+            <div className="border-t border-[var(--pos-border)] pt-5">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-black text-white">
+                  <p className="text-sm font-black text-[var(--pos-text)]">
                     {productForm.hasVariants
                       ? "Variantes"
-                      : "Presentación"}
+                      : "Presentaci?n"}
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                  <p className="mt-1 text-xs font-semibold text-[var(--pos-text-muted)]">
                     {productForm.hasVariants
-                      ? "Configura cada combinación vendible."
+                      ? "Configura cada combinaci?n vendible."
                       : "Configura el precio principal."}
                   </p>
                 </div>
@@ -2119,7 +2137,7 @@ export default function PosProductsPage() {
                   <button
                     type="button"
                     onClick={addVariant}
-                    className="rounded-[13px] border border-cyan-300/15 bg-cyan-300/[0.07] px-4 py-2 text-xs font-black text-cyan-300"
+                    className="rounded-[13px] border border-cyan-300/15 bg-[var(--pos-primary)]/[0.07] px-4 py-2 text-xs font-black text-[var(--pos-primary-text)]"
                   >
                     + Agregar variante
                   </button>
@@ -2138,12 +2156,12 @@ export default function PosProductsPage() {
 
               {productForm.hasVariants ? (
                 <div className="mt-4 grid gap-3 rounded-[var(--pos-radius-md)] border border-[var(--pos-line-subtle)] bg-[var(--pos-canvas)] p-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
-                  <MoneyField label={`Precio para todas · ${currency}`} value={bulkPrice} onChange={setBulkPrice} />
-                  <MoneyField label={`Costo para todas · ${currency}`} value={bulkCost} onChange={setBulkCost} />
-                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("price", bulkPrice)}>
+                  <MoneyField label={`Precio para todas ? ${currency}`} value={bulkPrice} onChange={setBulkPrice} />
+                  <MoneyField label={`Costo para todas ? ${currency}`} value={bulkCost} onChange={setBulkCost} />
+                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("price", bulkPrice)}>
                     Aplicar precio
                   </button>
-                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("cost", bulkCost)}>
+                  <button type="button" className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]" onClick={() => applyBulkValue("cost", bulkCost)}>
                     Aplicar costo
                   </button>
                 </div>
@@ -2153,19 +2171,19 @@ export default function PosProductsPage() {
                 <button
                   type="button"
                   onClick={generateMissingSkus}
-                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
                 >
                   Generar SKU faltantes
                 </button>
                 <button
                   type="button"
                   onClick={() => void generateMissingBarcodes()}
-                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+                  className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
                 >
-                  Generar códigos faltantes
+                  Generar c?digos faltantes
                 </button>
                 <span className="text-[11px] text-[var(--pos-text-muted)]">
-                  Los SKU y códigos existentes nunca se reemplazan.
+                  Los SKU y c?digos existentes nunca se reemplazan.
                 </span>
               </div>
 
@@ -2237,14 +2255,15 @@ export default function PosProductsPage() {
                           : null;
                       })()}
                       onApplyImage={(mode) => applyVariantImage(variant.localId, mode)}
+                      foodDirect={foodDirect}
                     />
                   )
                 )}
               </div>
               {isEditing ? (
                 <div className="mt-3 grid gap-1 text-xs text-[var(--pos-text-muted)]">
-                  <p>Las variantes se administran aquí. Las existencias se reciben y ajustan desde Inventario.</p>
-                  <p>Las variantes inactivas conservan sus ventas, inventario y movimientos históricos.</p>
+                  <p>Las variantes se administran aqu?. Las existencias se reciben y ajustan desde Inventario.</p>
+                  <p>Las variantes inactivas conservan sus ventas, inventario y movimientos hist?ricos.</p>
                 </div>
               ) : null}
             </div>
@@ -2275,7 +2294,7 @@ export default function PosProductsPage() {
         </PosDrawer>
 
         <PosSection
-          title="Catálogo"
+          title="Cat?logo"
           description="Productos, servicios y variantes disponibles."
         >
           <div className="grid gap-2 rounded-[var(--pos-radius-md)] bg-[var(--pos-panel)] p-3 md:grid-cols-[minmax(240px,1fr)_auto]">
@@ -2304,17 +2323,17 @@ export default function PosProductsPage() {
           {products.length > 0 ? (
             <>
               <div className="hidden md:block">
-                <PosDataTable caption="Catálogo de productos" density="compact" minWidth={820}>
+                <PosDataTable caption="Cat?logo de productos" density="compact" minWidth={820}>
                   <thead className="bg-[var(--pos-panel-raised)] text-left text-[11px] font-semibold text-[var(--pos-text-muted)]">
                     <tr>
                       <th>Producto</th>
-                      <th>SKU / código</th>
-                      <th className="hidden lg:table-cell">Categoría</th>
+                      <th>SKU / c?digo</th>
+                      <th className="hidden lg:table-cell">Categor?a</th>
                       <th className="text-right">Variantes</th>
                       <th className="text-right">Precio</th>
                       <th className="text-right">Stock</th>
                       <th>Estado</th>
-                      <th className="text-right">Acción</th>
+                      <th className="text-right">Acci?n</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2372,8 +2391,8 @@ export default function PosProductsPage() {
         }
         description={
           activeChangeProduct?.active
-            ? "Dejará de estar disponible para nuevas ventas. Las ventas, variantes e inventario históricos se conservan y podrás reactivarlo después."
-            : "El producto volverá a estar disponible según sus flags de venta y el estado individual de sus variantes."
+            ? "Dejar? de estar disponible para nuevas ventas. Las ventas, variantes e inventario hist?ricos se conservan y podr?s reactivarlo despu?s."
+            : "El producto volver? a estar disponible seg?n sus flags de venta y el estado individual de sus variantes."
         }
         size="small"
         dismissible={!isChangingActive}
@@ -2420,9 +2439,9 @@ function VariantAttributeBuilder({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   return (
-    <div className="mt-4 grid gap-3 rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-cyan-300/[0.03] p-3">
+    <div className="mt-4 grid gap-3 rounded-[var(--pos-radius-md)] border border-cyan-300/10 bg-[var(--pos-primary)]/[0.03] p-3">
       <div>
-        <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Atributos del producto</p>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--pos-primary-text)]">Atributos del producto</p>
         <p className="mt-1 text-xs text-[var(--pos-text-muted)]">Define valores y genera combinaciones sin perder variantes existentes.</p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -2435,10 +2454,10 @@ function VariantAttributeBuilder({
                   type="button"
                   key={value}
                   onClick={() => onRemoveValue(attribute.code, value)}
-                  className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.08] px-2.5 py-1 text-xs font-semibold text-cyan-200"
+                  className="rounded-full border border-cyan-300/20 bg-[var(--pos-primary)]/[0.08] px-2.5 py-1 text-xs font-semibold text-[var(--pos-primary-text)]"
                   title="Quitar valor"
                 >
-                  {value} ×
+                  {value} ?
                 </button>
               ))}
             </div>
@@ -2461,7 +2480,7 @@ function VariantAttributeBuilder({
                   onAddValue(attribute.code, drafts[attribute.code] || "");
                   setDrafts((current) => ({ ...current, [attribute.code]: "" }));
                 }}
-                className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-white/[0.05] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
+                className="pos-ui-focus h-9 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
               >
                 + Valor
               </button>
@@ -2469,7 +2488,7 @@ function VariantAttributeBuilder({
           </div>
         ))}
       </div>
-      <button type="button" onClick={onGenerate} className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-cyan-300 px-4 text-xs font-black text-slate-950">
+      <button type="button" onClick={onGenerate} className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary)] px-4 text-xs font-black text-slate-950">
         Generar combinaciones
       </button>
     </div>
@@ -2496,6 +2515,7 @@ function VariantEditor({
   onGenerateBarcode,
   imageAttributeLabel,
   onApplyImage,
+  foodDirect = false,
 }: {
   index: number;
   variant: VariantForm;
@@ -2531,6 +2551,7 @@ function VariantEditor({
   onGenerateBarcode: () => Promise<void>;
   imageAttributeLabel: string | null;
   onApplyImage: (mode: "emptyOnly" | "all") => void;
+  foodDirect?: boolean;
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   return (
@@ -2539,9 +2560,7 @@ function VariantEditor({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold text-[var(--pos-text-primary)]">
-              {hasVariants
-                ? `Variante ${index + 1}`
-                : "Presentación principal"}
+              {hasVariants ? `Variante ${index + 1}` : foodDirect ? "Producto directo" : "Presentaciï¿½n principal"}
             </p>
             <PosBadge
               tone={!variant.id ? "info" : variant.active ? "success" : "neutral"}
@@ -2552,7 +2571,7 @@ function VariantEditor({
             </PosBadge>
           </div>
           <p className="mt-1 text-xs text-[var(--pos-text-muted)]">
-            Precio, identificación y existencia.
+            {foodDirect ? "Precio, costo y existencia." : "Precio, identificacion y existencia."}
           </p>
         </div>
 
@@ -2590,8 +2609,8 @@ function VariantEditor({
           }
           placeholder={
             hasVariants
-              ? "Negro · Mediana"
-              : "Única"
+              ? "Negro ? Mediana"
+              : "?nica"
           }
         />
 
@@ -2619,7 +2638,7 @@ function VariantEditor({
 
         <div className="grid gap-4 md:grid-cols-2">
           <MoneyField
-            label={`Precio · ${currency}`}
+            label={`Precio ? ${currency}`}
             value={variant.price}
             onChange={(value) =>
               onChange("price", value)
@@ -2628,7 +2647,7 @@ function VariantEditor({
           />
 
           <MoneyField
-            label={`Costo · ${currency}`}
+            label={`Costo ? ${currency}`}
             value={variant.cost}
             onChange={(value) =>
               onChange("cost", value)
@@ -2650,7 +2669,7 @@ function VariantEditor({
           />
 
           <Field
-            label="Código de barras"
+            label="C?digo de barras"
             value={variant.barcode}
             onChange={(value) =>
               onChange("barcode", value)
@@ -2663,9 +2682,9 @@ function VariantEditor({
           <button
             type="button"
             onClick={() => void onGenerateBarcode()}
-            className="pos-ui-focus h-8 w-fit rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-2.5 text-[11px] font-bold text-cyan-300"
+            className="pos-ui-focus h-8 w-fit rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-2.5 text-[11px] font-bold text-[var(--pos-primary-text)]"
           >
-            Generar código interno para esta variante
+            Generar c?digo interno para esta variante
           </button>
         ) : null}
 
@@ -2677,7 +2696,7 @@ function VariantEditor({
           }
           options={units.map((unit) => [
             unit.code,
-            `${unit.name} · ${unit.symbol}`,
+            `${unit.name} ? ${unit.symbol}`,
           ])}
         />
 
@@ -2696,7 +2715,7 @@ function VariantEditor({
             />
 
             <MoneyField
-              label="Existencia mínima"
+              label="Existencia m?nima"
               value={variant.minimumQuantity}
               onChange={(value) =>
                 onChange(
@@ -2711,7 +2730,7 @@ function VariantEditor({
 
         {showCurrentStock ? (
           <InfoBox>
-            Stock actual: {formatQuantity(variant.currentStock)}. Edítalo desde Inventario; guardar este formulario no modifica existencias.
+            Stock actual: {formatQuantity(variant.currentStock)}. Ed?talo desde Inventario; guardar este formulario no modifica existencias.
           </InfoBox>
         ) : null}
 
@@ -2740,12 +2759,12 @@ function VariantEditor({
               <button
                 type="button"
                 onClick={() => imageInputRef.current?.click()}
-                className="pos-ui-focus rounded-[var(--pos-radius-sm)] bg-cyan-300 px-3 py-2 text-xs font-black text-slate-950"
+                className="pos-ui-focus rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary)] px-3 py-2 text-xs font-black text-slate-950"
               >
                 {variant.imageUrl ? "Reemplazar imagen" : "Subir imagen"}
               </button>
               <p className="mt-1 text-[11px] text-[var(--pos-text-muted)]">
-                {variant.imageUrl ? "Imagen propia de esta variante" : productImageUrl ? "Usando imagen principal" : "Sin imagen propia todavía"}
+                {variant.imageUrl ? "Imagen propia de esta variante" : productImageUrl ? "Usando imagen principal" : "Sin imagen propia todav?a"}
               </p>
               {variant.imageUrl ? (
                 <button type="button" onClick={() => void onRemoveImage()} className="mt-1 text-[11px] font-bold text-rose-300 hover:text-rose-200">
@@ -2756,16 +2775,16 @@ function VariantEditor({
           </div>
           {variant.imageUrl && imageAttributeLabel ? (
             <details className="mt-1">
-              <summary className="cursor-pointer text-[11px] font-semibold text-cyan-300 hover:text-cyan-200">
+              <summary className="cursor-pointer text-[11px] font-semibold text-[var(--pos-primary-text)] hover:text-[var(--pos-primary-text)]">
                 Aplicar imagen a {imageAttributeLabel}
               </summary>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => onApplyImage("emptyOnly")}
-                  className="pos-ui-focus rounded-[var(--pos-radius-sm)] border border-cyan-300/20 bg-cyan-300/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200"
+                  className="pos-ui-focus rounded-[var(--pos-radius-sm)] border border-cyan-300/20 bg-[var(--pos-primary)]/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--pos-primary-text)]"
                 >
-                  Sólo variantes sin imagen
+                  S?lo variantes sin imagen
                 </button>
                 <button
                   type="button"
@@ -2779,7 +2798,7 @@ function VariantEditor({
           ) : null}
           <details>
             <summary className="cursor-pointer text-[11px] font-semibold text-[var(--pos-text-secondary)] hover:text-[var(--pos-text-primary)]">
-              Opciones avanzadas · Usar URL externa
+              Opciones avanzadas ? Usar URL externa
             </summary>
             <div className="mt-2">
               <Field
@@ -2862,7 +2881,7 @@ function ProductDetailDrawer({
       onClose={onClose}
       width="medium"
       title={product?.name || "Producto"}
-      description="Variantes, identificación, precio y disponibilidad."
+      description="Variantes, identificaci?n, precio y disponibilidad."
     >
       {product ? (
         <div className="grid gap-4">
@@ -2870,7 +2889,7 @@ function ProductDetailDrawer({
             <PosBadge tone={product.active && product.sellable ? "success" : "neutral"} dot>
               {product.active && product.sellable ? "Activo" : "Inactivo"}
             </PosBadge>
-            <PosBadge tone="neutral">{product.category?.name || "Sin categoría"}</PosBadge>
+            <PosBadge tone="neutral">{product.category?.name || "Sin categor?a"}</PosBadge>
           </div>
           <div className="overflow-hidden rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)]">
             {product.variants.map((variant) => (
@@ -2886,7 +2905,7 @@ function ProductDetailDrawer({
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-[var(--pos-text-secondary)]">
                   <span className="truncate font-mono">{variant.sku || "Sin SKU"}</span>
-                  <span className="truncate font-mono">{variant.barcode || "Sin código"}</span>
+                  <span className="truncate font-mono">{variant.barcode || "Sin c?digo"}</span>
                   <span className="text-right">{product.inventory_mode === "none" ? "Sin inventario" : `${formatQuantity(variant.stock.available)} disp.`}</span>
                 </div>
               </div>
@@ -2915,7 +2934,7 @@ function ProductTableRow({
   const priceLabel =
     product.summary.minimumPrice === product.summary.maximumPrice
       ? formatMoney(product.summary.minimumPrice, currency)
-      : `${formatMoney(product.summary.minimumPrice, currency)} – ${formatMoney(product.summary.maximumPrice, currency)}`;
+      : `${formatMoney(product.summary.minimumPrice, currency)} ? ${formatMoney(product.summary.maximumPrice, currency)}`;
   const availableStock = Number(product.summary.availableStock || 0);
   const stockTone =
     product.inventory_mode === "none"
@@ -2928,22 +2947,22 @@ function ProductTableRow({
     <tr id={`product-${product.id}`} className="scroll-mt-5 border-t border-[var(--pos-line-subtle)] text-xs text-[var(--pos-text-secondary)]">
       <td>
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[var(--pos-radius-sm)] bg-white/[0.05]">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)]">
             <PosProductImage src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0">
             <p className="max-w-64 truncate text-sm font-semibold text-[var(--pos-text-primary)]">{product.name}</p>
-            {product.product_code ? <p className="mt-0.5 font-mono text-[10px] text-cyan-300">Clave: {product.product_code}</p> : null}
-            <p className="mt-0.5 text-[11px] text-[var(--pos-text-muted)]">{product.product_type === "service" ? "Servicio" : "Producto físico"}</p>
+            {product.product_code ? <p className="mt-0.5 font-mono text-[10px] text-[var(--pos-primary-text)]">Clave: {product.product_code}</p> : null}
+            <p className="mt-0.5 text-[11px] text-[var(--pos-text-muted)]">{product.product_type === "service" ? "Servicio" : "Producto f?sico"}</p>
           </div>
         </div>
       </td>
       <td>
         <span className="block max-w-40 truncate font-mono text-[11px]">
-          {primaryVariant?.sku || primaryVariant?.barcode || "—"}
+          {primaryVariant?.sku || primaryVariant?.barcode || "?"}
         </span>
       </td>
-      <td className="hidden lg:table-cell">{product.category?.name || "Sin categoría"}</td>
+      <td className="hidden lg:table-cell">{product.category?.name || "Sin categor?a"}</td>
       <td className="text-right">{product.summary.variantCount}</td>
       <td className="whitespace-nowrap text-right font-semibold text-[var(--pos-text-primary)]">{priceLabel}</td>
       <td className="text-right">
@@ -2964,15 +2983,15 @@ function ProductTableRow({
           <details className="group relative">
             <summary
               aria-label={`Acciones de ${product.name}`}
-              className="pos-ui-focus flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-[var(--pos-radius-sm)] text-lg text-[var(--pos-text-secondary)] hover:bg-white/[0.05] hover:text-[var(--pos-text-primary)]"
+              className="pos-ui-focus flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-[var(--pos-radius-sm)] text-lg text-[var(--pos-text-secondary)] hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-text-primary)]"
             >
-              ⋯
+              ?
             </summary>
             <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-[var(--pos-radius-md)] border border-[var(--pos-line)] bg-[var(--pos-panel-raised)] p-1 text-left shadow-[var(--pos-shadow-overlay)]">
-              <button type="button" onClick={onEdit} className="pos-ui-focus h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium text-[var(--pos-text-primary)] hover:bg-white/[0.05]">
+              <button type="button" onClick={onEdit} className="pos-ui-focus h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium text-[var(--pos-text-primary)] hover:bg-[var(--pos-surface-2)]">
                 Editar producto
               </button>
-              <button type="button" onClick={onToggleActive} className={`pos-ui-focus h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium hover:bg-white/[0.05] ${product.active ? "text-[var(--pos-danger)]" : "text-[var(--pos-primary)]"}`}>
+              <button type="button" onClick={onToggleActive} className={`pos-ui-focus h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium hover:bg-[var(--pos-surface-2)] ${product.active ? "text-[var(--pos-danger)]" : "text-[var(--pos-primary)]"}`}>
                 {product.active ? "Desactivar producto" : "Activar producto"}
               </button>
             </div>
@@ -3006,7 +3025,7 @@ function ProductCard({
       : `${formatMoney(
           product.summary.minimumPrice,
           currency
-        )} – ${formatMoney(
+        )} ? ${formatMoney(
           product.summary.maximumPrice,
           currency
         )}`;
@@ -3017,7 +3036,7 @@ function ProductCard({
       className="scroll-mt-5 rounded-[var(--pos-radius-md)] bg-[var(--pos-panel)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--pos-radius-sm)] bg-white/[0.05]">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)]">
           <PosProductImage src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
         </div>
 
@@ -3027,9 +3046,9 @@ function ProductCard({
               <h3 className="truncate text-sm font-semibold text-[var(--pos-text-primary)]">
                 {product.name}
               </h3>
-              {product.product_code ? <p className="mt-1 font-mono text-[10px] text-cyan-300">Clave: {product.product_code}</p> : null}
+              {product.product_code ? <p className="mt-1 font-mono text-[10px] text-[var(--pos-primary-text)]">Clave: {product.product_code}</p> : null}
               <p className="mt-1 truncate text-xs text-[var(--pos-text-muted)]">
-                {product.category?.name || "Sin categoría"} · {product.summary.variantCount} variantes
+                {product.category?.name || "Sin categor?a"} ? {product.summary.variantCount} variantes
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -3048,16 +3067,16 @@ function ProductCard({
             </p>
           </div>
           <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-            <button type="button" onClick={onOpen} className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-white/[0.04] text-xs font-semibold text-[var(--pos-primary)]">
+            <button type="button" onClick={onOpen} className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] text-xs font-semibold text-[var(--pos-primary)]">
               Ver variantes
             </button>
             <details className="group relative">
-              <summary aria-label={`Acciones de ${product.name}`} className="pos-ui-focus flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-[var(--pos-radius-sm)] bg-white/[0.04] text-lg text-[var(--pos-text-secondary)]">
-                ⋯
+              <summary aria-label={`Acciones de ${product.name}`} className="pos-ui-focus flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] text-lg text-[var(--pos-text-secondary)]">
+                ?
               </summary>
               <div className="absolute bottom-11 right-0 z-20 w-48 overflow-hidden rounded-[var(--pos-radius-md)] border border-[var(--pos-line)] bg-[var(--pos-panel-raised)] p-1 shadow-[var(--pos-shadow-overlay)]">
-                <button type="button" onClick={onEdit} className="h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium text-[var(--pos-text-primary)] hover:bg-white/[0.05]">Editar producto</button>
-                <button type="button" onClick={onToggleActive} className={`h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium hover:bg-white/[0.05] ${product.active ? "text-[var(--pos-danger)]" : "text-[var(--pos-primary)]"}`}>
+                <button type="button" onClick={onEdit} className="h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium text-[var(--pos-text-primary)] hover:bg-[var(--pos-surface-2)]">Editar producto</button>
+                <button type="button" onClick={onToggleActive} className={`h-10 w-full rounded-[var(--pos-radius-sm)] px-3 text-left text-xs font-medium hover:bg-[var(--pos-surface-2)] ${product.active ? "text-[var(--pos-danger)]" : "text-[var(--pos-primary)]"}`}>
                   {product.active ? "Desactivar producto" : "Activar producto"}
                 </button>
               </div>
@@ -3118,11 +3137,11 @@ function ProductScanner({
                 onChange={(event) =>
                   onCodeChange(event.target.value)
                 }
-                placeholder="Escanea o escribe el código"
+                placeholder="Escanea o escribe el c?digo"
                 className="pos-ui-focus h-11 w-full rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 pr-11 font-mono text-sm font-medium text-[var(--pos-text-primary)] outline-none placeholder:font-sans placeholder:text-[var(--pos-text-muted)]"
               />
 
-              <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-cyan-300">
+              <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[var(--pos-primary-text)]">
                 <PosIcon
                   name="product"
                   className="h-5 w-5"
@@ -3140,7 +3159,7 @@ function ProductScanner({
             >
               {isScanning
                 ? "Buscando..."
-                : "Buscar código"}
+                : "Buscar c?digo"}
             </PosButton>
           </form>
         </div>
@@ -3149,7 +3168,7 @@ function ProductScanner({
           {!result ? (
             <div className="flex min-h-11 items-center gap-3 text-xs text-[var(--pos-text-muted)]">
               <PosIcon name="barcode" className="h-4 w-4" />
-              Esperando SKU o código de barras
+              Esperando SKU o c?digo de barras
             </div>
           ) : result.found ? (
             <div>
@@ -3161,7 +3180,7 @@ function ProductScanner({
                     {result.variant.product.name}
                   </h4>
 
-                  <p className="mt-1 text-xs font-bold text-slate-500">
+                  <p className="mt-1 text-xs font-bold text-[var(--pos-text-muted)]">
                     {result.variant.name}
                   </p>
                 </div>
@@ -3169,7 +3188,7 @@ function ProductScanner({
                 <button
                   type="button"
                   onClick={onClear}
-                  className="text-xs font-black text-slate-600 hover:text-white"
+                  className="text-xs font-black text-[var(--pos-text-muted)] hover:text-[var(--pos-text)]"
                 >
                   Limpiar
                 </button>
@@ -3180,7 +3199,7 @@ function ProductScanner({
                   label="Coincidencia"
                   value={
                     result.matchType === "barcode"
-                      ? "Código"
+                      ? "C?digo"
                       : "SKU"
                   }
                 />
@@ -3204,20 +3223,20 @@ function ProductScanner({
                 onClick={onOpenProduct}
                 className="pos-ui-focus mt-3 flex h-10 w-full items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-success-soft)] px-3 text-xs font-semibold text-[var(--pos-success)]"
               >
-                Ver producto en catálogo
+                Ver producto en cat?logo
               </button>
             </div>
           ) : (
             <div>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <PosBadge tone="warning" size="compact">Código nuevo</PosBadge>
+                  <PosBadge tone="warning" size="compact">C?digo nuevo</PosBadge>
 
                   <h4 className="mt-2 text-sm font-semibold text-[var(--pos-text-primary)]">
-                    No está registrado
+                    No est? registrado
                   </h4>
 
-                  <p className="mt-1 break-all font-mono text-xs font-black text-cyan-300">
+                  <p className="mt-1 break-all font-mono text-xs font-black text-[var(--pos-primary-text)]">
                     {result.code}
                   </p>
                 </div>
@@ -3225,16 +3244,16 @@ function ProductScanner({
                 <button
                   type="button"
                   onClick={onClear}
-                  className="text-xs font-black text-slate-600 hover:text-white"
+                  className="text-xs font-black text-[var(--pos-text-muted)] hover:text-[var(--pos-text)]"
                 >
                   Limpiar
                 </button>
               </div>
 
               <p className="mt-3 text-xs leading-5 text-[var(--pos-text-muted)]">
-                Se colocó automáticamente como{" "}
+                Se coloc? autom?ticamente como{" "}
                 {result.suggestedField === "barcode"
-                  ? "código de barras"
+                  ? "c?digo de barras"
                   : "SKU"}{" "}
                 de la primera variante.
               </p>
@@ -3244,7 +3263,7 @@ function ProductScanner({
                 onClick={onContinueCreation}
                 className="pos-ui-focus mt-3 flex h-10 w-full items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-warning)] px-3 text-xs font-semibold text-slate-950"
               >
-                Completar información
+                Completar informaci?n
               </button>
             </div>
           )}
@@ -3263,10 +3282,10 @@ function ScanMetric({
 }) {
   return (
     <div className="min-w-0 rounded-[13px] bg-white/[0.035] p-3">
-      <p className="text-[7px] font-black uppercase tracking-[0.1em] text-slate-700">
+      <p className="text-[7px] font-black uppercase tracking-[0.1em] text-[var(--pos-text-disabled)]">
         {label}
       </p>
-      <p className="mt-1 truncate text-[11px] font-black text-slate-300">
+      <p className="mt-1 truncate text-[11px] font-black text-[var(--pos-text-secondary)]">
         {value}
       </p>
     </div>
@@ -3319,12 +3338,12 @@ function RequiredConfiguration({
       <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-200">
-            Configuración requerida
+            Configuraci?n requerida
           </p>
-          <h3 className="mt-2 text-2xl font-black text-white">
+          <h3 className="mt-2 text-2xl font-black text-[var(--pos-text)]">
             {title}
           </h3>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
+          <p className="mt-2 text-sm font-semibold text-[var(--pos-text-muted)]">
             {description}
           </p>
         </div>
@@ -3336,7 +3355,7 @@ function RequiredConfiguration({
           )}
           className="flex h-12 items-center justify-center rounded-[15px] bg-amber-300 px-6 text-sm font-black text-slate-950"
         >
-          Abrir configuración
+          Abrir configuraci?n
         </Link>
       </div>
     </div>
@@ -3361,7 +3380,7 @@ function QuickCategory({
         onChange={(event) =>
           onChange(event.target.value)
         }
-        placeholder="Crear categoría rápida"
+        placeholder="Crear categor?a r?pida"
         className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm text-[var(--pos-text-primary)] outline-none placeholder:text-[var(--pos-text-muted)]"
       />
 
@@ -3371,7 +3390,7 @@ function QuickCategory({
         disabled={
           isSaving || !value.trim()
         }
-        className="rounded-[var(--pos-radius-sm)] bg-white/[0.06] px-3 text-xs font-semibold text-[var(--pos-primary)] disabled:opacity-40"
+        className="rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-semibold text-[var(--pos-primary)] disabled:opacity-70"
       >
         {isSaving ? "Guardando..." : "Crear"}
       </button>
@@ -3462,10 +3481,10 @@ function MiniMetric({
 }) {
   return (
     <div className="rounded-[14px] bg-white/[0.035] p-3">
-      <p className="text-[7px] font-black uppercase tracking-[0.12em] text-slate-700">
+      <p className="text-[7px] font-black uppercase tracking-[0.12em] text-[var(--pos-text-disabled)]">
         {label}
       </p>
-      <p className="mt-1 text-xs font-black text-slate-300">
+      <p className="mt-1 text-xs font-black text-[var(--pos-text-secondary)]">
         {value}
       </p>
     </div>
@@ -3482,7 +3501,7 @@ function EmptyCatalog({
   return (
     <div className="flex min-h-52 items-center justify-center rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-line)] bg-[var(--pos-panel)] p-5 text-center">
       <div className="max-w-sm">
-        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[var(--pos-radius-sm)] bg-white/[0.05] text-[var(--pos-text-secondary)]">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] text-[var(--pos-text-secondary)]">
           <PosIcon
             name="product"
             className="h-7 w-7"
@@ -3492,12 +3511,12 @@ function EmptyCatalog({
         <h4 className="mt-4 text-base font-semibold text-[var(--pos-text-primary)]">
           {hasSearch
             ? "No encontramos coincidencias"
-            : "Tu catálogo está vacío"}
+            : "Tu cat?logo est? vac?o"}
         </h4>
 
         <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">
           {hasSearch
-            ? "Prueba con otro término o elimina el filtro."
+            ? "Prueba con otro t?rmino o elimina el filtro."
             : "Crea el primer producto para conectarlo con inventario y ventas."}
         </p>
 
@@ -3505,9 +3524,9 @@ function EmptyCatalog({
           <button
             type="button"
             onClick={onClear}
-            className="mt-5 rounded-[14px] bg-white/[0.07] px-5 py-3 text-xs font-black text-cyan-300"
+            className="mt-5 rounded-[14px] bg-[var(--pos-surface-2)] px-5 py-3 text-xs font-black text-[var(--pos-primary-text)]"
           >
-            Limpiar búsqueda
+            Limpiar b?squeda
           </button>
         ) : null}
       </div>
@@ -3551,10 +3570,10 @@ function ProductImageUploader({
           Imagen principal del producto
         </h3>
         <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-          Se utilizará como imagen predeterminada para las variantes que no tengan una imagen propia.
+          Se utilizar? como imagen predeterminada para las variantes que no tengan una imagen propia.
         </p>
         <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-          JPG, PNG o WEBP. Máximo 5 MB.
+          JPG, PNG o WEBP. M?ximo 5 MB.
         </p>
       </div>
 
@@ -3572,7 +3591,7 @@ function ProductImageUploader({
 
       {imageUrl ? (
         <div className="flex items-center gap-4 rounded-[var(--pos-radius-md)] bg-white/[0.035] p-3">
-          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[var(--pos-radius-sm)] bg-white/[0.05]">
+          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)]">
             <PosProductImage src={imageUrl} alt="Vista previa del producto" className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0 flex-1">
@@ -3580,7 +3599,7 @@ function ProductImageUploader({
               Imagen principal
             </p>
             <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-              Se mostrará en el catálogo y en Nueva venta.
+              Se mostrar? en el cat?logo y en Nueva venta.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <PosButton
@@ -3618,7 +3637,7 @@ function ProductImageUploader({
             }
           }}
           onClick={() => inputRef.current?.click()}
-          className="pos-ui-focus flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-line-strong)] bg-white/[0.025] px-5 py-6 text-center transition-colors duration-150 hover:bg-white/[0.045]"
+          className="pos-ui-focus flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-[var(--pos-radius-md)] border border-dashed border-[var(--pos-line-strong)] bg-[var(--pos-surface-2)] px-5 py-6 text-center transition-colors duration-150 hover:bg-white/[0.045]"
         >
           <PosIcon
             name="upload"
@@ -3628,7 +3647,7 @@ function ProductImageUploader({
             {uploading ? "Subiendo imagen..." : "Subir imagen"}
           </p>
           <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-            Selecciona un archivo o arrástralo aquí.
+            Selecciona un archivo o arr?stralo aqu?.
           </p>
         </div>
       )}
@@ -3641,7 +3660,7 @@ function ProductImageUploader({
 
       <details className="group">
         <summary className="cursor-pointer text-xs font-medium text-[var(--pos-text-secondary)] hover:text-[var(--pos-text-primary)]">
-          Opciones avanzadas · Usar URL externa
+          Opciones avanzadas ? Usar URL externa
         </summary>
         <div className="mt-3">
           <Field
@@ -3651,7 +3670,7 @@ function ProductImageUploader({
             placeholder="https://..."
           />
           <p className="mt-2 text-xs text-[var(--pos-text-muted)]">
-            Compatible con imágenes históricas. COMETA no eliminará archivos externos.
+            Compatible con im?genes hist?ricas. COMETA no eliminar? archivos externos.
           </p>
         </div>
       </details>
@@ -3853,9 +3872,9 @@ function buildVariantName(
     .filter(Boolean);
 
   return parts.length > 0
-    ? parts.join(" · ")
+    ? parts.join(" ? ")
     : index === 0
-    ? "Única"
+    ? "?nica"
     : `Variante ${index + 1}`;
 }
 
@@ -3903,8 +3922,8 @@ function formatAttributes(
     .filter(Boolean);
 
   return values.length > 0
-    ? values.join(" · ")
-    : "Presentación única";
+    ? values.join(" ? ")
+    : "Presentaci?n ?nica";
 }
 
 function createAttributeTokenMap(values: string[]) {
@@ -3988,7 +4007,7 @@ async function apiRequest<T = unknown>(
     throw new Error(
       data?.error ||
         data?.message ||
-        "No se pudo completar la operación."
+        "No se pudo completar la operaci?n."
     );
   }
 
@@ -4038,5 +4057,5 @@ function isManagedProductImageUrl(imageUrl: string, brandSlug: string) {
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Ocurrió un error inesperado.";
+    : "Ocurri? un error inesperado.";
 }

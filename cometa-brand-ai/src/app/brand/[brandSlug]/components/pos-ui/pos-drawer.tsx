@@ -43,8 +43,6 @@ export function PosDrawer({
 
   useEffect(() => {
     if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
 
     function handleKeyDown(event: KeyboardEvent) {
       if (dismissible && event.key === "Escape") onClose();
@@ -52,7 +50,6 @@ export function PosDrawer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [dismissible, onClose, open]);
@@ -65,6 +62,7 @@ export function PosDrawer({
 
   return (
     <div
+      data-pos-scroll-lock=""
       className={`fixed inset-0 z-[100] flex bg-[var(--pos-overlay)] backdrop-blur-sm ${
         side === "right" ? "justify-end" : "justify-start"
       }`}

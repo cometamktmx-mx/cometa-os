@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { PosCashAdjustment } from "../../components/pos-cash-adjustment";
+import { PosCashHistory } from "../../components/pos-cash-history";
+import { isFoodProfile } from "@/lib/pos/surface-policy";
+import { staffHasAnyRole } from "@/lib/pos/staff-shared";
 import {
   type FormEvent,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { usePosContext } from "../../components/pos-shell";
@@ -70,6 +75,8 @@ type CashSessionSummary = {
 };
 
 type CashSession = {
+  openingStaffName?: string | null;
+  closingStaffName?: string | null;
   id: string;
   location_id: string;
   register_id: string;
@@ -106,6 +113,25 @@ type SessionsResponse = {
   blindClose: boolean;
 };
 
+type FoodCashSnapshotResponse = {
+  ok: true;
+  snapshot: {
+    checks: Array<{ id: string; table_id: string | null; status: string; guests: number; opened_at: string; currency: string }>;
+    tables: Array<{ id: string; name: string }>;
+    items: Array<{ check_id: string; line_total: number | string }>;
+    payments: Array<{ check_id: string; amount: number | string }>;
+  };
+};
+
+type PendingFoodAccount = {
+  id: string;
+  tableName: string;
+  guests: number;
+  amount: number;
+  currency: string;
+  openedAt: string;
+};
+
 const MOVEMENT_OPTIONS: Array<{
   type: MovementType;
   label: string;
@@ -139,10 +165,18 @@ const MOVEMENT_OPTIONS: Array<{
 ];
 
 export default function PosCashPage() {
-  const { brand } = usePosContext();
+  const { brand, profileCode, currentOperator } = usePosContext();
+  const [historySessionId, setHistorySessionId] = useState("");
+  const pendingCommand = useRef<{ signature: string; key: string } | null>(null);
+  function requestKey(payload: unknown) {
+    const signature = JSON.stringify({ brand: brand.slug, payload });
+    if (pendingCommand.current?.signature !== signature) pendingCommand.current = { signature, key: crypto.randomUUID() };
+    return pendingCommand.current.key;
+  }
   const [locations, setLocations] = useState<Location[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
   const [sessions, setSessions] = useState<CashSession[]>([]);
+  const [pendingAccounts, setPendingAccounts] = useState<PendingFoodAccount[]>([]);
   const [blindClose, setBlindClose] = useState(true);
   const [selectedRegisterId, setSelectedRegisterId] = useState("");
   const [openingAmount, setOpeningAmount] = useState("0");
@@ -165,19 +199,24 @@ export default function PosCashPage() {
       setIsLoading(true);
       setError(null);
 
-      const [bootstrap, history] = await Promise.all([
+      const [bootstrap, history, food] = await Promise.all([
         apiRequest<BootstrapResponse>(
           `/api/pos/bootstrap?brandSlug=${encodeURIComponent(brand.slug)}`
         ),
         apiRequest<SessionsResponse>(
           `/api/pos/cash-sessions?brandSlug=${encodeURIComponent(brand.slug)}`
         ),
+        isFoodProfile(profileCode)
+          ? apiRequest<FoodCashSnapshotResponse>(`/api/pos/food?brandSlug=${encodeURIComponent(brand.slug)}`)
+          : Promise.resolve<FoodCashSnapshotResponse | null>(null),
       ]);
 
       setLocations(bootstrap.locations || []);
       setRegisters(bootstrap.registers || []);
       setSessions(history.sessions || []);
       setBlindClose(history.blindClose);
+      setHistorySessionId((current) => current || history.sessions.find((session) => session.status === "open")?.id || history.sessions[0]?.id || "");
+      setPendingAccounts(food ? buildPendingFoodAccounts(food.snapshot) : []);
 
       const openRegisterIds = new Set(
         (history.sessions || [])
@@ -195,7 +234,7 @@ export default function PosCashPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [brand.slug]);
+  }, [brand.slug, profileCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -254,12 +293,14 @@ export default function PosCashPage() {
           body: JSON.stringify({
             brandSlug: brand.slug,
             action: "open",
+            requestKey: requestKey({ action: "open", register: selectedRegisterId, amount }),
             registerId: selectedRegisterId,
             openingAmount: amount,
           }),
         }
       );
 
+      pendingCommand.current = null;
       setNotice(`Turno abierto en ${selectedRegister?.name || response.session.register_id}.`);
       setOpeningAmount("0");
       setSelectedRegisterId("");
@@ -303,6 +344,7 @@ export default function PosCashPage() {
         {
           method: "POST",
           body: JSON.stringify({
+            requestKey: requestKey({ action: "movement", session: movementSession.id, movementType, amount, reason: movementReason.trim() }),
             cashSessionId: movementSession.id,
             movementType,
             amount,
@@ -311,7 +353,8 @@ export default function PosCashPage() {
         }
       );
 
-      setNotice("Movimiento registrado en el ledger de caja.");
+      pendingCommand.current = null;
+      setNotice("Movimiento registrado en caja.");
       setMovementSession(null);
       await loadCashData();
     } catch (movementError) {
@@ -355,6 +398,7 @@ export default function PosCashPage() {
           body: JSON.stringify({
             brandSlug: brand.slug,
             action: "close",
+            requestKey: requestKey({ action: "close", session: closeSession.id, countedCash, closeNotes }),
             sessionId: closeSession.id,
             countedCash: closeCountedValue,
             notes: closeNotes.trim() || undefined,
@@ -362,6 +406,7 @@ export default function PosCashPage() {
         }
       );
 
+      pendingCommand.current = null;
       setCloseResult(response.session);
       setCloseStep(4);
       setNotice("Caja cerrada. El resultado del corte quedó registrado.");
@@ -379,6 +424,7 @@ export default function PosCashPage() {
 
   return (
     <PosPage width="wide" density="compact">
+      {isFoodProfile(profileCode) ? <details open className="rounded-2xl border border-[var(--pos-line)] bg-[var(--pos-panel)] p-4"><summary className="cursor-pointer font-semibold text-[var(--pos-text-primary)]">Historial de caja y equipo</summary><label className="mt-4 block text-sm text-[var(--pos-text-secondary)]">Turno<select className="ml-3 rounded-lg border border-[var(--pos-line)] bg-[var(--pos-canvas)] p-3 text-[var(--pos-text-primary)]" value={historySessionId} onChange={e => setHistorySessionId(e.target.value)}><option value="">{currentOperator && staffHasAnyRole(currentOperator, ["ADMIN", "MANAGER"]) ? "Actividad del equipo" : "Selecciona un turno"}</option>{sessions.map(session => <option key={session.id} value={session.id}>{session.register?.name || "Caja"} · {formatDateTime(session.opened_at)} · {session.status === "open" ? "Abierta" : "Cerrada"}</option>)}</select></label>{sessions.some(session => session.id === historySessionId && session.status === "open") ? <PosCashAdjustment key={historySessionId} sessionId={historySessionId} onSaved={() => { setNotice("Ajuste registrado."); void loadCashData(); }} /> : null}{historySessionId || currentOperator && staffHasAnyRole(currentOperator, ["ADMIN", "MANAGER"]) ? <PosCashHistory key={brand.slug + historySessionId} cashSessionId={historySessionId || undefined} revision={notice || ""} /> : null}</details> : null}
       <PosPageHeader
         compact
         title="Control del turno"
@@ -388,7 +434,9 @@ export default function PosCashPage() {
             ? `${openSessions.length} ${openSessions.length === 1 ? "caja abierta" : "cajas abiertas"}`
             : "Sin caja abierta"
         }
-        actions={
+        actions={<div className="flex flex-wrap items-center justify-end gap-2">
+          {isFoodProfile(profileCode) ? <Link href={buildPosHref(brand.slug, "pos")} className="inline-flex h-[var(--pos-control-normal)] items-center justify-center rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] px-4 text-sm font-semibold text-[var(--pos-text-primary)]">Cobrar cuenta</Link> : null}
+          <Link href={buildPosHref(brand.slug, "register")} className="inline-flex h-[var(--pos-control-normal)] items-center justify-center rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] px-4 text-sm font-semibold text-[var(--pos-text-primary)]">Venta directa</Link>
           <PosButton
             size="normal"
             onClick={() =>
@@ -397,10 +445,25 @@ export default function PosCashPage() {
                 ?.scrollIntoView({ behavior: "smooth", block: "start" })
             }
           >
-            {openSessions.length > 0 ? "Ver cajas abiertas" : "Abrir caja"}
+            {openSessions.length > 0 ? "Ver turno" : "Abrir caja"}
           </PosButton>
-        }
+        </div>}
       />
+
+      <section aria-label="Acciones rápidas" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {isFoodProfile(profileCode) ? <Link href={buildPosHref(brand.slug, "pos")} className="rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-panel)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-text-primary)]">Cobrar cuenta</Link> : null}
+        <Link href={buildPosHref(brand.slug, "register")} className="rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-panel)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-text-primary)]">Venta directa</Link>
+        <button type="button" onClick={() => document.getElementById("active-sessions")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-panel)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-text-primary)]">Movimientos</button>
+        <button type="button" onClick={() => document.getElementById(openSessions.length > 0 ? "active-sessions" : "open-session")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-on-primary)]">{openSessions.length > 0 ? "Cerrar caja" : "Abrir caja"}</button>
+      </section>
+
+      {isFoodProfile(profileCode) ? <section aria-label="Cuentas pendientes por cobrar" className="rounded-[var(--pos-radius-md)] border border-[var(--pos-line)] bg-[var(--pos-panel)] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">Por cobrar</p><h2 className="mt-1 text-xl font-semibold text-[var(--pos-text-primary)]">{pendingAccounts.length} {pendingAccounts.length === 1 ? "cuenta" : "cuentas"}</h2></div>
+          <p className="text-lg font-semibold tabular-nums text-[var(--pos-text-primary)]">{formatMoney(pendingAccounts.reduce((sum, account) => sum + account.amount, 0), pendingAccounts[0]?.currency || "MXN")}</p>
+        </div>
+        {pendingAccounts.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{pendingAccounts.map(account => <article key={account.id} className="flex items-center justify-between gap-3 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] bg-[var(--pos-canvas)] p-3"><div className="min-w-0"><p className="truncate font-semibold text-[var(--pos-text-primary)]">{account.tableName}</p><p className="mt-1 text-xs text-[var(--pos-text-muted)]">{account.guests} {account.guests === 1 ? "persona" : "personas"} · {formatTime(account.openedAt)}</p></div><div className="shrink-0 text-right"><p className="font-semibold tabular-nums text-[var(--pos-text-primary)]">{formatMoney(account.amount, account.currency)}</p><Link href={`${buildPosHref(brand.slug, "pos")}#check-${account.id}`} className="mt-1 inline-flex min-h-10 items-center rounded-lg bg-[var(--pos-primary)] px-3 text-xs font-semibold text-[var(--pos-on-primary)]">Cobrar</Link></div></article>)}</div> : <p className="mt-3 text-sm text-[var(--pos-text-muted)]">No hay cuentas enviadas a caja.</p>}
+      </section> : null}
 
       <section aria-label="Resumen de caja" className="grid gap-3 sm:grid-cols-3">
         <Metric label="Cajas" value={String(registers.length)} icon="cash" />
@@ -431,7 +494,7 @@ export default function PosCashPage() {
               <p className="mt-1 text-xs leading-5 text-[var(--pos-text-muted)]">Crea primero una sucursal y su Caja 01.</p>
               <Link
                 href={buildPosHref(brand.slug, "settings")}
-                className="mt-5 inline-flex h-11 items-center justify-center rounded-[14px] bg-cyan-300 px-5 text-sm font-black text-slate-950"
+                className="mt-5 inline-flex h-11 items-center justify-center rounded-[14px] bg-[var(--pos-primary)] px-5 text-sm font-black text-[var(--pos-on-primary)]"
               >
                 Configurar operación
               </Link>
@@ -607,7 +670,7 @@ function OpenSessionDashboard({
               <PosBadge tone="success" size="compact" dot>CAJA ABIERTA</PosBadge>
             </div>
             <p className="mt-1 text-xs text-[var(--pos-text-muted)]">
-              Abierta {formatDateTime(session.opened_at)} · {formatDuration(session.opened_at)} de turno
+              Abrió: {session.openingStaffName || "Operador no registrado"} · {formatDateTime(session.opened_at)} · {formatDuration(session.opened_at)} de turno
             </p>
           </div>
         </div>
@@ -703,7 +766,7 @@ function ClosedSessionHistory({ session, currency }: { session: CashSession; cur
             {session.location?.name || "Sucursal"} · {session.register?.name || "Caja"}
           </p>
           <p className="mt-1 text-xs text-[var(--pos-text-muted)]">
-            Abrió {formatDateTime(session.opened_at)} · Cerró {session.closed_at ? formatDateTime(session.closed_at) : "—"}
+            Abrió: {session.openingStaffName || "Operador no registrado"} · {formatDateTime(session.opened_at)} · Cerró: {session.closingStaffName || "Operador no registrado"} · {session.closed_at ? formatDateTime(session.closed_at) : "—"}
             {session.closed_at ? ` · ${formatDurationBetween(session.opened_at, session.closed_at)}` : ""}
           </p>
         </div>
@@ -989,7 +1052,7 @@ function MoneyField({
     <label className="grid gap-2">
       <span className="text-xs font-medium text-[var(--pos-text-muted)]">{label}</span>
       <div className="relative">
-        <span className={`absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-500 ${large ? "text-lg" : "text-sm"}`}>$</span>
+        <span className={`absolute left-4 top-1/2 -translate-y-1/2 font-black text-[var(--pos-text-muted)] ${large ? "text-lg" : "text-sm"}`}>$</span>
         <input
           autoFocus={autoFocus}
           type="text"
@@ -1090,10 +1153,10 @@ function CashPageLoading() {
   return (
     <PosPage width="wide" density="compact" aria-busy="true">
       <div className="h-20 animate-pulse border-b border-[var(--pos-line-subtle)]" />
-      <div className="grid gap-3 sm:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-[var(--pos-radius-md)] bg-white/[0.035]" />)}</div>
+      <div className="grid gap-3 sm:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-[var(--pos-radius-md)] bg-[var(--pos-panel-muted)]" />)}</div>
       <div className="grid gap-4 min-[1180px]:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="h-80 animate-pulse rounded-[var(--pos-radius-lg)] bg-white/[0.035]" />
-        <div className="h-80 animate-pulse rounded-[var(--pos-radius-lg)] bg-white/[0.035]" />
+        <div className="h-80 animate-pulse rounded-[var(--pos-radius-lg)] bg-[var(--pos-panel-muted)]" />
+        <div className="h-80 animate-pulse rounded-[var(--pos-radius-lg)] bg-[var(--pos-panel-muted)]" />
       </div>
     </PosPage>
   );
@@ -1167,6 +1230,17 @@ function parseMoney(value: string): number | null {
 function toNumber(value: number | string | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildPendingFoodAccounts(snapshot: FoodCashSnapshotResponse["snapshot"]): PendingFoodAccount[] {
+  const tableNames = new Map(snapshot.tables.map((table) => [table.id, table.name]));
+  const totals = new Map<string, number>();
+  for (const item of snapshot.items) totals.set(item.check_id, (totals.get(item.check_id) || 0) + Number(item.line_total || 0));
+  for (const payment of snapshot.payments) totals.set(payment.check_id, (totals.get(payment.check_id) || 0) - Number(payment.amount || 0));
+  return snapshot.checks
+    .filter((check) => check.status === "PAYMENT_PENDING")
+    .map((check) => ({ id: check.id, tableName: tableNames.get(check.table_id || "") || "Sin mesa", guests: Number(check.guests || 0), amount: Math.max(0, Number((totals.get(check.id) || 0).toFixed(2))), currency: check.currency || "MXN", openedAt: check.opened_at }))
+    .filter((account) => account.amount > 0);
 }
 
 function formatMoney(value: number, currency = "MXN") {

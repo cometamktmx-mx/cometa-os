@@ -403,7 +403,7 @@ type SaleTotals = {
   articleCount: number;
 };
 
-type AvailableReward = {
+export type AvailableReward = {
   id: string;
   name: string;
   description: string | null;
@@ -413,7 +413,7 @@ type AvailableReward = {
   unavailableReason: string | null;
 };
 
-type AvailableRewardsResponse = {
+export type AvailableRewardsResponse = {
   ok: true;
   member: {
     id: string;

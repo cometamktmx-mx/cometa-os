@@ -19,6 +19,7 @@ import {
   isPosProfileFamily,
   type PosProfileFamily,
 } from "@/lib/pos/capabilities";
+import { resolvePosMode } from "@/lib/pos/staff-shared";
 import { resolvePosCommercialContext } from "@/lib/pos/plans";
 
 export const runtime = "nodejs";
@@ -509,6 +510,7 @@ export async function GET(request: Request) {
         capabilitiesResult.data || [],
 
       profileCode: profile.profile_code,
+      posMode: resolvePosMode(profile.profile_code),
       profileFamily,
       effectiveCapabilities,
 

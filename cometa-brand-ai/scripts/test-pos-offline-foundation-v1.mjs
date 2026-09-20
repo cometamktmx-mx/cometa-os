@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+
+const read = (file) => readFileSync(file, "utf8");
+const storage = read("src/lib/pos/offline-storage.ts");
+const outbox = read("src/lib/pos/offline-outbox.ts");
+const shell = read("src/app/brand/[brandSlug]/components/pos-shell.tsx");
+const status = read("src/app/brand/[brandSlug]/components/pos-connection-status.tsx");
+assert.equal(existsSync("public/sw.js"), true);
+assert.equal(existsSync("public/manifest.json"), true);
+assert.match(storage, /cometa-pos-offline/);
+assert.match(storage, /schemaVersion/);
+assert.match(storage, /bootstrap/);
+assert.match(storage, /food_snapshot/);
+assert.match(outbox, /requestKey/);
+assert.match(outbox, /PENDING.*SYNCING.*SYNCED.*FAILED/s);
+assert.match(shell, /offlinePut\("bootstrap"/);
+assert.match(shell, /offlineGet<Record<string, unknown>>\("bootstrap"/);
+assert.match(shell, /setInterval\(\(\) => void revalidate\(\), 60000\)/);
+assert.match(status, /Nueva versión disponible/);
+assert.match(read("public/sw.js"), /request\.url\.includes\("\/api\/"\)/);
+console.log("PASS offline foundation contracts, cache isolation, outbox and SW policy");

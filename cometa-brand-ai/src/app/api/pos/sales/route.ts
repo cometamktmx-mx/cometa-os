@@ -12,6 +12,7 @@ import {
   uuidValue,
 } from "@/lib/pos/server";
 import { requirePosOperationalAccess } from "@/lib/pos/access";
+import { requireStaffSession, getPosMode } from "@/lib/pos/staff-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -335,8 +336,9 @@ export async function POST(request: Request) {
       120
     );
 
-    const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const access = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const { admin, brand, user } = access;
+    const posMode = (await getPosMode(access));
 
     const bodyRecord = body as Record<string, unknown>;
     const forbiddenRewardFields = [
@@ -578,65 +580,30 @@ export async function POST(request: Request) {
         }
       );
 
+    const cashierSession = posMode === "RETAIL" ? null : await requireStaffSession(access, "SALE_CHARGE", uuidValue(body.locationId, "locationId") as string);
+    const saleRpc = cashierSession ? "pos_complete_sale_with_staff_v1" : "pos_complete_sale_v4";
+    const saleArgs: Record<string, unknown> = {
+        p_brand_slug: brand.slug,
+        p_location_id: uuidValue(body.locationId, "locationId"),
+        p_register_id: uuidValue(body.registerId, "registerId"),
+        p_cash_session_id: uuidValue(body.cashSessionId, "cashSessionId"),
+        p_customer_id: uuidValue(body.customerId, "customerId", false),
+        p_items: normalizedItems,
+        p_payments: normalizedPayments,
+        p_notes: optionalText(body.notes, 1000),
+        p_user_id: user.userId,
+        p_reward_id: rewardId,
+        p_idempotency_key: idempotencyKey,
+        p_reward_unlock_id: rewardUnlockId,
+    };
+    if (cashierSession) {
+      saleArgs.p_served_by_staff_id = null;
+      saleArgs.p_cashier_staff_id = cashierSession.staff.id;
+    }
     const {
       data,
       error,
-    } = await admin.rpc(
-      "pos_complete_sale_v4",
-      {
-        p_brand_slug:
-          brand.slug,
-
-        p_location_id:
-          uuidValue(
-            body.locationId,
-            "locationId"
-          ),
-
-        p_register_id:
-          uuidValue(
-            body.registerId,
-            "registerId"
-          ),
-
-        p_cash_session_id:
-          uuidValue(
-            body.cashSessionId,
-            "cashSessionId"
-          ),
-
-        p_customer_id:
-          uuidValue(
-            body.customerId,
-            "customerId",
-            false
-          ),
-
-        p_items:
-          normalizedItems,
-
-        p_payments:
-          normalizedPayments,
-
-        p_notes:
-          optionalText(
-            body.notes,
-            1000
-          ),
-
-        p_user_id:
-          user.userId,
-
-        p_reward_id:
-          rewardId,
-
-        p_idempotency_key:
-          idempotencyKey,
-
-        p_reward_unlock_id:
-          rewardUnlockId,
-      }
-    );
+    } = await admin.rpc(saleRpc, saleArgs);
 
     if (error) {
       const message =

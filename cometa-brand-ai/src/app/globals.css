@@ -37,6 +37,12 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Keep the document locked only while a POS overlay is mounted. Multiple
+   overlays can close in any order without leaving an inline body lock behind. */
+body:has([data-pos-scroll-lock]) {
+  overflow: hidden;
+}
+
 .os-label {
   color: var(--os-text-muted);
   font-size: 0.6875rem;

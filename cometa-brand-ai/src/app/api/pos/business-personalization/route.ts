@@ -5,7 +5,7 @@ import { requirePosPermission } from "@/lib/pos/rbac";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HEX = /^#[0-9a-f]{6}$/i;
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 export async function GET(request: Request) {
   try {
@@ -30,6 +30,8 @@ export async function PUT(request: Request) {
       facebook: optionalText(body.facebook, 300),
       tiktok: optionalText(body.tiktok, 300),
       primary_color: normalizeColor(body.brandColor, context),
+      accent_color: normalizeColor(body.accentColor, context),
+      theme_mode: normalizeThemeMode(body.themeMode),
       receipt_message: optionalText(body.receiptMessage, 240),
       return_policy: optionalText(body.returnPolicy, 1000),
       ticket_footer: optionalText(body.documentFooter, 250),
@@ -54,4 +56,5 @@ export async function PUT(request: Request) {
 
 function requireSettings(context: PosRequestContext): PosRequestContext { requirePosPermission(context, "pos.settings.manage"); return context; }
 function normalizeUpper(value: unknown, max: number) { const text = optionalText(value, max); return text ? text.toUpperCase() : null; }
-function normalizeColor(value: unknown, context: PosRequestContext) { const color = optionalText(value, 7); if (!color) return undefined; if (!HEX.test(color)) throw new Error("El color debe utilizar el formato #RRGGBB."); return color.toUpperCase(); }
+function normalizeColor(value: unknown, context: PosRequestContext) { void context; const color = optionalText(value, 7); if (!color) return undefined; if (!HEX.test(color)) throw new Error("El color debe utilizar el formato #RGB o #RRGGBB."); const normalized = color.length === 4 ? color.replace(/([0-9a-f])/gi, "$1$1") : color; return normalized.toUpperCase(); }
+function normalizeThemeMode(value: unknown) { const mode = optionalText(value, 10) || "dark"; if (!["dark", "light", "system"].includes(mode)) throw new Error("El tema debe ser dark, light o system."); return mode; }

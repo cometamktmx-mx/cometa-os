@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import type { PosBrand } from "./pos-shell";
 import { PosIcon, type PosIconName } from "./pos-icons";
 import { PosDrawer } from "./pos-ui";
+import type { PosOperator } from "./pos-operator-gate";
+import { staffHasAnyRole, staffHasRole } from "@/lib/pos/staff-shared";
 
 export type PosNavItem = {
   label: string;
@@ -32,6 +34,7 @@ export const POS_NAV_ITEMS: PosNavItem[] = [
   { label: "Suscripción", route: "subscription", icon: "settings", section: "Sistema" },
   { label: "Configuración", route: "settings", icon: "settings", section: "Sistema" },
   { label: "Equipo", route: "team", icon: "customer", section: "Sistema", requiresTeamPermission: true },
+  { label: "Operadores", route: "staff", icon: "customers", section: "Sistema", requiresTeamPermission: true },
 ];
 
 const teamPermissionCache = new Map<string, boolean>();
@@ -54,10 +57,14 @@ export function PosSidebar({
   brand,
   pathname,
   isLoading,
+  operator,
+  foodMode = false,
 }: {
   brand: PosBrand;
   pathname: string;
   isLoading: boolean;
+  operator?: PosOperator | null;
+  foodMode?: boolean;
 }) {
   const canManageTeam = usePosTeamPermission(brand.slug);
 
@@ -72,7 +79,7 @@ export function PosSidebar({
       </div>
 
       <div className="pos-ui-scrollbar flex-1 overflow-y-auto px-3 py-4">
-        <PosNavigation brand={brand} pathname={pathname} canManageTeam={canManageTeam} />
+        <PosNavigation brand={brand} pathname={pathname} canManageTeam={canManageTeam} operator={operator} foodMode={foodMode} />
       </div>
 
       <SidebarFooter brand={brand} />
@@ -86,12 +93,16 @@ export function PosMobileSidebar({
   isLoading,
   open,
   onClose,
+  operator,
+  foodMode = false,
 }: {
   brand: PosBrand;
   pathname: string;
   isLoading: boolean;
   open: boolean;
   onClose: () => void;
+  operator?: PosOperator | null;
+  foodMode?: boolean;
 }) {
   const canManageTeam = usePosTeamPermission(brand.slug);
 
@@ -109,7 +120,7 @@ export function PosMobileSidebar({
         <BrandContext brand={brand} isLoading={isLoading} />
       </div>
       <div className="pt-4">
-        <PosNavigation brand={brand} pathname={pathname} onNavigate={onClose} canManageTeam={canManageTeam} />
+        <PosNavigation brand={brand} pathname={pathname} onNavigate={onClose} canManageTeam={canManageTeam} operator={operator} foodMode={foodMode} />
       </div>
       <div className="mt-5 border-t border-[var(--pos-line-subtle)] pt-4">
         <BackToCometaLink brand={brand} onNavigate={onClose} />
@@ -123,17 +134,21 @@ function PosNavigation({
   pathname,
   onNavigate,
   canManageTeam,
+  operator,
+  foodMode,
 }: {
   brand: PosBrand;
   pathname: string;
   onNavigate?: () => void;
   canManageTeam: boolean;
+  operator?: PosOperator | null;
+  foodMode: boolean;
 }) {
   return (
     <nav aria-label="Navegación de Cometa POS">
       {NAV_SECTIONS.map((section) => {
         const items = POS_NAV_ITEMS.filter(
-          (item) => item.section === section && (!item.requiresTeamPermission || canManageTeam)
+          (item) => item.section === section && (!item.requiresTeamPermission || canManageTeam) && operatorCanSeeRoute(operator, item.route)
         );
 
         if (items.length === 0) return null;
@@ -145,7 +160,9 @@ function PosNavigation({
             </p>
             <div className="grid gap-1">
               {items.map((item) => {
-                const href = buildPosHref(brand.slug, item.route);
+                const href = item.route === "inventory" && foodMode
+                  ? `${buildPosHref(brand.slug, "admin")}/inventory`
+                  : buildPosHref(brand.slug, item.route);
                 const active = isActivePath({
                   pathname,
                   href,
@@ -194,6 +211,13 @@ function PosNavigation({
       })}
     </nav>
   );
+}
+
+function operatorCanSeeRoute(operator: PosOperator | null | undefined, route: string) {
+  if (!operator || staffHasAnyRole(operator, ["ADMIN", "MANAGER"])) return true;
+  if (staffHasRole(operator, "CASHIER") && ["", "register", "cash", "sales", "customers", "loyalty"].includes(route)) return true;
+  if (staffHasRole(operator, "WAITER") && ["", "register", "sales", "customers"].includes(route)) return true;
+  return staffHasRole(operator, "KITCHEN") ? route === "" : false;
 }
 
 function usePosTeamPermission(brandSlug: string) {

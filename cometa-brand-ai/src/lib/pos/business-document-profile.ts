@@ -11,6 +11,8 @@ export type BusinessDocumentProfile = {
   website: string | null;
   socials: { instagram: string | null; facebook: string | null; tiktok: string | null };
   brandColor: string;
+  accentColor: string;
+  themeMode: "dark" | "light" | "system";
   receiptMessage: string | null;
   returnPolicy: string | null;
   documentFooter: string | null;
@@ -63,6 +65,8 @@ export async function getBusinessDocumentProfile(
       tiktok: textOrNull(branding.tiktok),
     },
     brandColor: /^#[0-9A-F]{6}$/i.test(text(branding.primary_color)) ? text(branding.primary_color).toUpperCase() : "#67E8F9",
+    accentColor: /^#[0-9A-F]{6}$/i.test(text(branding.accent_color)) ? text(branding.accent_color).toUpperCase() : "#34D399",
+    themeMode: branding.theme_mode === "light" || branding.theme_mode === "system" ? branding.theme_mode : "dark",
     receiptMessage: textOrNull(branding.receipt_message),
     returnPolicy: textOrNull(branding.return_policy),
     documentFooter: textOrNull(branding.ticket_footer),

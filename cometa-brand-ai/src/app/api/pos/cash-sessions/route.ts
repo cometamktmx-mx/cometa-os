@@ -12,12 +12,14 @@ import {
 } from "@/lib/pos/server";
 import { requirePosOperationalAccess } from "@/lib/pos/access";
 import { requirePosPermission } from "@/lib/pos/rbac";
+import { requireStaffSession, getPosMode } from "@/lib/pos/staff-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CashSessionBody = {
   brandSlug?: unknown;
+  requestKey?: unknown;
   action?: unknown;
   registerId?: unknown;
   sessionId?: unknown;
@@ -68,6 +70,7 @@ export async function GET(request: Request) {
     requireCashPermission(access, "pos.cash.read");
     const { admin, brand } = access;
 
+    const foodSession = await getPosMode(access) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
     const url = new URL(request.url);
     const registerId = url.searchParams.get("registerId");
     const status = url.searchParams.get("status");
@@ -81,6 +84,7 @@ export async function GET(request: Request) {
       .order("opened_at", { ascending: false })
       .limit(100);
 
+    if (foodSession?.staff.locationId) query = query.eq("location_id", foodSession.staff.locationId);
     if (registerId) {
       query = query.eq("register_id", registerId);
     }
@@ -97,6 +101,13 @@ export async function GET(request: Request) {
     );
 
     const sessionRows = data || [];
+    const staffIds = [...new Set(sessionRows.flatMap(row => [row.opening_staff_id, row.closed_by_staff_id].filter((id): id is string => typeof id === "string")))];
+    const names = new Map<string, string>();
+    if (staffIds.length) {
+      const result = await admin.from("pos_staff").select("id,name").eq("brand_slug", brand.slug).in("id", staffIds);
+      assertDatabaseResult(result.error, "No se pudieron cargar los operadores.");
+      for (const row of result.data || []) names.set(row.id, row.name);
+    }
     let summaries: CashSessionSummaryRow[] = [];
 
     if (sessionRows.length > 0) {
@@ -130,6 +141,8 @@ export async function GET(request: Request) {
 
       return {
         ...session,
+        openingStaffName: names.get(session.opening_staff_id) || null,
+        closingStaffName: names.get(session.closed_by_staff_id) || null,
         expected_cash: canReceiveExpected
           ? summary?.expected_cash ?? null
           : null,
@@ -162,6 +175,7 @@ export async function POST(request: Request) {
     });
     requireCashPermission(access, "pos.cash.operate");
     const { admin, brand, user } = access;
+    const staffSession = (await getPosMode(access)) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
 
     if (action === "open") {
       const registerId = uuidValue(
@@ -178,8 +192,8 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        "pos_open_cash_session",
-        {
+        staffSession ? "pos_cash_command_v2" : "pos_open_cash_session",
+        staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: { registerId, openingAmount }, p_key: uuidValue(body.requestKey, "requestKey") } : {
           p_brand_slug: brand.slug,
           p_register_id: registerId,
           p_opening_amount: openingAmount,
@@ -222,8 +236,8 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        "pos_close_cash_session",
-        {
+        staffSession ? "pos_cash_command_v2" : "pos_close_cash_session",
+        staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") } : {
           p_brand_slug: brand.slug,
           p_session_id: sessionId,
           p_counted_cash: countedCash,
