@@ -142,7 +142,9 @@ async function getAuthenticatedUser(
   }
 
   const role = getPosAccountRole(profile);
-  if (!role) {
+  // A global account classification is not a POS tenant membership.
+  // Keep explicitly disabled accounts blocked; resolve other non-admins by membership.
+  if (profile && profile.status !== "active") {
     throw new PosApiError(403, "POS_ACCOUNT_ACCESS_DENIED", "Tu cuenta no tiene acceso a esta superficie POS.");
   }
 
@@ -176,10 +178,14 @@ async function getAuthenticatedUser(
     )
   );
 
+  if (!role && allowedBrandSlugs.length === 0) {
+    throw new PosApiError(403, "POS_ACCOUNT_ACCESS_DENIED", "Tu cuenta no tiene acceso a esta superficie POS.");
+  }
+
   return {
     userId: user.id,
     email: user.email || profile?.email || null,
-    role,
+    role: "client",
     isAdmin: false,
     allowedBrandSlugs,
   };

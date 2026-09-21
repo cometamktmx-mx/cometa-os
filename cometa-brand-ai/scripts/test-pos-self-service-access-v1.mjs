@@ -26,7 +26,10 @@ const db = {
     const filters = [];
     const query = {
       select() { return query; },
+      order() { return query; },
+      gt() { return query; },
       eq(key, value) { filters.push([key, value]); return query; },
+      single() { return query.maybeSingle(); },
       maybeSingle() { const result = rows(); return Promise.resolve({ ...result, data: result.data[0] || null }); },
       then(resolve, reject) { return Promise.resolve(rows()).then(resolve, reject); },
     };
@@ -37,13 +40,15 @@ const db = {
     return query;
   },
   async rpc(name, args) {
+    if (name === "pos_profile_family") return { data: "restaurant", error: null };
     check(args.p_brand_slug, "owned-brand");
+    if (name === "pos_initialize_brand_setup") return { data: null, error: null };
     if (state.rpcError) return { data: null, error: { message: "test database failure" } };
     if (name === "pos_get_subscription_lifecycle") return { data: lifecycle(state.allowed), error: null };
     if (name === "pos_get_effective_commercial_access") return { data: {
       subscriptionLifecycle: lifecycle(state.allowed),
-      effective: { accessAllowed: state.allowed, accessSource: state.allowed ? "trial" : "none", planCode: "pro", planSource: "subscription", reason: null },
-      grant: { active: false, planCode: null, type: null, startsAt: null, endsAt: null },
+      effective: { accessAllowed: state.allowed, accessSource: state.grant ? "commercial_grant" : state.allowed ? "trial" : "none", planCode: "pro", planSource: state.grant ? "commercial_grant" : "subscription", reason: null },
+      grant: { active: Boolean(state.grant), planCode: state.grant ? "pro" : null, type: state.grant ? "complimentary" : null, startsAt: null, endsAt: state.grant ? "2027-03-01T00:00:00Z" : null },
     }, error: null };
     if (name === "pos_get_brand_entitlements") return { data: {
       plan: { code: "pro", name: "Pro" }, subscription: { status: "trial", trialEndsAt: null,
@@ -65,7 +70,7 @@ function load(file) {
   const require = (name) => {
     if (name === "server-only") return {};
     if (name === "next/headers") return { cookies: async () => ({ getAll: () => [] }) };
-    if (name === "next/server") return { NextResponse: {} };
+    if (name === "next/server") return { NextResponse: { json: (body, options) => Response.json(body, options) } };
     if (name === "@supabase/supabase-js") return { createClient: () => db };
     if (name === "@supabase/ssr") return { createServerClient: () => ({ auth: {
       getUser: async () => ({ data: { user: state.auth ? { id: "creator", email: null } : null }, error: null }),
@@ -101,10 +106,18 @@ state.tables.user_brand_access[0].status = "inactive";
 await rejects(() => requirePosContext("owned-brand"), "POS_BRAND_FORBIDDEN");
 reset(); state.auth = false;
 await rejects(() => requirePosContext("owned-brand"), "POS_UNAUTHORIZED");
-reset(); state.tables.user_profiles = [];
-await rejects(() => requirePosContext("owned-brand"), "POS_ACCOUNT_ACCESS_DENIED");
-for (const role of ["team", "client"]) {
-  reset(); Object.assign(state.tables.user_profiles[0], { role, status: role === "team" ? "active" : "inactive" });
+for (const profile of [null, { role: "team", status: "active" }, { role: "owner", status: "active" }]) {
+  reset(); state.tables.user_profiles = profile ? [{ user_id: "creator", ...profile }] : [];
+  const context = await requirePosContext("owned-brand");
+  check(context.user.userId, "creator");
+  check(context.user.isAdmin, false);
+  check(context.membership.effectiveRole, "owner");
+  await rejects(() => requirePosContext("other-brand"), "POS_BRAND_FORBIDDEN");
+  state.tables.user_brand_access = [];
+  await rejects(() => requirePosContext("owned-brand"), "POS_ACCOUNT_ACCESS_DENIED");
+}
+for (const role of ["team", "client", "admin"]) {
+  reset(); Object.assign(state.tables.user_profiles[0], { role, status: "inactive" });
   await rejects(() => requirePosContext("owned-brand"), "POS_ACCOUNT_ACCESS_DENIED");
 }
 reset(); state.errors.user_profiles = { message: "test error" };
@@ -134,4 +147,29 @@ for (const profile of ["retail", "fashion", "restaurant", "coffee_shop"]) {
 }
 const { resolveBrandOsProductAccess } = load("src/lib/brand-os/access.ts");
 check(resolveBrandOsProductAccess({ membershipActive: true, isPlatformAdmin: false, osAccess: { status: "not_configured", commercialAccessActive: false } }).effectiveAccessAllowed, false);
+// Execute the actual bootstrap route with a Macca-like owner and commercial grant.
+const { GET: bootstrap } = load("src/app/api/pos/bootstrap/route.ts");
+for (const profileCode of ["coffee_shop", "restaurant"]) {
+  reset(); state.tables.user_profiles = []; state.grant = true;
+  Object.assign(state.tables, {
+    pos_business_profiles: [{ brand_slug: "owned-brand", profile_code: profileCode, operation_mode: "single", onboarding_status: "not_started" }],
+    pos_business_capabilities: [], pos_branding: [{ brand_slug: "owned-brand" }],
+    pos_subscriptions: [{ brand_slug: "owned-brand", plan_code: "pro" }],
+    pos_locations: [], pos_registers: [], pos_cash_sessions: [], pos_products: [],
+    pos_product_variants: [], pos_inventory: [], pos_customers: [], pos_loyalty_programs: [],
+    pos_plans: [{ code: "pro", name: "Pro", list_price: 0 }],
+    pos_plan_limits: [{ plan_code: "pro", max_locations: 1, max_registers: 1, max_users: 5 }],
+    pos_profile_catalog: [{ code: profileCode }],
+  });
+  const response = await bootstrap(new Request("http://localhost/api/pos/bootstrap?brandSlug=owned-brand"));
+  const body = await response.json();
+  check(response.status, 200); check(body.ok, true);
+  check(body.user.userId, "creator"); check(body.user.isAdmin, false);
+  check(body.membership.effectiveRole, "owner"); check(body.profileCode, profileCode);
+  check(body.effectiveCommercialAccess.grant.active, true);
+  check(body.effectiveEntitlements.entitlements.includes("pos.access"), true);
+  state.tables.user_brand_access = [];
+  const denied = await bootstrap(new Request("http://localhost/api/pos/bootstrap?brandSlug=owned-brand"));
+  check(denied.status, 403); check((await denied.json()).code, "POS_ACCOUNT_ACCESS_DENIED");
+}
 console.log(`PASS self-service/POS guard policy: ${assertions} assertions (no network)`);
