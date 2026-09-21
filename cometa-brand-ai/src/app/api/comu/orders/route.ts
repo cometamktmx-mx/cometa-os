@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { getBuyerOrders, getSellerOrders } from "@/lib/comu/orders";
+import { requireComuFeature } from "@/lib/comu/features";
+export async function GET(request: Request) { try { requireComuFeature("catalog"); const sellerId = new URL(request.url).searchParams.get("sellerId"); const orders = sellerId ? await getSellerOrders(sellerId) : (await getBuyerOrders()).orders; return NextResponse.json({ ok: true, orders }); } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) || 500 : 500; return NextResponse.json({ ok: false, code: typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "COMU_ORDERS_FAILED", error: error instanceof Error ? error.message : "No se pudieron cargar las órdenes." }, { status }); } }

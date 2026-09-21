@@ -1,0 +1,8 @@
+import { getSellerFinance } from "@/lib/comu/finance";
+
+export default async function ComuSellerFinancePage({ searchParams }: { searchParams: Promise<{ sellerId?: string }> }) {
+  const { sellerId } = await searchParams;
+  if (!sellerId) return <main className="mx-auto max-w-4xl px-6 py-16"><h1 className="text-4xl font-black">Finanzas</h1><p className="mt-3 text-slate-600">Selecciona un seller para consultar sus ventas.</p></main>;
+  const rows = await getSellerFinance(sellerId);
+  return <main className="mx-auto max-w-5xl px-6 py-12"><p className="text-xs font-black uppercase tracking-[.2em] text-emerald-700">COMU · Seller</p><h1 className="mt-3 text-5xl font-black tracking-[-.06em]">Ventas retenidas</h1><p className="mt-3 text-slate-600">Los fondos permanecen retenidos hasta que la logística y la garantía estén resueltas. No hay payouts en esta fase.</p><div className="mt-10 overflow-hidden rounded-3xl border border-black/10 bg-white"><div className="grid grid-cols-5 gap-4 border-b border-black/10 px-5 py-4 text-xs font-black uppercase tracking-wider text-slate-500"><span>Orden</span><span>Venta</span><span>Fee</span><span>Neto</span><span>Estado</span></div>{rows.map((row) => <div key={row.id} className="grid grid-cols-5 gap-4 border-b border-black/5 px-5 py-4 text-sm"><span>{row.order_id.slice(0, 8)}</span><span>${(Number(row.gross_amount_cents) / 100).toFixed(2)}</span><span>${(Number(row.platform_fee_cents) / 100).toFixed(2)}</span><span>${(Number(row.seller_net_amount_cents) / 100).toFixed(2)}</span><span>{row.status === "HELD" ? "Retenido" : row.status}</span></div>)}{!rows.length ? <p className="px-5 py-10 text-slate-500">Todavía no hay ventas pagadas.</p> : null}</div></main>;
+}
