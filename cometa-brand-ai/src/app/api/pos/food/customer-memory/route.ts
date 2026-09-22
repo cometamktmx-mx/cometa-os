@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     if (!customerId) return ok({ customer: null, profile: null, recentPurchases: [], topProducts: [] });
     const { context, session } = await requireFoodAccess(brandSlug, "customer_set");
     const { admin, brand } = context;
-    const { data: customer, error: customerError } = await admin.from("pos_customers").select("id,brand_slug,first_name,last_name,phone,email,active").eq("id", customerId).eq("brand_slug", brand.slug).eq("active", true).maybeSingle();
+    const { data: customer, error: customerError } = await admin.from("pos_customers").select("id,brand_slug,first_name,last_name,phone,email,notes,active").eq("id", customerId).eq("brand_slug", brand.slug).eq("active", true).maybeSingle();
     assertDatabaseResult(customerError, "No se pudo cargar el cliente.");
     if (!customer) return ok({ customer: null, profile: null, recentPurchases: [], topProducts: [] });
     const [{ data: profile, error: profileError }, { data: sales, error: salesError }, { data: loyalty, error: loyaltyError }, { data: allSales, error: allSalesError }] = await Promise.all([
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       else counts.set(key, { productName: item.product_name, variantName: item.variant_name, orders: Number(item.quantity || 0), lastOrderedAt: sale.soldAt });
     }
     const memory = { customer, profile: profile || { allergy_tags: [], restriction_note: null, confirmed_at: null, updated_at: null }, pointsBalance: Number(loyalty?.points_balance || 0), visits: (allSales || []).length, totalSpent: (allSales || []).reduce((sum, row) => sum + Number(row.total || 0), 0), recentPurchases: rows.slice(0, 10), topProducts: [...counts.values()].sort((a, b) => b.orders - a.orders).slice(0, 5) };
-    return ok(staffRoles(session.staff).every(role => role === "KITCHEN") ? { customer, profile: memory.profile, allergyAlert: memory.profile.allergy_tags, pointsBalance: null, visits: null, totalSpent: null, recentPurchases: [], topProducts: [] } : memory);
+    return ok(staffRoles(session.staff).every(role => role === "KITCHEN") ? { customer: { ...customer, notes: null }, profile: memory.profile, allergyAlert: memory.profile.allergy_tags, pointsBalance: null, visits: null, totalSpent: null, recentPurchases: [], topProducts: [] } : memory);
   } catch (error) { return handlePosError(error); }
 }
 

@@ -54,6 +54,21 @@ test('Command validation rejects malformed recipe/components, quantity and actio
   const {helper}=fixture();
   for (const body of [{action:'recipe_publish',id:id(3),components:[]},{action:'recipe_publish',id:id(3),components:[{ingredient_variant_id:id(5),quantity:0,unit_code:'g'}]},{action:'adjust',id:id(3),quantity:NaN,notes:'Count'},{action:'effect_save',product_id:id(3),option_id:id(5),effect:'BAD'}]) assert.throws(()=>helper.recipeCommand(body));
 });
+
+test('Prepared product command ignores manual stock; ingredient stock and direct inventory remain separate', () => {
+  const { helper } = fixture();
+  const command = helper.recipeCommand({ action: 'product_save', command_key: id(8), name: 'Latte', price: 50, tax_rate: 0, active: true, initial_quantity: 100, stock: 100, inventory_mode: 'direct' });
+  assert.equal(command.payload.initial_quantity, undefined);
+  assert.equal(command.payload.stock, undefined);
+  assert.equal(command.payload.inventory_mode, undefined);
+  const sql = read('supabase/migrations/20260918120000_pos_food_inventory_recipes_v1.sql');
+  assert.match(sql, /product_type='prepared' and p.inventory_mode='recipe'/);
+  const consume = sql.slice(sql.indexOf('create function public.pos_food_consume_sale_recipes_v1'), sql.indexOf('create function public.pos_food_recipes_catalog_v1'));
+  assert.match(consume, /pos_food_item_recipe_snapshots/);
+  assert.match(consume, /pos_inventory_movements/);
+  assert.match(consume, /pos_food_sale_consumptions/);
+  assert.match(consume, /ingredient_variant_id/);
+});
 test('Presentation capture preserves content/unit; client conversion factor is discarded and blank optional supplier accepted', () => {
   const {helper}=fixture();
   const r=helper.recipeCommand({command_key:id(8),action:'ingredient_save',name:'Leche',category:'base',unit_code:'ml',supplier_name:'',minimum_quantity:0,waste_percent:5,active:true,presentations:[{name:'1 L',content:1,unit_code:'l',cost:28,active:true,conversion_factor:2000}]});

@@ -7,7 +7,7 @@ import { PosModal } from "./pos-ui/pos-modal";
 import { FoodItemModifiers, PosFoodModifierDialog } from "./pos-food-modifiers";
 import { FoodReceipt } from "./pos-food-receipt";
 import { foodRoleViews, foodTableState, type FoodAction, type FoodCheck, type FoodItem, type FoodProduct, type FoodSnapshot, type FoodTicket } from "@/lib/pos/food-shared";
-import { staffRoles } from "@/lib/pos/staff-shared";
+import { staffHasAnyRole, staffRoles } from "@/lib/pos/staff-shared";
 type FoodOfflineRecord<T> = { value: T };
 const foodOfflineKey = (brandSlug: string, locationId: string | null) => `${brandSlug}::${locationId || "default"}`;
 async function foodOfflinePut<T>(brandSlug: string, locationId: string | null, value: T, store: "food_snapshot" | "catalog" = "food_snapshot") { if (typeof indexedDB === "undefined") return; try { const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("cometa-pos-offline", 1); request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("food_snapshot")) request.result.createObjectStore("food_snapshot"); if (!request.result.objectStoreNames.contains("catalog")) request.result.createObjectStore("catalog"); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); await new Promise<void>((resolve, reject) => { const tx = db.transaction(store, "readwrite"); tx.objectStore(store).put({ value, brandSlug, locationId, cachedAt: new Date().toISOString(), schemaVersion: 1 }, foodOfflineKey(brandSlug, locationId)); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close(); } catch { /* online operation must survive storage failure */ } }
@@ -54,7 +54,6 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Array<{ id: string; first_name: string; last_name: string | null; phone: string | null; loyalty_member?: { points_balance?: number | null } | null }>>([]);
-  const [customerMemory, setCustomerMemory] = useState<{ allergy_tags?: string[]; restriction_note?: string | null; pointsBalance?: number | null; visits?: number | null } | null>(null);
   const [customerLoading, setCustomerLoading] = useState(false);
   const [tableName, setTableName] = useState("");
   const [search, setSearch] = useState("");
@@ -186,15 +185,6 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
   const occupiedCount = tableStates.filter(state => state !== "AVAILABLE").length;
   const openingForm = useRef<HTMLFormElement>(null);
 
-  useEffect(() => {
-    if (!check?.customer_id) { setCustomerMemory(null); return; }
-    let cancelled = false;
-    void fetch(`/api/pos/food/customer-memory?brandSlug=${encodeURIComponent(brandSlug)}&customerId=${encodeURIComponent(check.customer_id)}`, { cache: "no-store" })
-      .then(async response => response.ok ? response.json() as Promise<{ profile?: { allergy_tags?: string[]; restriction_note?: string | null }; pointsBalance?: number | null; visits?: number | null }> : null)
-      .then(payload => { if (!cancelled) setCustomerMemory(payload ? { ...payload.profile, pointsBalance: payload.pointsBalance, visits: payload.visits } : null); })
-      .catch(() => { if (!cancelled) setCustomerMemory(null); });
-    return () => { cancelled = true; };
-  }, [brandSlug, check?.customer_id]);
 
   async function searchCustomers(value: string) {
     setCustomerQuery(value);
@@ -256,7 +246,9 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
          </div>
          <CustomerInlineSummary
            check={check}
-           memory={customerMemory}
+           key={`${brandSlug}:${operator.id}:${staffRoles(operator).join(",")}:${check.customer_id || "anonymous"}`}
+           brandSlug={brandSlug}
+           canEditMemory={staffHasAnyRole(operator, ["ADMIN", "MANAGER", "WAITER"])}
            query={customerQuery}
            results={customerResults}
            loading={customerLoading}
@@ -365,9 +357,10 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
 
 type InlineCustomer = { id: string; first_name: string; last_name: string | null; phone: string | null; loyalty_member?: { points_balance?: number | null } | null };
 
-function CustomerInlineSummary({ check, memory, query, results, loading, open, onOpenSearch, onCloseSearch, onSearch, onSelect }: {
+export function CustomerInlineSummary({ check, brandSlug, canEditMemory, query, results, loading, open, onOpenSearch, onCloseSearch, onSearch, onSelect }: {
   check: FoodCheck;
-  memory: { allergy_tags?: string[]; restriction_note?: string | null; pointsBalance?: number | null; visits?: number | null } | null;
+  brandSlug: string;
+  canEditMemory: boolean;
   query: string;
   results: InlineCustomer[];
   loading: boolean;
@@ -377,19 +370,60 @@ function CustomerInlineSummary({ check, memory, query, results, loading, open, o
   onSearch: (value: string) => void;
   onSelect: (customerId: string) => void;
 }) {
-  const allergyTags = memory?.allergy_tags || [];
+  const [memory, setMemory] = useState<FoodCustomerMemory | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(Boolean(check.customer_id));
+  const [memoryRetry, setMemoryRetry] = useState(0);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [allergies, setAllergies] = useState("");
+  const [restriction, setRestriction] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveLock = useRef(false);
+  useEffect(() => {
+    const customerId = check.customer_id;
+    if (!customerId) return;
+    const controller = new AbortController();
+    void Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return;
+      setMemoryLoading(true); setMemoryError(null); setMemory(null);
+      try { const next = await loadFoodCustomerMemory(brandSlug, customerId, controller.signal); if (!controller.signal.aborted) setMemory(next); }
+      catch { if (!controller.signal.aborted) setMemoryError("No pudimos cargar la ficha. No podemos confirmar alergias ni restricciones. Consulta al cliente y vuelve a intentar."); }
+      finally { if (!controller.signal.aborted) setMemoryLoading(false); }
+    });
+    return () => controller.abort();
+  }, [brandSlug, check.customer_id, memoryRetry]);
+  async function saveMemory() {
+    if (saveLock.current || !check.customer_id || !canEditMemory) return;
+    saveLock.current = true; setSaving(true); setSaveError(null);
+    try {
+      const response = await fetch('/api/pos/food/customer-memory', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brandSlug, customerId: check.customer_id, allergyTags: allergies.split(',').map(tag => tag.trim()).filter(Boolean), restrictionNote: restriction }) });
+      if (!response.ok) throw new Error('save');
+      setEditOpen(false); setMemoryRetry(value => value + 1);
+    } catch { setSaveError('No pudimos guardar los cambios. Revisa tu conexión y permisos e inténtalo nuevamente.'); }
+    finally { saveLock.current = false; setSaving(false); }
+  }
+  const allergyTags = memory?.profile?.allergy_tags || [];
   const customerName = check.customer_name?.trim();
   return <section aria-label="Cliente de la mesa" className="pos-food-surface rounded-2xl border p-4 shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--pos-text-muted)]">Cliente</p>
-        {customerName ? <><p className="mt-1 truncate text-base font-bold text-[var(--pos-text)]">{customerName}</p><p className="mt-1 text-xs text-[var(--pos-text-muted)]">{memory?.pointsBalance ?? 0} pts · {memory?.visits ?? 0} visitas</p></> : <p className="mt-1 text-sm font-semibold text-[var(--pos-text-secondary)]">Sin cliente identificado</p>}
+        {customerName ? <><p className="mt-1 truncate text-base font-bold text-[var(--pos-text)]">{customerName}</p><p className="mt-1 text-xs text-[var(--pos-text-muted)]">{memoryLoading ? "Cargando ficha…" : memory ? `${memory.pointsBalance ?? "—"} pts · ${memory.visits ?? "—"} visitas` : "Ficha no disponible"}</p></> : <p className="mt-1 text-sm font-semibold text-[var(--pos-text-secondary)]">Sin cliente identificado</p>}
       </div>
       <div className="flex flex-wrap gap-2">
-        {customerName ? <><button type="button" className="pos-ui-focus min-h-10 rounded-xl border border-[var(--pos-border)] px-3 text-xs font-semibold text-[var(--pos-text)]" onClick={onOpenSearch}>Ver cliente</button><button type="button" className="pos-ui-focus min-h-10 rounded-xl border border-[var(--pos-border)] px-3 text-xs font-semibold text-[var(--pos-text)]" onClick={onOpenSearch}>Editar cliente</button>{(memory?.pointsBalance || 0) > 0 ? <button type="button" className="pos-ui-focus min-h-10 rounded-xl bg-[var(--pos-primary)] px-3 text-xs font-bold text-[var(--pos-on-primary)]" onClick={onOpenSearch}>Canjear recompensa</button> : null}</> : <button type="button" className="pos-ui-focus min-h-10 rounded-xl bg-[var(--pos-primary)] px-3 text-xs font-bold text-[var(--pos-on-primary)]" onClick={onOpenSearch}>Agregar o identificar cliente</button>}
+        {check.customer_id ? <><button type="button" className={button} onClick={() => { setEditOpen(false); setDetailOpen(true); }}>Ver cliente</button>{canEditMemory && <button type="button" className={button} disabled={!memory || memoryLoading || !!memoryError} onClick={() => { setDetailOpen(false); setAllergies(allergyTags.join(', ')); setRestriction(memory?.profile?.restriction_note || ''); setSaveError(null); setEditOpen(true); }}>Editar cliente</button>}{(memory?.pointsBalance || 0) > 0 ? <button type="button" className={primary} onClick={onOpenSearch}>Canjear recompensa</button> : null}<button type="button" className="pos-ui-focus min-h-10 px-3 text-xs underline" onClick={onOpenSearch}>Cambiar cliente</button></> : <button type="button" className={primary} onClick={onOpenSearch}>Agregar o identificar cliente</button>}
       </div>
     </div>
-    {allergyTags.length || memory?.restriction_note ? <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-800"><span className="font-black">⚠ ALERGIA</span>{allergyTags.length ? <span className="ml-2">{allergyTags.join(" · ")}</span> : null}{memory?.restriction_note ? <p className="mt-1 font-medium">Restricción: {memory.restriction_note}</p> : null}</div> : null}
+    {memoryError ? <div role="alert" className="mt-3 rounded-xl border border-rose-400/50 bg-rose-950 p-4 text-sm text-rose-100">{memoryError}<button type="button" className="ml-3 min-h-10 underline" onClick={() => setMemoryRetry(value => value + 1)}>Reintentar ficha</button></div> : null}
+    {memory && !memoryLoading ? <FoodCustomerDetails memory={memory} compact /> : null}
+    <PosModal open={detailOpen} onClose={() => setDetailOpen(false)} title="Ficha del cliente" description={customerName || "Cliente"}>
+      {memoryLoading ? <p role="status">Cargando ficha…</p> : memoryError ? <div role="alert">{memoryError}<button className={button} onClick={() => setMemoryRetry(value => value + 1)}>Reintentar ficha</button></div> : memory ? <FoodCustomerDetails memory={memory} /> : <p>No hay una ficha disponible.</p>}
+    </PosModal>
+    <PosModal open={editOpen} onClose={() => setEditOpen(false)} dismissible={!saving} title="Editar cliente" description="Alergias y restricciones del perfil Food.">
+      <form onSubmit={event => { event.preventDefault(); void saveMemory(); }} className="space-y-4"><fieldset disabled={saving} className="space-y-4"><label className="block text-sm">Alergias (separadas por comas)<input className={input} value={allergies} maxLength={1000} onChange={event => setAllergies(event.target.value)} /></label><label className="block text-sm">Restricciones<textarea className={input} maxLength={500} value={restriction} onChange={event => setRestriction(event.target.value)} /></label><p className="text-xs">Confirma estos datos con el cliente. Las notas generales se administran en Clientes.</p>{saveError && <p role="alert" className="text-rose-500">{saveError}</p>}<button className={primary}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></fieldset></form>
+    </PosModal>
     {open ? <div className="mt-3 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface-2)] p-3"><div className="flex gap-2"><input autoFocus value={query} onChange={event => onSearch(event.target.value)} placeholder="Identificar cliente por teléfono o nombre" className="pos-ui-focus min-h-11 min-w-0 flex-1 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 text-sm text-[var(--pos-text)]" /><button type="button" className="min-h-11 rounded-xl border border-[var(--pos-border)] px-3 text-xs font-semibold text-[var(--pos-text)]" onClick={onCloseSearch}>Cerrar</button></div>{loading ? <p className="mt-3 text-xs text-[var(--pos-text-muted)]">Buscando clientes…</p> : results.length ? <div className="mt-2 grid gap-2">{results.map(result => <button type="button" key={result.id} className="pos-ui-focus flex min-h-11 items-center justify-between rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 text-left text-sm text-[var(--pos-text)]" onClick={() => onSelect(result.id)}><span>{result.first_name} {result.last_name || ""}<span className="ml-2 text-xs text-[var(--pos-text-muted)]">{result.phone || ""}</span></span><span className="text-xs text-[var(--pos-text-muted)]">{result.loyalty_member?.points_balance || 0} pts</span></button>)}</div> : query.trim().length >= 2 ? <p className="mt-3 text-xs text-[var(--pos-text-muted)]">No encontramos clientes con ese dato.</p> : null}</div> : null}
   </section>;
 }
@@ -469,4 +503,34 @@ function LegacyKitchenTicket({ ticket, items, table, sender, now, busy, onAction
     <div className="space-y-5 p-5">{items.map(item => <div key={item.id}><p className="text-2xl font-bold">{item.quantity} × {item.product_name}</p><p>{item.variant_name}</p><FoodItemModifiers modifiers={item.configuration?.modifiers} />{item.notes ? <p className="mt-2 rounded-lg bg-amber-400/15 p-3 text-xl font-semibold">{item.notes}</p> : null}</div>)}</div>
     {ticket.status !== "READY" ? <div className="p-5 pt-0"><button className={`${primary} min-h-16 w-full text-xl`} disabled={busy} onClick={() => onAction(ticket.status === "PENDING" ? "prepare" : "ready")}>{ticket.status === "PENDING" ? "Iniciar preparación" : "Marcar listo"}</button></div> : null}
   </article>;
+}
+
+type FoodCustomerMemory = {
+  customer: { id: string; first_name: string; last_name: string | null; phone: string | null; notes?: string | null };
+  profile: { allergy_tags: string[]; restriction_note: string | null } | null;
+  pointsBalance: number | null;
+  visits: number | null;
+  topProducts: Array<{ productName: string; variantName: string; orders: number }>;
+  recentPurchases: Array<{ id: string; saleNumber: string; soldAt: string; items: Array<{ product_name: string; quantity: number }> }>;
+};
+
+export async function loadFoodCustomerMemory(brandSlug: string, customerId: string, signal?: AbortSignal): Promise<FoodCustomerMemory> {
+  const response = await fetch(`/api/pos/food/customer-memory?brandSlug=${encodeURIComponent(brandSlug)}&customerId=${encodeURIComponent(customerId)}`, { cache: "no-store", signal });
+  if (!response.ok) throw new Error("CUSTOMER_MEMORY_UNAVAILABLE");
+  const payload = await response.json() as FoodCustomerMemory;
+  if (!payload.customer || payload.customer.id !== customerId || !payload.profile || !Array.isArray(payload.profile.allergy_tags) || !payload.profile.allergy_tags.every(tag => typeof tag === "string") || !Array.isArray(payload.topProducts) || !Array.isArray(payload.recentPurchases)) throw new Error("CUSTOMER_MEMORY_UNAVAILABLE");
+  return payload;
+}
+
+export function FoodCustomerDetails({ memory, compact = false }: { memory: FoodCustomerMemory; compact?: boolean }) {
+  const allergies = memory.profile?.allergy_tags || [];
+  const restricted = memory.pointsBalance === null && memory.visits === null;
+  return <div className="mt-3 space-y-3 text-sm">
+    <div className="rounded-xl border-2 border-amber-400 bg-amber-950 p-4 text-amber-50"><h3 className="font-bold uppercase tracking-wide">Alergias</h3><p className="mt-1 font-semibold">{allergies.length ? allergies.join(' · ') : 'Sin alergias registradas; confirma con el cliente.'}</p><h3 className="mt-3 font-bold">Restricciones</h3><p className="mt-1">{memory.profile?.restriction_note || 'Sin restricciones registradas.'}</p></div>
+    {!compact && <div><p className="font-bold">{memory.customer.first_name} {memory.customer.last_name}</p><p>{memory.pointsBalance ?? '—'} puntos · {memory.visits ?? '—'} visitas</p></div>}
+    <p>Teléfono: {memory.customer.phone || 'Sin teléfono registrado'}</p>
+    {restricted ? <p className="text-xs">Tu rol permite consultar alergias y restricciones.</p> : <><div><h3 className="font-semibold">Notas y preferencias</h3><p className="whitespace-pre-wrap">{memory.customer.notes || 'Sin notas registradas.'}</p></div>
+    <div><h3 className="font-semibold">Favoritos · más comprados</h3>{memory.topProducts.slice(0, compact ? 3 : 5).map((product, index) => <p key={index}>{product.productName} · {product.variantName} ({product.orders})</p>)}{!memory.topProducts.length && <p>Sin compras registradas para calcular favoritos.</p>}</div>
+    <div><h3 className="font-semibold">Compras recientes</h3>{memory.recentPurchases.slice(0, compact ? 2 : 10).map(sale => <p key={sale.id} className="mt-2">{new Date(sale.soldAt).toLocaleDateString('es-MX')} · {sale.saleNumber}<span className="block">{sale.items.map(item => `${item.quantity} × ${item.product_name}`).join(' · ')}</span></p>)}{!memory.recentPurchases.length && <p>Sin compras recientes.</p>}</div></>}
+  </div>;
 }

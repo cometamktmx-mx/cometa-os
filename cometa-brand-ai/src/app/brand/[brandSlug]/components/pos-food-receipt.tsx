@@ -1,3 +1,4 @@
+import { PosReceiptSocials } from "./pos-receipt-socials";
 import type { FoodCheck, FoodItem } from "@/lib/pos/food-shared";
 import type { PosBranding } from "./pos-shell";
 import { FoodItemModifiers } from "./pos-food-modifiers";
@@ -33,6 +34,7 @@ export function FoodReceipt({ mode, branding, check, items, staff, table, accoun
       {items.map(item => <div key={item.id} className="mb-2"><div className="receipt-row"><span>{item.quantity} × {item.product_name}</span><span>{formatLine(Number(item.line_total))}</span></div><div>{item.variant_name}</div><FoodItemModifiers modifiers={item.configuration?.modifiers} />{item.notes ? <div className="receipt-modifier">Nota: {item.notes}</div> : null}</div>)}
       <div className="receipt-divider" />
       <div className="receipt-row"><span>Total</span><span>{total}</span></div>
+      {branding && <PosReceiptSocials socials={branding} />}
       {isAccount ? null : <><div className="receipt-divider" /><div>Método: {method}</div>{received ? <div className="receipt-row"><span>Recibido</span><span>{received}</span></div> : null}{change ? <div className="receipt-row"><span>Cambio</span><span>{change}</span></div> : null}{reference ? <div>Folio: {reference}</div> : null}<p className="mt-4 text-center">{branding?.receipt_message || branding?.ticket_footer || "Gracias por tu compra"}</p><p className="mt-2 text-center text-[9px]">Operado con Cometa POS</p></>}
     </div>
   </div>;

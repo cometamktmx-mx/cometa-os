@@ -201,7 +201,7 @@ function PosNavigation({
                     >
                       <PosIcon name={item.icon} className="h-4 w-4" />
                     </span>
-                    <span>{item.label}</span>
+                    <span>{foodMode && item.route === "products" ? "Menú" : foodMode && item.route === "inventory" ? "Insumos" : item.label}</span>
                   </Link>
                 );
               })}

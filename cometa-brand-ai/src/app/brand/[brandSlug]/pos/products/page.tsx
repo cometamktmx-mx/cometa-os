@@ -309,7 +309,7 @@ function createVariant(
     name: isService
       ? "Servicio"
       : index === 0
-      ? "?nica"
+      ? "única"
       : `Variante ${index + 1}`,
     sku: "",
     barcode: "",
@@ -334,9 +334,9 @@ function createVariant(
 export default function PosProductsPage() {
   const { brand, profileCode, isLoading } = usePosContext();
   const [direct, setDirect] = useState(false);
-  if (isLoading) return <p role="status">Cargando cat?logo?</p>;
+  if (isLoading) return <p role="status">Cargando catálogo…</p>;
   if (!isFoodProfile(profileCode)) return <PosRetailProductsPage />;
-  return <div className="space-y-5"><nav className="flex gap-3" aria-label="Tipo de cat?logo Food"><PosButton variant={direct ? "secondary" : "primary"} onClick={() => setDirect(false)}>Preparados y recetas</PosButton><PosButton variant={direct ? "primary" : "secondary"} onClick={() => setDirect(true)}>Productos directos</PosButton></nav>{direct ? <PosRetailProductsPage foodDirect /> : <PosFoodRecipesAdmin brandSlug={brand.slug} kind="products" />}</div>;
+  return <div className="space-y-5"><nav className="flex gap-3" aria-label="Tipo de catálogo Food"><PosButton variant={direct ? "secondary" : "primary"} onClick={() => setDirect(false)}>Preparado con receta</PosButton><PosButton variant={direct ? "primary" : "secondary"} onClick={() => setDirect(true)}>Listo para vender</PosButton></nav>{direct ? <PosRetailProductsPage foodDirect /> : <PosFoodRecipesAdmin brandSlug={brand.slug} kind="products" />}</div>;
 }
 
 function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean }) {
@@ -664,7 +664,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     );
     if (
       affectsExisting &&
-      !window.confirm("Quitar este valor dejar? fuera las combinaciones existentes que lo usan. Se conservar?n como inactivas. ?Continuar?")
+      !window.confirm("Quitar este valor dejará fuera las combinaciones existentes que lo usan. Se conservarán como inactivas. ¿Continuar?")
     ) {
       return;
     }
@@ -706,7 +706,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     );
 
     if (combinations.length > 250) {
-      setError("La combinaci?n supera el l?mite de 250 variantes por producto.");
+      setError("La combinación supera el límite de 250 variantes por producto.");
       return;
     }
 
@@ -926,7 +926,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     if (!enabled && isEditing) {
       const activeVariants = variants.filter((variant) => variant.active);
       if (activeVariants.length > 1 || activeVariants.some((variant) => variant.currentStock > 0)) {
-        setError("No puedes convertir este producto a simple mientras tenga varias variantes activas o stock. Desactiva variantes expl?citamente desde el editor.");
+        setError("No puedes convertir este producto a simple mientras tenga varias variantes activas o stock. Desactiva variantes explícitamente desde el editor.");
         return;
       }
     }
@@ -945,7 +945,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               productForm.defaultUnitCode,
               attributes
             )),
-          name: "?nica",
+          name: "única",
         },
       ]);
     }
@@ -992,7 +992,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         categoryId: response.category.id,
       }));
       setNotice(
-        `Categor?a ?${response.category.name}? creada.`
+        `Categoría ?${response.category.name}? creada.`
       );
 
       await loadData();
@@ -1085,7 +1085,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           ? variant
           : { ...variant, barcode: generated.get(index) || variant.barcode }
       ));
-      setNotice(response.barcodes.length ? `${response.barcodes.length} c?digos internos generados.` : "No hay variantes sin c?digo de barras.");
+      setNotice(response.barcodes.length ? `${response.barcodes.length} códigos internos generados.` : "No hay variantes sin código de barras.");
     } catch (barcodeError) {
       setError(getErrorMessage(barcodeError));
     }
@@ -1113,7 +1113,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           ? { ...variant, barcode: generated.barcode }
           : variant
       ));
-      setNotice("C?digo interno generado.");
+      setNotice("Código interno generado.");
     } catch (barcodeError) {
       setError(getErrorMessage(barcodeError));
     }
@@ -1157,7 +1157,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       )
     ) {
       setError(
-        "Cada variante necesita un precio v?lido."
+        "Cada variante necesita un precio válido."
       );
       return;
     }
@@ -1203,7 +1203,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
 
       const barcode = variant.barcode.trim().toLowerCase();
       if (barcode && seenBarcodes.has(barcode)) {
-        setError(`El c?digo de barras ${variant.barcode.trim()} est? repetido en el producto.`);
+        setError(`El código de barras ${variant.barcode.trim()} est? repetido en el producto.`);
         return;
       }
       if (barcode) seenBarcodes.set(barcode, label);
@@ -1481,7 +1481,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     setImageUploadError(null);
 
     if (file.size <= 0) {
-      setImageUploadError("La imagen est? vac?a.");
+      setImageUploadError("La imagen está vacía.");
       return;
     }
 
@@ -1576,7 +1576,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
 
     if (!normalizedCode) {
       setError(
-        "Escanea o escribe un SKU o c?digo de barras."
+        "Escanea o escribe un SKU o código de barras."
       );
       scanInputRef.current?.focus();
       return;
@@ -1667,7 +1667,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       });
 
       setNotice(
-        `El c?digo ${result.code} no existe. Ya lo colocamos en el formulario para registrar el producto.`
+        `El código ${result.code} no existe. Ya lo colocamos en el formulario para registrar el producto.`
       );
       setIsEditorOpen(true);
 
@@ -1749,8 +1749,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     <PosPage width="wide" density="compact">
       <PosPageHeader
         compact
-        title="Productos"
-        description="Administraci?n de cat?logo, precios, variantes y disponibilidad."
+        title={foodDirect ? "Menú · Listo para vender" : "Productos"}
+        description={foodDirect ? "Se vende por unidad y controla su propia existencia." : "Administración de catálogo, precios, variantes y disponibilidad."}
         meta={`${productTotal} productos registrados`}
         actions={
           <PosButton
@@ -1762,7 +1762,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         }
       />
 
-      <section aria-label="Resumen del cat?logo" className="grid grid-cols-3 gap-3">
+      <section aria-label="Resumen del catálogo" className="grid grid-cols-3 gap-3">
         <Metric label="Productos" value={String(productTotal)} />
         <Metric label="Variantes" value={String(totalVariants)} />
         <Metric label="Unidades" value={formatQuantity(totalUnits)} />
@@ -1792,7 +1792,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         <RequiredConfiguration
           brandSlug={brand.slug}
           title="Primero configura el giro"
-          description="El Product Engine necesita conocer la operaci?n del negocio antes de crear productos."
+          description="El Product Engine necesita conocer la operación del negocio antes de crear productos."
         />
       ) : null}
 
@@ -1801,7 +1801,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         <RequiredConfiguration
           brandSlug={brand.slug}
           title="Crea una sucursal"
-          description="Los productos con inventario directo necesitan una ubicaci?n para guardar su existencia."
+          description="Los productos con inventario directo necesitan una ubicación para guardar su existencia."
         />
       ) : null}
 
@@ -1813,11 +1813,11 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
             setEditingProduct(null);
           }}
           width="large"
-          title={isEditing ? "Editar producto" : foodDirect ? "Nuevo producto directo" : "Nuevo producto"}
+          title={isEditing ? "Editar producto" : foodDirect ? "Nuevo listo para vender" : "Nuevo producto"}
           description={
             isEditing
-              ? "Actualiza cat?logo y variantes sin modificar existencias."
-              : "Configura informaci?n, variantes, precios e inventario."
+              ? "Actualiza catálogo y variantes sin modificar existencias."
+              : "Configura información, variantes, precios e inventario."
           }
           dismissible={!isSavingProduct}
         >
@@ -1827,9 +1827,9 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           className="scroll-mt-5"
         >
           <SectionTitle
-            eyebrow="Informaci?n"
+            eyebrow="Información"
             title="Datos del producto"
-            description="Los campos disponibles responden a la configuraci?n real del negocio."
+            description="Los campos disponibles responden a la configuración real del negocio."
           />
 
           <form
@@ -1874,7 +1874,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                   </button>
                 );
               })}
-            </div> : <InfoBox>Producto directo Food. Se vende tal cual y descuenta existencia de la sucursal.</InfoBox>}
+            </div> : <InfoBox>Listo para vender. Se vende por unidad y controla su propia existencia.</InfoBox>}
 
             <Field
               inputRef={productNameInputRef}
@@ -1934,7 +1934,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
             </details>
 
             <TextAreaField
-              label="Descripci?n"
+              label="Descripción"
               value={productForm.description}
               onChange={(value) =>
                 setProductForm((current) => ({
@@ -1942,12 +1942,12 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                   description: value,
                 }))
               }
-              placeholder="Descripci?n comercial"
+              placeholder="Descripción comercial"
             />
 
             <div className="grid gap-4 md:grid-cols-2">
               <SelectField
-                label="Categor?a"
+                label="Categoría"
                 value={productForm.categoryId}
                 onChange={(value) =>
                   setProductForm((current) => ({
@@ -2022,7 +2022,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                   `${unit.name} ? ${unit.symbol}`,
                 ])}
               />
-            </div> : <InfoBox>Inventario directo - unidad base {productForm.defaultUnitCode}.</InfoBox>}
+            </div> : <InfoBox>Existencia propia por unidad: {productForm.defaultUnitCode === "piece" ? "pieza" : productForm.defaultUnitCode}.</InfoBox>}
 
             {needsInitialInventory ? (
               <SelectField
@@ -2051,7 +2051,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               />
             ) : isEditing && needsLocation ? (
               <InfoBox>
-                El stock actual se conserva. Los ajustes de existencia se realizan desde Inventario.
+                {foodDirect ? "El stock propio se conserva. Guardar el producto no registra entradas ni ajustes." : "El stock actual se conserva. Los ajustes de existencia se realizan desde Inventario."}
               </InfoBox>
             ) : (
               <InfoBox>
@@ -2082,7 +2082,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               ?.variants ? (
               <ToggleRow
                 title="Producto con variantes"
-                description="Cada combinaci?n puede tener precio, SKU y existencia independiente."
+                description="Cada combinación puede tener precio, SKU y existencia independiente."
                 checked={productForm.hasVariants}
                 onChange={toggleVariants}
               />
@@ -2103,7 +2103,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
 
               <ToggleRow
                 title="Disponible para compra"
-                description="Podr? recibir costo y reposici?n."
+                description="Podrá recibir costo y reposición."
                 checked={productForm.purchasable}
                 disabled={
                   productForm.productType ===
@@ -2124,11 +2124,11 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                   <p className="text-sm font-black text-[var(--pos-text)]">
                     {productForm.hasVariants
                       ? "Variantes"
-                      : "Presentaci?n"}
+                      : "Presentación"}
                   </p>
                   <p className="mt-1 text-xs font-semibold text-[var(--pos-text-muted)]">
                     {productForm.hasVariants
-                      ? "Configura cada combinaci?n vendible."
+                      ? "Configura cada combinación vendible."
                       : "Configura el precio principal."}
                   </p>
                 </div>
@@ -2180,10 +2180,10 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                   onClick={() => void generateMissingBarcodes()}
                   className="pos-ui-focus h-10 rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-3 text-xs font-bold text-[var(--pos-text-primary)]"
                 >
-                  Generar c?digos faltantes
+                  Generar códigos faltantes
                 </button>
                 <span className="text-[11px] text-[var(--pos-text-muted)]">
-                  Los SKU y c?digos existentes nunca se reemplazan.
+                  Los SKU y códigos existentes nunca se reemplazan.
                 </span>
               </div>
 
@@ -2262,8 +2262,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               </div>
               {isEditing ? (
                 <div className="mt-3 grid gap-1 text-xs text-[var(--pos-text-muted)]">
-                  <p>Las variantes se administran aqu?. Las existencias se reciben y ajustan desde Inventario.</p>
-                  <p>Las variantes inactivas conservan sus ventas, inventario y movimientos hist?ricos.</p>
+                  <p>{foodDirect ? "Cada variante conserva su existencia propia por unidades." : "Las variantes se administran aquí. Las existencias se reciben y ajustan desde Inventario."}</p>
+                  <p>Las variantes inactivas conservan sus ventas, inventario y movimientos históricos.</p>
                 </div>
               ) : null}
             </div>
@@ -2294,7 +2294,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         </PosDrawer>
 
         <PosSection
-          title="Cat?logo"
+          title="Catálogo"
           description="Productos, servicios y variantes disponibles."
         >
           <div className="grid gap-2 rounded-[var(--pos-radius-md)] bg-[var(--pos-panel)] p-3 md:grid-cols-[minmax(240px,1fr)_auto]">
@@ -2323,22 +2323,23 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           {products.length > 0 ? (
             <>
               <div className="hidden md:block">
-                <PosDataTable caption="Cat?logo de productos" density="compact" minWidth={820}>
+                <PosDataTable caption="Catálogo de productos" density="compact" minWidth={820}>
                   <thead className="bg-[var(--pos-panel-raised)] text-left text-[11px] font-semibold text-[var(--pos-text-muted)]">
                     <tr>
                       <th>Producto</th>
-                      <th>SKU / c?digo</th>
-                      <th className="hidden lg:table-cell">Categor?a</th>
+                      <th>SKU / código</th>
+                      <th className="hidden lg:table-cell">Categoría</th>
                       <th className="text-right">Variantes</th>
                       <th className="text-right">Precio</th>
-                      <th className="text-right">Stock</th>
+                      <th className="text-right">{foodDirect ? "Disponibilidad" : "Stock"}</th>
                       <th>Estado</th>
-                      <th className="text-right">Acci?n</th>
+                      <th className="text-right">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {products.map((product) => (
                       <ProductTableRow
+                        foodDirect={foodDirect}
                         key={product.id}
                         product={product}
                         currency={currency}
@@ -2353,6 +2354,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               <div className="grid gap-2 md:hidden">
                 {products.map((product) => (
                   <ProductCard
+                    foodDirect={foodDirect}
                     key={product.id}
                     product={product}
                     currency={currency}
@@ -2391,8 +2393,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         }
         description={
           activeChangeProduct?.active
-            ? "Dejar? de estar disponible para nuevas ventas. Las ventas, variantes e inventario hist?ricos se conservan y podr?s reactivarlo despu?s."
-            : "El producto volver? a estar disponible seg?n sus flags de venta y el estado individual de sus variantes."
+            ? "Dejará de estar disponible para nuevas ventas. Las ventas, variantes e inventario históricos se conservan y podrás reactivarlo después."
+            : "El producto volverá a estar disponible según sus opciones de venta y el estado individual de sus variantes."
         }
         size="small"
         dismissible={!isChangingActive}
@@ -2560,7 +2562,7 @@ function VariantEditor({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold text-[var(--pos-text-primary)]">
-              {hasVariants ? `Variante ${index + 1}` : foodDirect ? "Producto directo" : "Presentaciï¿½n principal"}
+              {hasVariants ? `Variante ${index + 1}` : foodDirect ? "Listo para vender" : "Presentación principal"}
             </p>
             <PosBadge
               tone={!variant.id ? "info" : variant.active ? "success" : "neutral"}
@@ -2610,7 +2612,7 @@ function VariantEditor({
           placeholder={
             hasVariants
               ? "Negro ? Mediana"
-              : "?nica"
+              : "única"
           }
         />
 
@@ -2669,7 +2671,7 @@ function VariantEditor({
           />
 
           <Field
-            label="C?digo de barras"
+            label="Código de barras"
             value={variant.barcode}
             onChange={(value) =>
               onChange("barcode", value)
@@ -2684,7 +2686,7 @@ function VariantEditor({
             onClick={() => void onGenerateBarcode()}
             className="pos-ui-focus h-8 w-fit rounded-[var(--pos-radius-sm)] bg-[var(--pos-surface-2)] px-2.5 text-[11px] font-bold text-[var(--pos-primary-text)]"
           >
-            Generar c?digo interno para esta variante
+            Generar código interno para esta variante
           </button>
         ) : null}
 
@@ -2715,7 +2717,7 @@ function VariantEditor({
             />
 
             <MoneyField
-              label="Existencia m?nima"
+              label="Existencia mínima"
               value={variant.minimumQuantity}
               onChange={(value) =>
                 onChange(
@@ -2730,7 +2732,7 @@ function VariantEditor({
 
         {showCurrentStock ? (
           <InfoBox>
-            Stock actual: {formatQuantity(variant.currentStock)}. Ed?talo desde Inventario; guardar este formulario no modifica existencias.
+            Stock actual: {formatQuantity(variant.currentStock)}. {foodDirect ? "Existencia propia del producto; guardar este formulario no modifica existencias." : "Edítalo desde Inventario; guardar este formulario no modifica existencias."}
           </InfoBox>
         ) : null}
 
@@ -2764,7 +2766,7 @@ function VariantEditor({
                 {variant.imageUrl ? "Reemplazar imagen" : "Subir imagen"}
               </button>
               <p className="mt-1 text-[11px] text-[var(--pos-text-muted)]">
-                {variant.imageUrl ? "Imagen propia de esta variante" : productImageUrl ? "Usando imagen principal" : "Sin imagen propia todav?a"}
+                {variant.imageUrl ? "Imagen propia de esta variante" : productImageUrl ? "Usando imagen principal" : "Sin imagen propia todavía"}
               </p>
               {variant.imageUrl ? (
                 <button type="button" onClick={() => void onRemoveImage()} className="mt-1 text-[11px] font-bold text-rose-300 hover:text-rose-200">
@@ -2784,7 +2786,7 @@ function VariantEditor({
                   onClick={() => onApplyImage("emptyOnly")}
                   className="pos-ui-focus rounded-[var(--pos-radius-sm)] border border-cyan-300/20 bg-[var(--pos-primary)]/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--pos-primary-text)]"
                 >
-                  S?lo variantes sin imagen
+                  Sólo variantes sin imagen
                 </button>
                 <button
                   type="button"
@@ -2881,7 +2883,7 @@ function ProductDetailDrawer({
       onClose={onClose}
       width="medium"
       title={product?.name || "Producto"}
-      description="Variantes, identificaci?n, precio y disponibilidad."
+      description="Variantes, identificación, precio y disponibilidad."
     >
       {product ? (
         <div className="grid gap-4">
@@ -2889,7 +2891,7 @@ function ProductDetailDrawer({
             <PosBadge tone={product.active && product.sellable ? "success" : "neutral"} dot>
               {product.active && product.sellable ? "Activo" : "Inactivo"}
             </PosBadge>
-            <PosBadge tone="neutral">{product.category?.name || "Sin categor?a"}</PosBadge>
+            <PosBadge tone="neutral">{product.category?.name || "Sin categoría"}</PosBadge>
           </div>
           <div className="overflow-hidden rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)]">
             {product.variants.map((variant) => (
@@ -2905,7 +2907,7 @@ function ProductDetailDrawer({
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-[var(--pos-text-secondary)]">
                   <span className="truncate font-mono">{variant.sku || "Sin SKU"}</span>
-                  <span className="truncate font-mono">{variant.barcode || "Sin c?digo"}</span>
+                  <span className="truncate font-mono">{variant.barcode || "Sin código"}</span>
                   <span className="text-right">{product.inventory_mode === "none" ? "Sin inventario" : `${formatQuantity(variant.stock.available)} disp.`}</span>
                 </div>
               </div>
@@ -2917,7 +2919,18 @@ function ProductDetailDrawer({
   );
 }
 
+function FoodDirectAvailability({ product }: { product: Product }) {
+  if (product.inventory_mode !== "direct") return <span>Sin control de existencias</span>;
+  const available = Math.max(0, Number(product.summary.availableStock));
+  const low = product.variants.some(variant => variant.active && variant.inventory.some(row => row.available_quantity <= row.minimum_quantity));
+  return <span className={available < 1 ? "text-[var(--pos-danger)]" : low ? "text-amber-600" : "text-[var(--pos-text-primary)]"}>
+    <strong className="block">{available < 1 ? "Agotado" : low ? "Pocas existencias" : "Disponible"}</strong>
+    <span className="block">{formatQuantity(available)} piezas disponibles</span><small className="block">Total de sucursales</small>
+  </span>;
+}
+
 function ProductTableRow({
+  foodDirect = false,
   product,
   currency,
   onOpen,
@@ -2929,6 +2942,7 @@ function ProductTableRow({
   onOpen: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  foodDirect?: boolean;
 }) {
   const primaryVariant = product.variants[0];
   const priceLabel =
@@ -2953,7 +2967,7 @@ function ProductTableRow({
           <div className="min-w-0">
             <p className="max-w-64 truncate text-sm font-semibold text-[var(--pos-text-primary)]">{product.name}</p>
             {product.product_code ? <p className="mt-0.5 font-mono text-[10px] text-[var(--pos-primary-text)]">Clave: {product.product_code}</p> : null}
-            <p className="mt-0.5 text-[11px] text-[var(--pos-text-muted)]">{product.product_type === "service" ? "Servicio" : "Producto f?sico"}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--pos-text-muted)]">{product.product_type === "service" ? "Servicio" : "Producto físico"}</p>
           </div>
         </div>
       </td>
@@ -2962,12 +2976,12 @@ function ProductTableRow({
           {primaryVariant?.sku || primaryVariant?.barcode || "?"}
         </span>
       </td>
-      <td className="hidden lg:table-cell">{product.category?.name || "Sin categor?a"}</td>
+      <td className="hidden lg:table-cell">{product.category?.name || "Sin categoría"}</td>
       <td className="text-right">{product.summary.variantCount}</td>
       <td className="whitespace-nowrap text-right font-semibold text-[var(--pos-text-primary)]">{priceLabel}</td>
       <td className="text-right">
         <PosBadge tone={stockTone} size="compact">
-          {product.inventory_mode === "none" ? "No aplica" : formatQuantity(availableStock)}
+          {foodDirect ? <FoodDirectAvailability product={product} /> : product.inventory_mode === "none" ? "No aplica" : formatQuantity(availableStock)}
         </PosBadge>
       </td>
       <td>
@@ -3003,6 +3017,7 @@ function ProductTableRow({
 }
 
 function ProductCard({
+  foodDirect = false,
   product,
   currency,
   onOpen,
@@ -3014,6 +3029,7 @@ function ProductCard({
   onOpen: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  foodDirect?: boolean;
 }) {
   const priceLabel =
     product.summary.minimumPrice ===
@@ -3048,7 +3064,7 @@ function ProductCard({
               </h3>
               {product.product_code ? <p className="mt-1 font-mono text-[10px] text-[var(--pos-primary-text)]">Clave: {product.product_code}</p> : null}
               <p className="mt-1 truncate text-xs text-[var(--pos-text-muted)]">
-                {product.category?.name || "Sin categor?a"} ? {product.summary.variantCount} variantes
+                {product.category?.name || "Sin categoría"} ? {product.summary.variantCount} variantes
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -3063,7 +3079,7 @@ function ProductCard({
               {product.active && product.sellable ? "Activo" : "Inactivo"}
             </PosBadge>
             <p className="text-xs text-[var(--pos-text-secondary)]">
-              {product.inventory_mode === "none" ? "Sin inventario" : `${formatQuantity(product.summary.availableStock)} disponibles`}
+              {foodDirect ? <FoodDirectAvailability product={product} /> : product.inventory_mode === "none" ? "Sin inventario" : `${formatQuantity(product.summary.availableStock)} disponibles`}
             </p>
           </div>
           <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
@@ -3137,7 +3153,7 @@ function ProductScanner({
                 onChange={(event) =>
                   onCodeChange(event.target.value)
                 }
-                placeholder="Escanea o escribe el c?digo"
+                placeholder="Escanea o escribe el código"
                 className="pos-ui-focus h-11 w-full rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 pr-11 font-mono text-sm font-medium text-[var(--pos-text-primary)] outline-none placeholder:font-sans placeholder:text-[var(--pos-text-muted)]"
               />
 
@@ -3159,7 +3175,7 @@ function ProductScanner({
             >
               {isScanning
                 ? "Buscando..."
-                : "Buscar c?digo"}
+                : "Buscar código"}
             </PosButton>
           </form>
         </div>
@@ -3168,7 +3184,7 @@ function ProductScanner({
           {!result ? (
             <div className="flex min-h-11 items-center gap-3 text-xs text-[var(--pos-text-muted)]">
               <PosIcon name="barcode" className="h-4 w-4" />
-              Esperando SKU o c?digo de barras
+              Esperando SKU o código de barras
             </div>
           ) : result.found ? (
             <div>
@@ -3199,7 +3215,7 @@ function ProductScanner({
                   label="Coincidencia"
                   value={
                     result.matchType === "barcode"
-                      ? "C?digo"
+                      ? "Código"
                       : "SKU"
                   }
                 />
@@ -3223,14 +3239,14 @@ function ProductScanner({
                 onClick={onOpenProduct}
                 className="pos-ui-focus mt-3 flex h-10 w-full items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-success-soft)] px-3 text-xs font-semibold text-[var(--pos-success)]"
               >
-                Ver producto en cat?logo
+                Ver producto en catálogo
               </button>
             </div>
           ) : (
             <div>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <PosBadge tone="warning" size="compact">C?digo nuevo</PosBadge>
+                  <PosBadge tone="warning" size="compact">Código nuevo</PosBadge>
 
                   <h4 className="mt-2 text-sm font-semibold text-[var(--pos-text-primary)]">
                     No est? registrado
@@ -3251,9 +3267,9 @@ function ProductScanner({
               </div>
 
               <p className="mt-3 text-xs leading-5 text-[var(--pos-text-muted)]">
-                Se coloc? autom?ticamente como{" "}
+                Se colocó automáticamente como{" "}
                 {result.suggestedField === "barcode"
-                  ? "c?digo de barras"
+                  ? "código de barras"
                   : "SKU"}{" "}
                 de la primera variante.
               </p>
@@ -3263,7 +3279,7 @@ function ProductScanner({
                 onClick={onContinueCreation}
                 className="pos-ui-focus mt-3 flex h-10 w-full items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-warning)] px-3 text-xs font-semibold text-slate-950"
               >
-                Completar informaci?n
+                Completar información
               </button>
             </div>
           )}
@@ -3338,7 +3354,7 @@ function RequiredConfiguration({
       <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-200">
-            Configuraci?n requerida
+            Configuración requerida
           </p>
           <h3 className="mt-2 text-2xl font-black text-[var(--pos-text)]">
             {title}
@@ -3355,7 +3371,7 @@ function RequiredConfiguration({
           )}
           className="flex h-12 items-center justify-center rounded-[15px] bg-amber-300 px-6 text-sm font-black text-slate-950"
         >
-          Abrir configuraci?n
+          Abrir configuración
         </Link>
       </div>
     </div>
@@ -3380,7 +3396,7 @@ function QuickCategory({
         onChange={(event) =>
           onChange(event.target.value)
         }
-        placeholder="Crear categor?a r?pida"
+        placeholder="Crear categoría rápida"
         className="h-10 min-w-0 flex-1 bg-transparent px-2 text-sm text-[var(--pos-text-primary)] outline-none placeholder:text-[var(--pos-text-muted)]"
       />
 
@@ -3511,12 +3527,12 @@ function EmptyCatalog({
         <h4 className="mt-4 text-base font-semibold text-[var(--pos-text-primary)]">
           {hasSearch
             ? "No encontramos coincidencias"
-            : "Tu cat?logo est? vac?o"}
+            : "Tu catálogo está vacío"}
         </h4>
 
         <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">
           {hasSearch
-            ? "Prueba con otro t?rmino o elimina el filtro."
+            ? "Prueba con otro término o elimina el filtro."
             : "Crea el primer producto para conectarlo con inventario y ventas."}
         </p>
 
@@ -3526,7 +3542,7 @@ function EmptyCatalog({
             onClick={onClear}
             className="mt-5 rounded-[14px] bg-[var(--pos-surface-2)] px-5 py-3 text-xs font-black text-[var(--pos-primary-text)]"
           >
-            Limpiar b?squeda
+            Limpiar búsqueda
           </button>
         ) : null}
       </div>
@@ -3573,7 +3589,7 @@ function ProductImageUploader({
           Se utilizar? como imagen predeterminada para las variantes que no tengan una imagen propia.
         </p>
         <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-          JPG, PNG o WEBP. M?ximo 5 MB.
+          JPG, PNG o WEBP. Máximo 5 MB.
         </p>
       </div>
 
@@ -3599,7 +3615,7 @@ function ProductImageUploader({
               Imagen principal
             </p>
             <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-              Se mostrar? en el cat?logo y en Nueva venta.
+              Se mostrará en el catálogo y en Nueva venta.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <PosButton
@@ -3647,7 +3663,7 @@ function ProductImageUploader({
             {uploading ? "Subiendo imagen..." : "Subir imagen"}
           </p>
           <p className="mt-1 text-xs text-[var(--pos-text-secondary)]">
-            Selecciona un archivo o arr?stralo aqu?.
+            Selecciona un archivo o arrástralo aquí.
           </p>
         </div>
       )}
@@ -3670,7 +3686,7 @@ function ProductImageUploader({
             placeholder="https://..."
           />
           <p className="mt-2 text-xs text-[var(--pos-text-muted)]">
-            Compatible con im?genes hist?ricas. COMETA no eliminar? archivos externos.
+            Compatible con imágenes históricas. COMETA no eliminará archivos externos.
           </p>
         </div>
       </details>
@@ -3874,7 +3890,7 @@ function buildVariantName(
   return parts.length > 0
     ? parts.join(" ? ")
     : index === 0
-    ? "?nica"
+    ? "única"
     : `Variante ${index + 1}`;
 }
 
@@ -3923,7 +3939,7 @@ function formatAttributes(
 
   return values.length > 0
     ? values.join(" ? ")
-    : "Presentaci?n ?nica";
+    : "Presentación única";
 }
 
 function createAttributeTokenMap(values: string[]) {
@@ -4007,7 +4023,7 @@ async function apiRequest<T = unknown>(
     throw new Error(
       data?.error ||
         data?.message ||
-        "No se pudo completar la operaci?n."
+        "No se pudo completar la operación."
     );
   }
 
@@ -4057,5 +4073,5 @@ function isManagedProductImageUrl(imageUrl: string, brandSlug: string) {
 function getErrorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
-    : "Ocurri? un error inesperado.";
+    : "Ocurrió un error inesperado.";
 }

@@ -20,7 +20,8 @@ const numericInput = compile("src/lib/pos/numeric-input.ts");
 const modalUi = compile("src/app/brand/[brandSlug]/components/pos-ui/pos-modal.tsx");
 const drawerUi = compile("src/app/brand/[brandSlug]/components/pos-ui/pos-drawer.tsx");
 const modifierUi = compile("src/app/brand/[brandSlug]/components/pos-food-modifiers.tsx", {"@/lib/pos/food-shared":shared,"./pos-ui/pos-modal":modalUi});
-const receiptUi = compile("src/app/brand/[brandSlug]/components/pos-food-receipt.tsx", {"@/lib/pos/food-shared":shared,"./pos-food-modifiers":modifierUi});
+const receiptSocialsUi = compile("src/app/brand/[brandSlug]/components/pos-receipt-socials.tsx");
+const receiptUi = compile("src/app/brand/[brandSlug]/components/pos-food-receipt.tsx", {"@/lib/pos/food-shared":shared,"./pos-food-modifiers":modifierUi,"./pos-receipt-socials":receiptSocialsUi});
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 class PosApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
 function fixture(role = "ADMIN") {

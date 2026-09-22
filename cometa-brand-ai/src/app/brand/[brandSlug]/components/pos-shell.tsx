@@ -64,6 +64,9 @@ export type PosBranding = {
   website?: string | null;
   ticket_footer?: string | null;
   receipt_message?: string | null;
+  instagram?: string | null;
+  facebook?: string | null;
+  tiktok?: string | null;
   primary_color: string;
   secondary_color: string;
   accent_color: string;
