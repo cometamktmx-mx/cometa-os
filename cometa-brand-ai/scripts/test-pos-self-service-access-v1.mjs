@@ -65,10 +65,15 @@ function load(file) {
   const loaded = { exports: {} };
   cache.set(absolute, loaded);
   const code = ts.transpileModule(fs.readFileSync(absolute, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const require = (name) => {
     if (name === "server-only") return {};
+    if (name.endsWith(".css")) return {};
+    if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+    if (name === "../components/pos-shell") return { default: "PosShell" };
+    if (name === "next/link") return { default: "Link" };
+    if (name === "next/navigation") return { redirect: (url) => { throw new Error(`redirect:${url}`); } };
     if (name === "next/headers") return { cookies: async () => ({ getAll: () => [] }) };
     if (name === "next/server") return { NextResponse: { json: (body, options) => Response.json(body, options) } };
     if (name === "@supabase/supabase-js") return { createClient: () => db };
@@ -149,7 +154,9 @@ const { resolveBrandOsProductAccess } = load("src/lib/brand-os/access.ts");
 check(resolveBrandOsProductAccess({ membershipActive: true, isPlatformAdmin: false, osAccess: { status: "not_configured", commercialAccessActive: false } }).effectiveAccessAllowed, false);
 // Execute the actual bootstrap route with a Macca-like owner and commercial grant.
 const { GET: bootstrap } = load("src/app/api/pos/bootstrap/route.ts");
-for (const profileCode of ["coffee_shop", "restaurant"]) {
+const { default: PosLayout } = load("src/app/brand/[brandSlug]/pos/layout.tsx");
+const enterPos = (brandSlug = "owned-brand") => PosLayout({ children: "POS content", params: Promise.resolve({ brandSlug }) });
+for (const profileCode of ["coffee_shop", "restaurant", "retail"]) {
   reset(); state.tables.user_profiles = []; state.grant = true;
   Object.assign(state.tables, {
     pos_business_profiles: [{ brand_slug: "owned-brand", profile_code: profileCode, operation_mode: "single", onboarding_status: "not_started" }],
@@ -168,8 +175,19 @@ for (const profileCode of ["coffee_shop", "restaurant"]) {
   check(body.membership.effectiveRole, "owner"); check(body.profileCode, profileCode);
   check(body.effectiveCommercialAccess.grant.active, true);
   check(body.effectiveEntitlements.entitlements.includes("pos.access"), true);
+  check((await enterPos()).type, "PosShell");
+  check(getPosSurfaceState({ pathname: "/brand/owned-brand/pos", brandSlug: "owned-brand", ready: true,
+    commercialAccessAllowed: body.effectiveCommercialAccess.effective.accessAllowed,
+    entitlements: body.effectiveEntitlements.entitlements }), "operation");
+  check((await enterPos("other-brand")).type, "main");
+  state.tables.user_profiles = [{ user_id: "creator", role: "client", status: "inactive" }];
+  check((await enterPos()).type, "main");
+  state.tables.user_profiles = [];
   state.tables.user_brand_access = [];
   const denied = await bootstrap(new Request("http://localhost/api/pos/bootstrap?brandSlug=owned-brand"));
   check(denied.status, 403); check((await denied.json()).code, "POS_ACCOUNT_ACCESS_DENIED");
+  check((await enterPos()).type, "main");
+  state.tables.user_profiles = [{ user_id: "creator", role: "admin", status: "active" }];
+  check((await enterPos()).type, "PosShell");
 }
 console.log(`PASS self-service/POS guard policy: ${assertions} assertions (no network)`);

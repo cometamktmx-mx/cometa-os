@@ -152,6 +152,7 @@ export default function PosShell({
   const [branding, setBranding] = useState<PosBranding | null>(null);
   const [networkState, setNetworkState] = useState<PosContextValue["networkState"]>(() => typeof navigator !== "undefined" && !navigator.onLine ? "OFFLINE" : "ONLINE");
   const lastRevalidation = useRef(0);
+  const bootstrapRevision = useRef(0);
   const revalidationInFlight = useRef<Promise<void> | null>(null);
   const [operatorGateRequired, setOperatorGateRequired] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
@@ -169,6 +170,7 @@ export default function PosShell({
     let isMounted = true;
 
     async function loadPosContext() {
+      const revision = ++bootstrapRevision.current;
       if (!brandSlug) {
         setLoadError("No se encontrÃ³ una marca vÃ¡lida en la URL.");
         setIsLoading(false);
@@ -223,7 +225,7 @@ export default function PosShell({
           );
         }
 
-        if (!isMounted) return;
+        if (!isMounted || revision !== bootstrapRevision.current) return;
 
         void offlinePut("bootstrap", offlineScope(brandSlug), data);
 
@@ -259,6 +261,7 @@ export default function PosShell({
         if (!isMounted) return;
 
         const cached = await offlineGet<Record<string, unknown>>("bootstrap", offlineScope(brandSlug));
+        if (!isMounted || revision !== bootstrapRevision.current) return;
         if (cached?.value && typeof cached.value === "object") {
           const data = cached.value as Record<string, unknown>;
           const cachedBrand = data.brand as { slug?: unknown };
@@ -307,19 +310,40 @@ export default function PosShell({
     if (!brandSlug || Date.now() - lastRevalidation.current < 15000 || revalidationInFlight.current) return;
     lastRevalidation.current = Date.now();
     const promise = (async () => {
+      const revision = ++bootstrapRevision.current;
       setNetworkState("SYNCING");
       try {
         const response = await fetch(`/api/pos/bootstrap?brandSlug=${encodeURIComponent(brandSlug)}`, { cache: "no-store" });
         if (!response.ok) throw new Error("BOOTSTRAP_REVALIDATION_FAILED");
         const data = await response.json();
-        if (data?.branding && JSON.stringify(data.branding) !== JSON.stringify(branding)) updateBranding(data.branding);
+        if (!data?.ok || data.brand?.slug !== brandSlug ||
+            !isSubscriptionLifecycle(data.lifecycle) ||
+            !isEffectiveCommercialAccess(data.effectiveCommercialAccess) ||
+            !isEffectiveEntitlementsResponse(data.effectiveEntitlements) ||
+            typeof data.profileCode !== "string" || !isPosProfileFamily(data.profileFamily) ||
+            !isEffectiveCapabilities(data.effectiveCapabilities)) throw new Error("BOOTSTRAP_REVALIDATION_INVALID");
+        if (revision !== bootstrapRevision.current) return;
+        setBrand({ slug: data.brand.slug, name: data.brand.name || initialBrand.name,
+          industry: data.brand.industry || "Comercio", brandId: data.brand.id || null, brandExists: Boolean(data.brand.id) });
+        setUser(data.user ? { id: String(data.user.userId || ""), email: data.user.email || null,
+          role: data.user.role === "admin" ? "admin" : "client", isAdmin: Boolean(data.user.isAdmin) } : null);
+        setLifecycle(data.lifecycle);
+        setEffectiveCommercialAccess(data.effectiveCommercialAccess);
+        setEffectiveEntitlements(data.effectiveEntitlements.entitlements);
+        setProfileCode(data.profileCode);
+        setProfileFamily(data.profileFamily);
+        setEffectiveCapabilities(data.effectiveCapabilities);
+        updateBranding(data.branding || null);
+        setLoadedBrandSlug(brandSlug);
+        setLoadError(null);
+        setIsLoading(false);
         void offlinePut("bootstrap", offlineScope(brandSlug), data);
         setNetworkState("ONLINE");
       } catch { setNetworkState(navigator.onLine ? "SYNC_ERROR" : "OFFLINE"); }
       finally { revalidationInFlight.current = null; }
     })();
     revalidationInFlight.current = promise; await promise;
-  }, [brandSlug, branding, updateBranding]);
+  }, [brandSlug, initialBrand, updateBranding]);
 
   useEffect(() => {
     const onOnline = () => { void revalidate(); };
