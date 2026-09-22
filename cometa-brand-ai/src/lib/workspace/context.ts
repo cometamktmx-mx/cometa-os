@@ -74,6 +74,9 @@ export function getWorkspaceDestination(context: Pick<UserWorkspaceContext, "pro
   if (context.profile?.status === "inactive") return "/workspace";
   if (context.isCanonicalAdmin || context.brands.length > 1) return "/workspace";
   if (context.brands.length === 0) return context.hasPendingInvitation ? "/invite" : "/onboarding/business";
+  if (context.brands[0].pos.available && context.brands[0].osStatus !== "active") {
+    return `/brand/${encodeURIComponent(context.brands[0].slug)}/pos`;
+  }
   return `/brand/${encodeURIComponent(context.brands[0].slug)}`;
 }
 
