@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 const headers = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "private, no-store",
-  "Referrer-Policy": "no-referrer",
+  // Preserve a native form POST's Origin without forwarding the token-bearing URL.
+  "Referrer-Policy": "strict-origin",
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
@@ -25,6 +26,11 @@ function destination(value: string | null) {
 
 function validToken(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 2048 && !/[\s\u0000-\u001f\u007f]/.test(value);
+}
+
+function reportFailure(reason: "missing_token" | "invalid_request" | "origin_rejected" | "verifyOtp_error") {
+  // Never log the token, URL, form body, cookies or raw provider error.
+  console.warn("COMETA_SIGNUP_CONFIRM_FAILURE", { reason });
 }
 
 function page(token: string | null, next: string, message?: string, status = 200) {
@@ -47,20 +53,23 @@ export function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) {
+    reportFailure("origin_rejected");
     return page(null, "/onboarding/business", "Abre el enlace de tu correo y pulsa Confirmar mi cuenta.", 403);
   }
   let form: FormData;
   try { form = await request.formData(); }
-  catch { return page(null, "/onboarding/business", "No pudimos leer la solicitud. Abre nuevamente el enlace del correo.", 400); }
+  catch { reportFailure("invalid_request"); return page(null, "/onboarding/business", "No pudimos leer la solicitud. Abre nuevamente el enlace del correo.", 400); }
   const token = form.get("token_hash");
   const next = destination(typeof form.get("next") === "string" ? String(form.get("next")) : null);
   if (!validToken(token) || form.get("type") !== "email") {
+    reportFailure(token === null || token === "" ? "missing_token" : "invalid_request");
     return page(null, next, "Este enlace de confirmación no es válido. Solicita un nuevo correo.", 400);
   }
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.verifyOtp({ token_hash: token, type: "email" });
     if (error || !data.session) {
+      reportFailure("verifyOtp_error");
       return page(null, next, "Este enlace venció, ya fue utilizado o no es válido. Si ya confirmaste tu cuenta, inicia sesión; de lo contrario, solicita un nuevo correo.", 400);
     }
     const response = NextResponse.redirect(new URL(next, request.url), 303);
@@ -68,6 +77,7 @@ export async function POST(request: NextRequest) {
     response.headers.set("Referrer-Policy", "no-referrer");
     return response;
   } catch {
+    reportFailure("verifyOtp_error");
     return page(token, next, "No pudimos confirmar tu cuenta en este momento. Inténtalo nuevamente.", 503);
   }
 }
