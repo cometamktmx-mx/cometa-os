@@ -1,14 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-function safeInternalNext(value: string | null) {
-  if (value && value.startsWith("/") && !value.startsWith("//")) {
-    return value;
-  }
-
-  return "/onboarding/business";
-}
-
 function safeInviteNext(value: string | null) {
   if (value === "/invite" || value?.startsWith("/invite?")) {
     return value;
@@ -22,9 +14,20 @@ export async function GET(request: NextRequest) {
   const requestedType = request.nextUrl.searchParams.get("type");
   const nextValue = request.nextUrl.searchParams.get("next");
 
-  // OAuth and other PKCE flows continue through /auth/callback. Only the two
-  // token-hash email flows owned by this application are accepted here.
-  if (tokenHash && (requestedType === "email" || requestedType === "invite")) {
+  if (requestedType === "email") {
+    const url = new URL("/confirm-signup", request.url);
+    if (tokenHash) url.searchParams.set("token_hash", tokenHash);
+    url.searchParams.set("type", "email");
+    url.searchParams.set("next", "/onboarding/business");
+    const response = NextResponse.redirect(url, 303);
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    return response;
+  }
+
+  // OAuth and other PKCE flows continue through /auth/callback.
+  // Signup GETs only display a form; invitations retain their existing flow.
+  if (tokenHash && requestedType === "invite") {
     const supabase = await createClient();
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
@@ -32,9 +35,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!error) {
-      const next = requestedType === "invite"
-        ? safeInviteNext(nextValue)
-        : safeInternalNext(nextValue);
+      const next = safeInviteNext(nextValue);
 
       return NextResponse.redirect(new URL(next, request.url));
     }
