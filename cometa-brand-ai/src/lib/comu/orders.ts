@@ -26,13 +26,18 @@ export async function getBuyerOrder(orderId: string) {
   return data;
 }
 
-export async function cancelBuyerOrder(orderId: string) {
+export async function cancelBuyerOrder(orderId: string, restock = false) {
   const { buyer, admin } = await requireComuBuyer();
   const { data: existing } = await admin.from("comu_orders").select("id,status").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
   if (!existing) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "La orden no existe.");
   const { data: payment } = await admin.from("comu_payment_intents").select("stripe_payment_intent_id,status").eq("order_id", orderId).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (payment?.stripe_payment_intent_id && !["SUCCEEDED", "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED"].includes(payment.status)) {
     await getStripeClient().paymentIntents.cancel(payment.stripe_payment_intent_id);
+  }
+  if (restock && existing.status !== "PAYMENT_PENDING") {
+    const { data: restocked, error: restockError } = await admin.rpc("comu_restock_paid_order_v1", { p_order_id: orderId });
+    if (restockError) throw new PosApiError(409, restockError.message || "COMU_ORDER_RESTOCK_FAILED", "No se pudo reintegrar el inventario.");
+    return { order_id: orderId, restocked_items: restocked, status: "CANCELLED" };
   }
   const { data, error } = await admin.rpc("comu_cancel_order", { p_order_id: orderId });
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_ORDER_CANCEL_FAILED", error?.message === "COMU_ORDER_NOT_CANCELLABLE" ? "Esta orden ya no se puede cancelar." : "No se pudo cancelar la orden.");
