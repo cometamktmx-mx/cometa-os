@@ -1,0 +1,8 @@
+"use client";
+import { useState } from "react";
+
+export default function WholesaleProductEditor({ sellerId, listingId }: { sellerId: string; listingId: string }) {
+  const [mode, setMode] = useState("STORE"); const [run, setRun] = useState(false); const [message, setMessage] = useState("");
+  async function save() { const response = await fetch("/api/comu/wholesale/product", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId, listingId, mode, allowPieces: true, allowVariantMix: true, allowRun: run, corridaEnabled: run }) }); const data = await response.json() as { ok?: boolean; error?: string }; setMessage(data.ok ? "Mayoreo guardado." : data.error || "No se pudo guardar."); }
+  return <div className="mt-3 rounded-xl border border-black/10 bg-slate-50 p-3"><p className="text-[10px] font-black uppercase tracking-[.16em]">Mayoreo</p><div className="mt-2 flex flex-wrap items-center gap-2"><select aria-label="Configuración de mayoreo" value={mode} onChange={(event) => setMode(event.target.value)} className="rounded-lg border border-black/10 bg-white px-2 py-1 text-xs"><option value="STORE">Usar configuración de mi tienda</option><option value="CUSTOM">Configuración personalizada</option><option value="DISABLED">Desactivado</option></select><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={run} onChange={(event) => setRun(event.target.checked)} /> Permitir corrida</label><button onClick={() => void save()} className="rounded-full bg-[#17201d] px-3 py-1 text-xs font-bold text-white">Guardar</button></div>{message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}</div>;
+}
