@@ -32,6 +32,11 @@ export async function POST(request: Request) {
     const location = uuidValue(body.locationId, 'locationId') as string;
     const { context, session } = await requireFoodRecipesAdmin(requiredText(body.brandSlug, 'brandSlug', 120), location);
     const { action, payload } = recipeCommand(body);
+    if (action === 'effects_save') {
+      const { data, error } = await context.admin.rpc('pos_food_effects_save_v2', { brand: context.brand.slug, host: context.user.userId, session: session.id, location, product: payload.product_id, option_id: payload.option_id, effects: payload.effects, command_key: payload.command_key });
+      assertFoodResult(error, data);
+      return ok({ result: data });
+    }
     if (action === 'image_save') {
       const imageUrl = typeof payload.image_url === 'string' && payload.image_url ? payload.image_url : null;
       if (imageUrl && !isManagedProductImageUrl(imageUrl, context.brand.slug)) {

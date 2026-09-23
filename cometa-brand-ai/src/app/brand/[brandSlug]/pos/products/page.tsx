@@ -340,6 +340,7 @@ export default function PosProductsPage() {
 }
 
 function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean }) {
+  const [foodAdvanced, setFoodAdvanced] = useState(false);
   const { brand } = usePosContext();
 
   const [locations, setLocations] = useState<Location[]>([]);
@@ -1836,6 +1837,22 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
             className="mt-6 grid gap-5"
             onSubmit={handleSaveProduct}
           >
+            {foodDirect && !foodAdvanced ? <div className="space-y-6" data-food-simple-product>
+              <section className="space-y-4"><h3 className="font-bold">Información</h3>
+                <Field label="Nombre" required value={productForm.name} onChange={name => setProductForm(current => ({ ...current, name }))} placeholder="Pan, brownie, botella de agua…" />
+                <SelectField label="Categoría" value={productForm.categoryId} onChange={categoryId => setProductForm(current => ({ ...current, categoryId }))} options={categories.map(category => [category.id, category.name])} />
+                <ProductImageUploader inputRef={productImageInputRef} imageUrl={productForm.imageUrl} uploading={isUploadingImage} error={imageUploadError} onFileSelected={uploadProductImage} onRemove={removeProductImage} onExternalUrlChange={imageUrl => setProductForm(current => ({ ...current, imageUrl }))} />
+              </section>
+              {variants.map(variant => <section key={variant.localId} className="space-y-4 rounded-xl border border-[var(--pos-border)] p-4">
+                {variants.length > 1 && <h3 className="font-bold">{variant.name}</h3>}
+                <div className="grid gap-4 sm:grid-cols-2"><MoneyField label="Precio" value={variant.price} onChange={value => updateVariant(variant.localId, 'price', value)} /><MoneyField label="Costo opcional" value={variant.cost} onChange={value => updateVariant(variant.localId, 'cost', value)} /></div>
+                <h3 className="font-bold">Existencia</h3><p className="text-sm">Unidad: {variant.unitCode === 'piece' ? 'pieza' : variant.unitCode}</p>
+                {isEditing ? <InfoBox>Stock actual: {formatQuantity(variant.currentStock)}. {variant.currentStock < 1 ? 'Agotado' : 'Con existencias'}. El stock se cambia mediante entradas y ajustes, no al guardar el producto.<br />Stock mínimo: {formatQuantity(editingProduct?.variants.find(item => item.id === variant.id)?.inventory.reduce((total, row) => total + Number(row.minimum_quantity), 0) || 0)}.</InfoBox> : <div className="grid gap-4 sm:grid-cols-2"><MoneyField label="Stock actual (inicial)" step="1" value={variant.initialQuantity} onChange={value => updateVariant(variant.localId, 'initialQuantity', value)} /><MoneyField label="Stock mínimo" step="1" value={variant.minimumQuantity} onChange={value => updateVariant(variant.localId, 'minimumQuantity', value)} /></div>}
+                <ToggleRow title="Activo" description="La falta de existencias se muestra como agotado automáticamente." checked={variant.active} onChange={active => setVariantActive(variant.localId, active)} />
+              </section>)}
+              {needsInitialInventory && <SelectField label="Sucursal" required value={productForm.locationId} onChange={locationId => setProductForm(current => ({ ...current, locationId }))} options={locations.map(location => [location.id, location.name])} />}
+              <section className="space-y-3"><h3 className="font-bold">Disponibilidad</h3><ToggleRow title="Disponible en menú" description="Permite ofrecer este producto cuando tenga existencias." checked={productForm.sellable} onChange={sellable => setProductForm(current => ({ ...current, sellable }))} /></section>
+            </div> : <>
             {!foodDirect ? <div className="grid gap-3 md:grid-cols-2">
               {liveProductTypes.map((option) => {
                 const active =
@@ -2268,6 +2285,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
               ) : null}
             </div>
 
+            </>}
+            {foodDirect && <button type="button" className="min-h-11 text-left text-sm underline" onClick={() => setFoodAdvanced(value => !value)}>{foodAdvanced ? "Volver al formulario simple" : "Opciones avanzadas · SKU, código, impuestos, compra y variantes"}</button>}
             <PosButton
               type="submit"
               size="touch"

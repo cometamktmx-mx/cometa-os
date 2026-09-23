@@ -24,8 +24,8 @@ export function foodCommand(body: Record<string, unknown>) {
   }
   const action = body.action as FoodAction;
   const payload: Record<string, unknown> = {};
-  const ids = action === "table_create" ? ["locationId"] : action === "open" ? ["tableId"]
-    : action === "item_add" ? ["checkId", "variantId"] : action === "item_update" ? ["checkId", "itemId"]
+  const ids = action === "table_create" ? ["locationId"] : action === "open" ? (body.serviceType === 'COUNTER' || body.serviceType === 'TAKEAWAY' ? ['locationId'] : ["tableId"])
+    : action === "item_add" ? ["checkId", "variantId"] : action === "item_update" || action === 'void_item' ? ["checkId", "itemId"]
     : ["prepare", "ready", "serve"].includes(action) ? ["checkId", "ticketId"]
     : action === "pay" ? ["checkId", "cashSessionId"] : ["checkId"];
   for (const key of ids) payload[key] = uuidValue(body[key], key);
@@ -42,11 +42,22 @@ export function foodCommand(body: Record<string, unknown>) {
     payload[key] = normalized || null;
   }
   if (action === "table_create") text("name", 60, true);
+  if (action === 'void_item') {
+    text('reason', 500);
+    if (typeof body.restock !== 'boolean') throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Indica si se reintegran los insumos.');
+    payload.restock = body.restock;
+  }
   if (action === "customer_set") {
     if (body.customerId !== null && body.customerId !== undefined && body.customerId !== "") payload.customerId = uuidValue(body.customerId, "customerId", true);
     else payload.customerId = null;
   }
-  if (action === "open") { integer("guests", 1, 100); text("customerName", 120); }
+  if (action === "open") {
+    integer("guests", 1, 100); text("customerName", 120);
+    if (body.serviceType !== undefined) {
+      if (!['DINE_IN', 'COUNTER', 'TAKEAWAY'].includes(String(body.serviceType)) || (body.serviceType !== 'DINE_IN' && body.tableId)) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Tipo de servicio inválido.');
+      payload.serviceType = body.serviceType;
+    }
+  }
   if (action === "item_add" || action === "item_update") { integer("quantity", action === "item_add" ? 1 : 0, 999); text("notes", 500); }
   if ((action === "item_add" || action === "item_update") && body.modifierOptionIds !== undefined) {
     if (!Array.isArray(body.modifierOptionIds) || body.modifierOptionIds.length > 100) throw new PosApiError(400, "POS_VALIDATION_ERROR", "Selecciones de modificadores inválidas.");

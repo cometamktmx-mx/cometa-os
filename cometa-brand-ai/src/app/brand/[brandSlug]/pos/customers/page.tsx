@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isFoodProfile } from "@/lib/pos/surface-policy";
 import { usePosContext } from "../../components/pos-shell";
 import { buildPosHref } from "../../components/pos-sidebar";
 import { PosIcon } from "../../components/pos-icons";
@@ -192,7 +193,13 @@ const EMPTY_FORM: CustomerForm = {
 };
 
 export default function PosCustomersPage() {
-  const { brand } = usePosContext();
+  const { brand, profileCode } = usePosContext();
+  const foodMode = isFoodProfile(profileCode);
+  const [foodSafety, setFoodSafety] = useState({ allergies: "", restrictions: "" });
+  const [pendingFoodCustomer, setPendingFoodCustomer] = useState<string | null>(null);
+  const pendingFoodCustomerRef = useRef<string | null>(null);
+  const pendingFoodBrandRef = useRef(brand.slug);
+  const foodCreateBusy = useRef(false);
 
   const [customers, setCustomers] = useState<
     Customer[]
@@ -450,6 +457,8 @@ export default function PosCustomersPage() {
     ]);
 
   function openCreateModal() {
+    if (foodMode && pendingFoodCustomerRef.current) { setIsCreateModalOpen(true); return; }
+
     setForm({
       ...EMPTY_FORM,
       joinLoyalty: Boolean(
@@ -483,13 +492,16 @@ export default function PosCustomersPage() {
       return;
     }
 
+    if (foodMode && pendingFoodCustomerRef.current && pendingFoodBrandRef.current !== brand.slug) { setError("Hay un alta incompleta en otra marca. Regresa a esa marca para completarla."); return; }
+    if (foodMode && foodCreateBusy.current) return;
+    if (foodMode) foodCreateBusy.current = true;
     try {
       setIsSaving(true);
       setError(null);
       setNotice(null);
 
       const response =
-        await apiRequest<CreateCustomerResponse>(
+        foodMode && pendingFoodCustomerRef.current ? { customer: { id: pendingFoodCustomerRef.current } } : await apiRequest<CreateCustomerResponse>(
           "/api/pos/customers",
           {
             method: "POST",
@@ -523,6 +535,12 @@ export default function PosCustomersPage() {
           }
         );
 
+      if (foodMode) {
+        pendingFoodBrandRef.current = brand.slug;
+        pendingFoodCustomerRef.current = response.customer.id;
+        setPendingFoodCustomer(response.customer.id);
+        await apiRequest('/api/pos/food/customer-memory', { method: 'PATCH', body: JSON.stringify({ brandSlug: brand.slug, customerId: response.customer.id, allergyTags: foodSafety.allergies.split(',').map(value => value.trim()).filter(Boolean), restrictionNote: foodSafety.restrictions }) });
+      }
       let loyaltyCreated = false;
 
       if (
@@ -547,6 +565,7 @@ export default function PosCustomersPage() {
         loyaltyCreated = true;
       }
 
+      if (foodMode) { pendingFoodCustomerRef.current = null; setPendingFoodCustomer(null); setFoodSafety({ allergies: '', restrictions: '' }); }
       setIsCreateModalOpen(false);
       setForm(EMPTY_FORM);
 
@@ -559,9 +578,10 @@ export default function PosCustomersPage() {
       await loadData();
     } catch (saveError) {
       setError(
-        getErrorMessage(saveError)
+        foodMode && pendingFoodCustomerRef.current ? "El cliente ya fue creado. No se completó su perfil o fidelización. Reintenta para completar el alta sin duplicarlo." : getErrorMessage(saveError)
       );
     } finally {
+      foodCreateBusy.current = false;
       setIsSaving(false);
     }
   }
@@ -770,6 +790,10 @@ export default function PosCustomersPage() {
 
       {isCreateModalOpen ? (
         <CreateCustomerModal
+          foodSafety={foodMode ? foodSafety : undefined}
+          onSafetyChange={setFoodSafety}
+          pendingFoodCustomer={foodMode && !!pendingFoodCustomer}
+          errorMessage={foodMode ? error : null}
           form={form}
           program={program}
           isSaving={isSaving}
@@ -1069,6 +1093,7 @@ function CustomerCard({
 }
 
 function CreateCustomerModal({
+  foodSafety, onSafetyChange, pendingFoodCustomer = false, errorMessage,
   form,
   program,
   isSaving,
@@ -1076,6 +1101,10 @@ function CreateCustomerModal({
   onClose,
   onSubmit,
 }: {
+  foodSafety?: { allergies: string; restrictions: string };
+  onSafetyChange: (value: { allergies: string; restrictions: string }) => void;
+  pendingFoodCustomer?: boolean;
+  errorMessage?: string | null;
   form: CustomerForm;
   program: LoyaltyProgram | null;
   isSaving: boolean;
@@ -1101,7 +1130,8 @@ function CreateCustomerModal({
         onSubmit={onSubmit}
         className="grid gap-4"
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        {errorMessage && <p role="alert" className="rounded-xl border border-rose-400/40 bg-rose-950 p-3 text-rose-100">{errorMessage}</p>}
+        <fieldset disabled={pendingFoodCustomer} className="grid gap-4 md:grid-cols-2">
           <Field
             label="Nombre"
             value={form.firstName}
@@ -1177,11 +1207,12 @@ function CreateCustomerModal({
             }
             placeholder="VIP, mayoreo, frecuente"
           />
-        </div>
+        </fieldset>
+        {foodSafety && <section className="rounded-xl border-2 border-amber-400/50 p-4 space-y-4"><h3 className="font-bold">Salud y preferencias</h3><TextAreaField label="Alergias alimentarias" value={foodSafety.allergies} onChange={allergies => onSafetyChange({ ...foodSafety, allergies })} placeholder="Nueces, cacahuate, lácteos, huevo, gluten (separadas por comas)" /><TextAreaField label="Restricciones alimentarias" value={foodSafety.restrictions} onChange={restrictions => onSafetyChange({ ...foodSafety, restrictions })} placeholder="Sin lactosa, sin gluten, vegetariano, vegano" /></section>}
 
-        <div className="mt-4">
+        <fieldset disabled={pendingFoodCustomer} className="mt-4">
           <TextAreaField
-            label="Notas"
+            label={foodSafety ? "Notas importantes" : "Notas"}
             value={form.notes}
             onChange={(value) =>
               onChange(
@@ -1189,9 +1220,9 @@ function CreateCustomerModal({
                 value
               )
             }
-            placeholder="Preferencias, observaciones o contexto útil"
+            placeholder={foodSafety ? "No consumir canela. Prefiere leche de avena." : "Preferencias, observaciones o contexto útil"}
           />
-        </div>
+        </fieldset>
 
         <div className="mt-5 grid gap-3">
           <ToggleRow
@@ -1256,7 +1287,7 @@ function CreateCustomerModal({
         >
           {isSaving
             ? "Guardando cliente..."
-            : "Crear cliente"}
+            : pendingFoodCustomer ? "Reintentar completar alta" : "Crear cliente"}
         </PosButton>
       </form>
     </PosModal>

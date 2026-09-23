@@ -24,7 +24,7 @@ const server = {
 };
 function fixture() {
   const calls = [], entitlements = [], state = { admin: true, mode: 'COFFEE_SHOP', location: id(2), error: null, data: { id: id(3) } };
-  const context = { brand: { slug: 'normalized-food' }, user: { userId: id(1) }, admin: { rpc: async (name, args) => { calls.push({ name, args }); return { data: state.data, error: state.error }; } } };
+  const context = { brand: { slug: 'normalized-food' }, user: { userId: id(1) }, admin: { from(table) { const query = { select() { return query; }, eq() { return query; }, async maybeSingle() { return { data: table === 'pos_product_variants' ? { product_id: id(3), unit_code: 'g' } : null, error: null }; }, then(resolve) { return Promise.resolve({ data: [], error: null }).then(resolve); } }; return query; }, rpc: async (name, args) => { if (name === 'pos_food_convert_quantity_v1') return { data: args.q, error: null }; calls.push({ name, args }); return { data: state.data, error: state.error }; } } };
   const shared = compile('src/lib/pos/food-recipes-shared.ts', {});
   const helper = compile('src/lib/pos/food-recipes-server.ts', {
     'server-only': {}, './server': server, './food-recipes-shared': shared,
@@ -174,7 +174,7 @@ test('Food inventory UI renders physical/usable stocks separately and existing c
   const numericInput = compile('src/lib/pos/numeric-input.ts', {});
   let index=0;const states=[[{id:id(2),name:'Local',currency:'MXN'}],id(2),null,{ingredients,products:[],effects:[],units:[],movements:[]},{options:[],associations:[]}];
     const component=compile('src/app/brand/[brandSlug]/components/pos-food-recipes-admin.tsx',{'@/lib/pos/numeric-input': numericInput,
-'next/link':{default:p=>React.createElement('a',{href:p.href},p.children),__esModule:true},react:{...React,useState:initial=>[index<states.length?states[index++]:(index++,typeof initial==='function'?initial():initial),()=>{}],useEffect:()=>{},useCallback:fn=>fn},'./pos-shell':{usePosContext:()=>({currentOperator:null})},'./pos-ui/pos-drawer':{PosDrawer:p=>p.open?React.createElement('aside',{},p.children):null},'./pos-food-prepared-workspace':{PosFoodPreparedWorkspace:()=>null}});
+'next/link':{default:p=>React.createElement('a',{href:p.href},p.children),__esModule:true},react:{...React,useState:initial=>[index<states.length?states[index++]:(index++,typeof initial==='function'?initial():initial),()=>{}],useEffect:()=>{},useCallback:fn=>fn},'./pos-shell':{usePosContext:()=>({currentOperator:null})},'./pos-ui/pos-drawer':{PosDrawer:p=>p.open?React.createElement('aside',{},p.children):null},'./pos-food-modifiers-admin': { PosFoodProductOptions: () => null }, './pos-food-prepared-workspace':{PosFoodPreparedWorkspace:()=>null}});
     return renderToStaticMarkup(React.createElement(component.PosFoodRecipesAdmin,{brandSlug:'food'}));
   }
   const html=render([ingredient]);assert.match(html,/Físico/);assert.match(html,/950\.000/);assert.match(html,/1000/);assert.match(html,/Entrada/);assert.match(render([]),/Agrega alimentos/);

@@ -178,7 +178,7 @@ test('Real menu cards show calculated portions, pending recipe and out/low stock
   const { Workspace } = compile(read(base + 'components/pos-food-recipes-admin.tsx') + '\nexport { Workspace };', {
     react, 'next/link': { __esModule: true, default: props => React.createElement('a', { href: props.href }, props.children) },
     './pos-shell': {}, './pos-ui/pos-drawer': { PosDrawer: props => props.open ? React.createElement('aside', {}, props.children) : null },
-    './pos-food-prepared-workspace': { PosFoodPreparedWorkspace: () => null }, '@/lib/pos/numeric-input': numeric,
+    './pos-food-modifiers-admin': { PosFoodProductOptions: () => null }, './pos-food-prepared-workspace': { PosFoodPreparedWorkspace: () => null }, '@/lib/pos/numeric-input': numeric,
   });
   const props = { brandSlug: 'brand', locationId: 'local', location: { currency: 'MXN' }, kind: 'products' };
   const render = () => renderToStaticMarkup(h.render(Workspace, props));

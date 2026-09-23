@@ -110,6 +110,28 @@ test("snapshot uses operator location and tenant context; restaurant and coffee 
     assert.deepEqual(f.calls[0], { name: "pos_food_snapshot_v1", args: { p_brand_slug: "test-food", p_host_user_id: id(1), p_session_id: id(2), p_location_id: id(5) } });
   }
 });
+
+test("Food catalog enriches sizes with tenant-scoped product IDs without extending the role-filtered catalog", async () => {
+  const f = fixture("WAITER");
+  f.state.rpcData = { products: [{ id: id(8), name: "Mediano" }, { id: id(9), name: "Grande" }] };
+  const queries = [];
+  f.context.admin.from = table => {
+    const filters = []; queries.push({ table, filters });
+    const query = {
+      select(columns) { assert.match(columns, /product_id/); return query; },
+      eq(key, value) { filters.push([key, value]); return query; },
+      async in(key, values) { assert.equal(key, "id"); return { data: values.map(id => ({ id, product_id: "latte", product: { image_url: null } })), error: null }; },
+    };
+    return query;
+  };
+  const response = await f.route.GET(new Request("http://local/?brandSlug=test-food"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.snapshot.products.map(p => p.product_id), ["latte", "latte"]);
+  assert.deepEqual(queries[0].filters, [["brand_slug", "test-food"], ["product.brand_slug", "test-food"]]);
+  f.state.rpcData = { products: [] };
+  assert.deepEqual((await f.route.GET(new Request("http://local/?brandSlug=test-food"))).body.snapshot.products, []);
+  assert.equal(queries.length, 1);
+});
 test("pay requires canonical sales and cash entitlements and preserves request idempotency", async () => {
   const f = fixture("CASHIER");
   await f.post({ action: "pay", ...payloads.pay }); await f.post({ action: "pay", ...payloads.pay });
@@ -230,6 +252,24 @@ function nodesText(tree) {
   if (typeof tree !== "object") return String(tree);
   return nodesText(tree.props?.children);
 }
+
+test("An unavailable base recipe can open the configurator and exposes all sizes of the same product", () => {
+  const f = uiFixture({ selected: id(7) });
+  try {
+    f.setSnapshot({ ...f.empty, checks: [{ id: id(7), table_id: id(6), status: "OPEN", guests: 1, opened_by: id(3), version: 0 }], products: [
+      { id: id(8), product_id: id(20), product_name: "Latte", name: "Mediano", price: 50, available: 0 },
+      { id: id(9), product_id: id(20), product_name: "Latte", name: "Grande", price: 60, available: 0 },
+      { id: id(10), product_id: id(21), product_name: "Otro", name: "Normal", price: 20, available: 1 },
+    ] });
+    const card = nodes(f.render()).find(node => node.props?.["aria-label"] === "Agregar Latte, Mediano, $50.00");
+    assert.ok(card);
+    assert.equal(card.props.disabled, false);
+    card.props.onClick();
+    const dialog = nodes(f.render()).find(node => node.type === modifierUi.PosFoodModifierDialog);
+    assert.deepEqual(dialog.props.variants.map(p => p.id), [id(8), id(9)]);
+    assert.equal(f.requests.length, 0, "opening a configuration never adds or reserves stock");
+  } finally { f.close(); }
+});
 test("UI open table suppresses double submission and uses a stable key after ambiguous network failure", async () => {
   const f = uiFixture();
   try {

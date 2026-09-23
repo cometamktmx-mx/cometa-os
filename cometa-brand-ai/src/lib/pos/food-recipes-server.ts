@@ -2,7 +2,7 @@ import 'server-only';
 import { requirePosAdminSurfaceAccess } from './admin-access';
 import { requirePosCommercialAccess } from './access';
 import { getPosMode, requireStaffSession } from './staff-server';
-import { PosApiError, requiredText, uuidValue } from './server';
+import { assertDatabaseResult, PosApiError, requiredText, uuidValue } from './server';
 import { FOOD_RECIPE_ACTIONS, type FoodRecipeAction } from './food-recipes-shared';
 
 export async function requireFoodRecipesAdmin(brandSlug: string, locationId: string) {
@@ -38,7 +38,7 @@ export function recipeCommand(body: Record<string, unknown>) {
     payload.active = body.active;
   }
   id('command_key');
-  id('id', action === 'ingredient_save' || action === 'product_save' || action === 'image_save' || action === 'effect_save');
+  id('id', action === 'ingredient_save' || action === 'product_save' || action === 'image_save' || action === 'effect_save' || action === 'effects_save');
   if (action === 'ingredient_save') {
     text('name'); text('category', 30); text('unit_code', 20); text('supplier_name', 180, true);
     number('initial_quantity', 0, 99999999999, true); number('minimum_quantity', 0, 99999999999); number('waste_percent', 0, 99.9999); active();
@@ -65,6 +65,23 @@ export function recipeCommand(body: Record<string, unknown>) {
       if (typeof row.quantity !== 'number' || !Number.isFinite(row.quantity) || row.quantity <= 0) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Cantidad de receta inválida.');
       return { ingredient_variant_id: uuidValue(row.ingredient_variant_id, 'ingredient_variant_id'), quantity: row.quantity, unit_code: requiredText(row.unit_code, 'unit_code', 20) };
     });
+  } else if (action === 'effects_save') {
+    id('product_id'); id('option_id'); id('command_key');
+    if (!Array.isArray(body.effects) || body.effects.length > 20) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Máximo 20 efectos.');
+    payload.effects = body.effects.map(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Efecto inválido.');
+      const row = value as Record<string, unknown>;
+      const effect = requiredText(row.effect, 'effect', 20);
+      const quantityMode = row.quantity_mode ?? 'fixed';
+      if (!['ADD', 'REMOVE', 'REPLACE'].includes(effect) || !['fixed', 'source'].includes(String(quantityMode)) || (quantityMode === 'source' && effect !== 'REPLACE')) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Efecto inválido.');
+      const needsQuantity = quantityMode === 'fixed' && (effect !== 'REMOVE' || row.quantity != null);
+      if (needsQuantity && (typeof row.quantity !== 'number' || !Number.isFinite(row.quantity) || row.quantity <= 0)) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Cantidad inválida.');
+      return { effect, quantity_mode: quantityMode,
+        source_variant_id: effect === 'ADD' ? null : uuidValue(row.source_variant_id, 'source_variant_id', true),
+        ingredient_variant_id: effect === 'REMOVE' ? null : uuidValue(row.ingredient_variant_id, 'ingredient_variant_id', true),
+        quantity: needsQuantity ? row.quantity : null,
+        unit_code: needsQuantity ? requiredText(row.unit_code, 'unit_code', 20) : null };
+    });
   } else {
     id('product_id'); id('option_id'); text('effect', 20);
     if (!['NONE', 'ADD', 'REMOVE', 'REPLACE'].includes(String(body.effect))) throw new PosApiError(400, 'POS_VALIDATION_ERROR', 'Impacto inválido.');
@@ -73,4 +90,16 @@ export function recipeCommand(body: Record<string, unknown>) {
     if (body.quantity != null) { number('quantity', 0.000001, 99999999999); text('unit_code', 20); }
   }
   return { action, payload };
+}
+
+type FoodContext = Awaited<ReturnType<typeof requireFoodRecipesAdmin>>['context'];
+export async function requireFoodVariant(context: FoodContext, variantId: string) {
+  const { admin, brand } = context;
+  const { data: variant, error: variantError } = await admin.from('pos_product_variants').select('id,product_id,active,price').eq('brand_slug', brand.slug).eq('id', variantId).maybeSingle();
+  assertDatabaseResult(variantError, 'No se pudo consultar el tamaño.');
+  if (!variant?.active) throw new PosApiError(404, 'POS_FOOD_NOT_FOUND', 'El tamaño no está disponible.');
+  const { data: product, error: productError } = await admin.from('pos_products').select('id,active,sellable,inventory_mode,tax_rate').eq('brand_slug', brand.slug).eq('id', variant.product_id).maybeSingle();
+  assertDatabaseResult(productError, 'No se pudo consultar el producto.');
+  if (!product?.active || !product.sellable) throw new PosApiError(404, 'POS_FOOD_NOT_FOUND', 'El producto no está disponible.');
+  return { variant, product };
 }

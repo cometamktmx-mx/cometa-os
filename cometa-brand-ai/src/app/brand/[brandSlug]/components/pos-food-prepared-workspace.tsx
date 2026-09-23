@@ -37,6 +37,7 @@ export function PosFoodPreparedWorkspace({
   onSave,
   onPublish,
   modifiersContent,
+  sizesContent,
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,6 +63,7 @@ export function PosFoodPreparedWorkspace({
   onSave: () => void;
   onPublish: () => void;
   modifiersContent: ReactNode;
+  sizesContent?: ReactNode;
 }) {
   if (!open) return null;
   const recipe = product?.recipe;
@@ -106,7 +108,8 @@ export function PosFoodPreparedWorkspace({
                 </div>
               </Section>
 
-              <Section eyebrow="02 · Rentabilidad" title="Precio y margen" description="Define el precio y entiende cuánto aporta cada unidad.">
+              <Section eyebrow="02 · Tamaños" title="Tamaños y precio" description="Cada tamaño es una variante del mismo producto, con su precio y receta.">
+                {sizesContent}
                 <div className="grid gap-4 sm:grid-cols-2"><NumberField label="Precio de venta" value={productForm.price} step={0.01} onChange={price => setProductForm(current => ({ ...current, price }))} /><NumberField label="Impuesto %" value={productForm.tax_rate} step={0.0001} max={100} onChange={tax_rate => setProductForm(current => ({ ...current, tax_rate }))} /></div>
                 {recipe ? <RecipeSummary recipe={recipe} money={money} /> : <div className="mt-4 rounded-xl border border-dashed border-white/15 p-4 text-sm text-slate-400">Publica una receta para calcular costo, utilidad y margen.</div>}
               </Section>
@@ -117,7 +120,7 @@ export function PosFoodPreparedWorkspace({
                 <p className="mt-4 text-xs text-slate-500">La conversión, el costo y la versión publicada se validan en servidor.</p>
               </Section>
 
-              <Section eyebrow="04 · Venta" title="Modificadores" description="Configura opciones que agregan, quitan o reemplazan componentes de la receta.">{modifiersContent}</Section>
+              <Section eyebrow="04 · Venta" title="Opciones del cliente" description="Sabor, leche, temperatura y extras. Los efectos actuales tienen una cantidad fija para todos los tamaños.">{modifiersContent}</Section>
 
               <Section eyebrow="05 · Operación" title="Disponibilidad por receta" description="El insumo limitante determina las porciones disponibles. No es stock físico del preparado.">{recipe ? <Availability recipe={recipe} /> : <div className="rounded-xl border border-dashed border-white/15 p-5 text-sm text-slate-400">La disponibilidad aparecerá cuando publiques una receta válida.</div>}</Section>
             </main>

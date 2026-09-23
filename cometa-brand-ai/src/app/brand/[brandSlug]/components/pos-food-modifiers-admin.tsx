@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FoodModifierGroup, FoodModifierOption } from "@/lib/pos/food-shared";
 import { PosFoodRecipesAdmin } from "./pos-food-recipes-admin";
 
@@ -76,4 +76,54 @@ export function PosFoodModifiersAdmin({brandSlug}:{brandSlug:string}) {
 
 function NumberField({label,value,min,max,step=1,onChange}:{label:string;value:number;min:number;max:number;step?:number;onChange:(value:number)=>void}) {
   return <label className="block text-xs text-slate-400">{label}<input type="number" required className={field} value={value} min={min} max={max} step={step} onChange={event=>onChange(Number(event.target.value))}/></label>;
+}
+
+export function PosFoodProductOptions({ brandSlug, productId, onChanged }: { brandSlug: string; productId: string; onChanged: () => Promise<void> }) {
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const pending = useRef<{ signature: string; groupId: string; optionIds: string[] } | null>(null);
+  const [customName, setCustomName] = useState('');
+  const [customOptions, setCustomOptions] = useState('');
+  const load = useCallback(async () => {
+    const response = await fetch(`/api/pos/food/modifiers?brandSlug=${encodeURIComponent(brandSlug)}`, { cache: 'no-store' });
+    const body = await response.json();
+    if (!response.ok || !body.catalog) throw new Error('No se pudieron cargar las opciones.');
+    setCatalog(body.catalog as Catalog);
+  }, [brandSlug]);
+  useEffect(() => { let stopped = false; void Promise.resolve().then(() => load()).catch(() => { if (!stopped) setError('No se pudieron cargar las opciones.'); }); return () => { stopped = true; }; }, [load]);
+  async function preset(name: string, names: string[], required = true) {
+    if (lock.current || !catalog || !name.trim() || !names.length) return;
+    lock.current = true; setBusy(true); setError(null);
+    const signature = JSON.stringify({ productId, name, names, required });
+    if (pending.current?.signature !== signature) pending.current = { signature, groupId: crypto.randomUUID(), optionIds: names.map(() => crypto.randomUUID()) };
+    const command = pending.current;
+    const post = async (action: string, payload: object) => {
+      const response = await fetch('/api/pos/food/modifiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brandSlug, action, ...payload }) });
+      if (!response.ok) throw new Error('No se completó la configuración. Reintenta la misma opción para continuar sin duplicarla.');
+    };
+    try {
+      await post('group_save', { id: command.groupId, name, required, min_selections: required ? 1 : 0, max_selections: required ? 1 : names.length, selection_mode: required ? 'single' : 'multiple', display_order: name === 'Temperatura' ? 30 : name === 'Tipo de leche' ? 20 : name === 'Sabor' ? 10 : 40, active: true });
+      for (let index = 0; index < names.length; index++) await post('option_save', { id: command.optionIds[index], group_id: command.groupId, name: names[index], price_delta: 0, type: required ? 'choice' : 'add', display_order: index, active: true });
+      const previous = catalog.associations.filter(a => a.product_id === productId).map(a => a.group_id).filter(id => catalog.groups.find(g => g.id === id)?.name !== name);
+      await post('product_groups_save', { product_id: productId, group_ids: [...new Set([...previous, command.groupId])] });
+      await load(); await onChanged();
+      pending.current = null;
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudieron guardar las opciones.'); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  const attached = catalog?.groups.filter(group => catalog.associations.some(a => a.product_id === productId && a.group_id === group.id)) || [];
+  return <div className="space-y-4">
+    {error && <p role="alert" className="text-rose-200">{error}<button type="button" className="ml-2 underline" onClick={() => void load().then(() => setError(null)).catch(() => setError('No se pudieron cargar las opciones.'))}>Actualizar</button></p>}
+    <fieldset disabled={busy || !catalog} className="space-y-3">
+      <h4 className="font-semibold">¿Cómo puede prepararse?</h4><div className="flex flex-wrap gap-2">{(['Solo caliente', 'Solo fría', 'El cliente puede elegir'] as const).map((label, index) => <button type="button" className={button} key={label} onClick={() => void preset('Temperatura', index === 0 ? ['Caliente'] : index === 1 ? ['Frío'] : ['Caliente', 'Frío'])}>{label}</button>)}</div>
+      <p className="text-xs text-slate-400">Una sola opción obligatoria se aplica automáticamente. Frío puede agregar hielo; no reduce leche automáticamente.</p>
+      <div className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => void preset('Sabor', ['Natural', 'Vainilla', 'Caramelo', 'Oreo'])}>+ Sabor</button><button type="button" className={button} onClick={() => void preset('Tipo de leche', ['Entera', 'Deslactosada', 'Almendra', 'Avena'])}>+ Tipo de leche</button><button type="button" className={button} onClick={() => void preset('Extras', ['Shot extra', 'Crema'], false)}>+ Extras</button><button type="button" className={button} onClick={() => void preset('Toppings', ['Oreo', 'Canela'], false)}>+ Toppings</button></div>
+      <details className={panel}><summary>+ Opción personalizada</summary><input className={field} placeholder="Nombre del grupo" maxLength={100} value={customName} onChange={e => setCustomName(e.target.value)} /><input className={field} placeholder="Opciones separadas por coma" value={customOptions} onChange={e => setCustomOptions(e.target.value)} /><button type="button" className={button} onClick={() => void preset(customName.trim(), [...new Set(customOptions.split(',').map(value => value.trim()).filter(Boolean))].slice(0, 20))}>Crear grupo</button></details>
+    </fieldset>
+    {attached.map(group => <div key={group.id} className="rounded-xl border border-white/10 p-3"><strong>{group.name}</strong><p className="text-sm">{group.required ? 'Obligatorio' : 'Opcional'} · {group.selection_mode === 'single' ? 'Una opción' : 'Varias opciones'} · {group.min_selections}–{group.max_selections}</p><p className="text-sm text-slate-400">{catalog?.options.filter(option => option.group_id === group.id && option.active).map(option => `${option.name} (+${option.price_delta})`).join(' · ')}</p></div>)}
+    <p className="text-xs text-amber-200">Los presets crean opciones comerciales, sin inventario automático. Configura sus efectos abajo. Un efecto por opción; las cantidades no cambian por tamaño. No uses una sustitución fija si las recetas requieren cantidades distintas.</p>
+    <Link className="inline-flex min-h-11 items-center underline" href={`/brand/${brandSlug}/pos/admin/modifiers`}>Editar grupos, precios, mínimos y máximos</Link>
+  </div>;
 }
