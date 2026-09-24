@@ -22,7 +22,8 @@ export async function POST(request: Request) {
     if (!address) throw new PosApiError(404, "COMU_ADDRESS_REQUIRED", "Selecciona una dirección de entrega disponible.");
     const key = String(body.idempotencyKey || randomUUID());
     const reservation = body.reservationId ? { reservation: { id: String(body.reservationId) } } : await createReservation(`${key}:reservation`);
-    const order = await createOrderFromReservation(String(reservation.reservation.id), `${key}:order`, { ...address });
+    const shippingMode = body.shippingMode === "FAST" ? "FAST" : "STANDARD";
+    const order = await createOrderFromReservation(String(reservation.reservation.id), `${key}:order`, { ...address }, shippingMode);
     return NextResponse.json({ ok: true, order });
   } catch (error) {
     const status = error instanceof PosApiError ? error.status : 500;

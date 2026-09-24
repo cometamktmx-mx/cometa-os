@@ -1,14 +1,32 @@
 import { PosApiError } from "@/lib/pos/server";
 import { requireComuBuyer } from "./buyers";
 import { getStripeClient } from "./stripe";
+import { LocalTestShippingProvider } from "./shipping-provider";
+import { allocateShipping, chooseServices, estimateTextilePackage } from "./shipping-pricing";
 
-export async function createOrderFromReservation(reservationId: string, idempotencyKey: string, addressSnapshot: Record<string, unknown> | null) {
+export async function createOrderFromReservation(reservationId: string, idempotencyKey: string, addressSnapshot: Record<string, unknown> | null, shippingMode: "STANDARD" | "FAST" = "STANDARD") {
   const { buyer, admin } = await requireComuBuyer();
   const { data: reservation } = await admin.from("comu_inventory_reservations").select("id,status,expires_at").eq("id", reservationId).eq("buyer_id", buyer.id).maybeSingle();
   if (!reservation) throw new PosApiError(404, "COMU_RESERVATION_NOT_FOUND", "La reserva no existe.");
   const { data, error } = await admin.rpc("comu_create_order_from_reservation", { p_reservation_id: reservationId, p_idempotency_key: idempotencyKey, p_shipping_address_snapshot: addressSnapshot, p_currency: "MXN" });
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_ORDER_CREATE_FAILED", error?.message === "COMU_RESERVATION_EXPIRED" ? "La reserva expiró. Actualiza tu carrito." : "No se pudo crear la orden.");
-  return data;
+  const { data: existingShipping } = await admin.from("comu_orders").select("shipping_snapshot,shipping_mode").eq("id", data.id).maybeSingle();
+  if (existingShipping?.shipping_snapshot && Object.keys(existingShipping.shipping_snapshot).length) return data;
+  const items = await admin.from("comu_order_items").select("quantity,subtotal").eq("order_id", data.id);
+  const subtotal = (items.data || []).reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
+  const packages = estimateTextilePackage({ itemCount: (items.data || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0), totalWeightG: Math.max(250, subtotal * 2) });
+  const provider = new LocalTestShippingProvider();
+  const quotes = await provider.quote!({ orderId: data.id, destination: addressSnapshot, packages: packages.map((p) => ({ weightKg: p.weightKg, lengthCm: p.lengthCm, widthCm: p.widthCm, heightCm: p.heightCm })) });
+  const selected = chooseServices(quotes.map((quote) => ({ ...quote, provider: "LOCAL_TEST", package: packages[0] })));
+  const selectedQuote = shippingMode === "FAST" ? selected.fast : selected.standard;
+  if (!selectedQuote) throw new PosApiError(409, "COMU_SHIPPING_QUOTE_UNAVAILABLE", "No hay una opción de envío disponible.");
+  const allocation = allocateShipping(selectedQuote.cost, selected.standard?.cost || selectedQuote.cost, subtotal, {});
+  const { data: quote, error: quoteError } = await admin.from("comu_shipping_quotes").insert({ order_id: data.id, provider: "LOCAL_TEST", service_code: selectedQuote.serviceCode, estimated_eta_days: selectedQuote.etaDays, provider_cost: allocation.providerCost, baseline_cost: allocation.baselineCost, buyer_shipping_charge: allocation.buyerShippingCharge, seller_shipping_subsidy: allocation.sellerShippingSubsidy, cometa_shipping_subsidy: allocation.cometaShippingSubsidy, package_estimate: packages }).select("id").single();
+  if (quoteError || !quote) throw new PosApiError(409, "COMU_SHIPPING_SNAPSHOT_FAILED", "No se pudo guardar el envío.");
+  const snapshot = { provider: "LOCAL_TEST", service: selectedQuote.serviceCode, shipping_mode: shippingMode, estimated_eta_days: selectedQuote.etaDays, estimated_provider_cost: allocation.providerCost, baseline_cost: allocation.baselineCost, buyer_shipping_charge: allocation.buyerShippingCharge, seller_shipping_subsidy: allocation.sellerShippingSubsidy, cometa_shipping_subsidy: allocation.cometaShippingSubsidy, package_estimate: packages, quote_id: quote.id, quote_version: 1 };
+  const { error: snapshotError } = await admin.from("comu_orders").update({ shipping_total: allocation.buyerShippingCharge, grand_total: subtotal + allocation.buyerShippingCharge, shipping_snapshot: snapshot, shipping_quote_id: quote.id, shipping_mode: shippingMode, updated_at: new Date().toISOString() }).eq("id", data.id);
+  if (snapshotError) throw new PosApiError(409, "COMU_SHIPPING_SNAPSHOT_FAILED", "No se pudo congelar el envío.");
+  return { ...data, shipping_total: allocation.buyerShippingCharge, grand_total: subtotal + allocation.buyerShippingCharge, shipping_snapshot: snapshot, shipping_mode: shippingMode };
 }
 
 export async function getBuyerOrders() {
