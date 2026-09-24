@@ -1,5 +1,15 @@
-export type ShipmentRequest = { orderId: string; destination: Record<string, unknown> | null; package: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number } };
+export type ShipmentRequest = { orderId: string; destination: Record<string, unknown> | null; package: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number }; providerRateId?: string };
 export type ShipmentResult = { provider: string; providerShipmentId: string; trackingNumber: string; carrier: string; labelUrl: string | null };
+
+export function normalizeSkydropxShipments(body: unknown): ShipmentResult[] {
+  const data = body && typeof body === "object" && Array.isArray((body as { data?: unknown }).data) ? (body as { data: Array<Record<string, unknown>> }).data : [];
+  return data.flatMap((shipment) => {
+    const rate = shipment.rate && typeof shipment.rate === "object" ? shipment.rate as Record<string, unknown> : {};
+    const id = typeof shipment.id === "string" ? shipment.id : null;
+    if (!id) return [];
+    return [{ provider: "SKYDROPX", providerShipmentId: id, trackingNumber: String(shipment.master_tracking_number ?? ""), carrier: String(rate.provider_display_name ?? rate.provider_name ?? "SKYDROPX"), labelUrl: typeof shipment.label_url === "string" ? shipment.label_url : null }];
+  });
+}
 
 export interface ShippingProvider {
   quote?(input: { orderId: string; destination: Record<string, unknown> | null; packages: ShipmentRequest["package"][] }): Promise<Array<{ serviceCode: string; etaDays: number; cost: number; carrier: string; serviceName?: string; currency?: string; providerRateId?: string; shipmentCreationType?: string }>>;
@@ -38,5 +48,14 @@ export class SkydropxShippingProvider implements ShippingProvider {
     if (!body.is_completed) throw new Error("SKYDROPX_QUOTE_TIMEOUT");
     return (body.rates ?? []).map((x)=>({serviceCode:String(x.provider_service_code ?? "UNKNOWN"),serviceName:String(x.provider_service_name ?? x.provider_service_code ?? "UNKNOWN"),etaDays:Number(x.days ?? 0),cost:Number(x.total ?? x.amount ?? 0),carrier:String(x.provider_display_name ?? x.provider_name ?? "SKYDROPX"),currency:String(x.currency_code ?? "MXN"),providerRateId:x.id ? String(x.id) : undefined,shipmentCreationType:x.shipment_creation_type ? String(x.shipment_creation_type) : undefined}));
   }
-  async createShipment(): Promise<ShipmentResult> { throw new Error("SKYDROPX_SHIPMENT_PAYLOAD_REQUIRED"); }
+  async createShipment(input: ShipmentRequest): Promise<ShipmentResult> {
+    const token=await this.accessToken(); const destination=input.destination ?? {}; const origin=destination.origin as Record<string, unknown> | undefined;
+    if (!input.providerRateId || !origin) throw new Error("SKYDROPX_SHIPMENT_PAYLOAD_REQUIRED");
+    const address=(value: Record<string, unknown>) => ({ country_code:String(value.country_code ?? ""), postal_code:String(value.postal_code ?? ""), area_level1:String(value.area_level1 ?? ""), area_level2:String(value.area_level2 ?? ""), area_level3:String(value.area_level3 ?? ""), street1:String(value.street1 ?? ""), name:String(value.name ?? ""), company:String(value.company ?? ""), phone:String(value.phone ?? ""), email:String(value.email ?? ""), reference:String(value.reference ?? "") });
+    const addressFrom=address(origin); const addressTo=address(destination); const required=[addressFrom,addressTo].flatMap((x)=>[x.country_code,x.postal_code,x.area_level1,x.area_level2,x.area_level3,x.street1,x.name,x.company,x.phone,x.email,x.reference]);
+    if (required.some((value)=>!value)) throw new Error("SKYDROPX_SHIPMENT_ADDRESS_INCOMPLETE");
+    const response=await fetch(`${this.baseUrl}/api/v2/shipments`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({shipment:{rate_id:input.providerRateId,unique_shipment:true,auto_advance:process.env.SKYDROPX_ENV === "sandbox",printing_format:"standard",include_order_detail:false,address_from:addressFrom,address_to:addressTo,packages:[{package_number:"1",package_protected:false,declared_value:100,consignment_note:"53102400",package_type:"4G",products:[{name:"COMU QA Prenda textil",sku:"COMU-QA-001",product_type_code:"42152400",product_type_name:"Prenda textil"}]}]}})});
+    if(!response.ok) throw new Error(`SKYDROPX_SHIPMENT_${response.status}`);
+    const results=normalizeSkydropxShipments(await response.json()); if(!results.length) throw new Error("SKYDROPX_SHIPMENT_EMPTY"); return results[0];
+  }
 }
