@@ -25,7 +25,8 @@ const helperStart = wholesaleScript.indexOf("const cfg="); const helperEnd = who
 const Pg = new Function("net", "crypto", `${wholesaleScript.slice(helperStart, helperEnd)}; return Pg;`)(net, crypto);
 const db = await new Pg().connect();
 try {
-  await db.query(migration);
+  const before = await db.query("select count(*)::int as n from pg_tables where schemaname='public' and tablename in ('comu_fulfillment_events','comu_hub_receipts','comu_shipments','comu_fulfillment_incidents')");
+  if (Number(before[0].n) === 0) await db.query(migration);
   const objects = await db.query("select tablename from pg_tables where schemaname='public' and tablename in ('comu_fulfillment_events','comu_hub_receipts','comu_shipments','comu_fulfillment_incidents')");
   assert.equal(objects.length, 4);
   const deadline = await db.query("select public.comu_fulfillment_deadline_v1('2026-09-22 10:00:00-06'::timestamptz) as deadline");

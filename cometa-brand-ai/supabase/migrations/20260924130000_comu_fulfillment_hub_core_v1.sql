@@ -8,12 +8,21 @@ alter table public.comu_order_suborders add column if not exists deadline_at tim
 alter table public.comu_order_suborders add column if not exists overdue boolean not null default false;
 alter table public.comu_order_suborders add column if not exists package_count integer not null default 1;
 
-alter table public.comu_orders drop constraint if exists comu_orders_fulfillment_status_ck;
-alter table public.comu_orders add constraint comu_orders_fulfillment_status_ck check (fulfillment_status in ('WAITING_FOR_SELLERS','READY_FOR_CONSOLIDATION','CONSOLIDATED','READY_TO_SHIP','SHIPPED','DELIVERED','ISSUE'));
-alter table public.comu_order_suborders drop constraint if exists comu_order_suborders_fulfillment_status_ck;
-alter table public.comu_order_suborders add constraint comu_order_suborders_fulfillment_status_ck check (fulfillment_status in ('PAID','PREPARING','READY_FOR_HUB','HANDED_TO_HUB','HUB_RECEIVED','CONSOLIDATED','READY_TO_SHIP','SHIPPED','DELIVERED','CANCELLED','ISSUE'));
-alter table public.comu_order_suborders drop constraint if exists comu_order_suborders_fulfillment_route_ck;
-alter table public.comu_order_suborders add constraint comu_order_suborders_fulfillment_route_ck check (fulfillment_route in ('HUB','DIRECT'));
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname='comu_orders_fulfillment_v1_status_ck') then
+    alter table public.comu_orders add constraint comu_orders_fulfillment_v1_status_ck check (fulfillment_status in ('WAITING_FOR_SELLERS','READY_FOR_CONSOLIDATION','CONSOLIDATED','READY_TO_SHIP','SHIPPED','DELIVERED','ISSUE'));
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname='comu_order_suborders_fulfillment_v1_status_ck') then
+    alter table public.comu_order_suborders add constraint comu_order_suborders_fulfillment_v1_status_ck check (fulfillment_status in ('PAID','PREPARING','READY_FOR_HUB','HANDED_TO_HUB','HUB_RECEIVED','CONSOLIDATED','READY_TO_SHIP','SHIPPED','DELIVERED','CANCELLED','ISSUE'));
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname='comu_order_suborders_fulfillment_v1_route_ck') then
+    alter table public.comu_order_suborders add constraint comu_order_suborders_fulfillment_v1_route_ck check (fulfillment_route in ('HUB','DIRECT'));
+  end if;
+end $$;
 
 create table if not exists public.comu_fulfillment_events (
   id uuid primary key default gen_random_uuid(), order_id uuid not null references public.comu_orders(id) on delete cascade,
@@ -54,19 +63,14 @@ alter table public.comu_hub_receipts enable row level security;
 alter table public.comu_shipments enable row level security;
 alter table public.comu_shipment_suborders enable row level security;
 alter table public.comu_fulfillment_incidents enable row level security;
-drop policy if exists comu_fulfillment_events_buyer_seller on public.comu_fulfillment_events;
-create policy comu_fulfillment_events_buyer_seller on public.comu_fulfillment_events for select to authenticated using (
+create policy comu_fulfillment_events_buyer_seller_v1 on public.comu_fulfillment_events for select to authenticated using (
   exists(select 1 from public.comu_orders o join public.comu_buyers b on b.id=o.buyer_id where o.id=order_id and (b.user_id=auth.uid() or public.is_cometa_admin()))
   or exists(select 1 from public.comu_order_suborders so join public.comu_seller_memberships m on m.seller_id=so.seller_id where so.id=suborder_id and m.user_id=auth.uid() and m.active)
 );
-drop policy if exists comu_hub_receipts_admin on public.comu_hub_receipts;
-create policy comu_hub_receipts_admin on public.comu_hub_receipts for select to authenticated using (public.is_cometa_admin());
-drop policy if exists comu_shipments_buyer on public.comu_shipments;
-create policy comu_shipments_buyer on public.comu_shipments for select to authenticated using (exists(select 1 from public.comu_orders o join public.comu_buyers b on b.id=o.buyer_id where o.id=master_order_id and (b.user_id=auth.uid() or public.is_cometa_admin())));
-drop policy if exists comu_shipment_suborders_buyer on public.comu_shipment_suborders;
-create policy comu_shipment_suborders_buyer on public.comu_shipment_suborders for select to authenticated using (exists(select 1 from public.comu_shipments s join public.comu_orders o on o.id=s.master_order_id join public.comu_buyers b on b.id=o.buyer_id where s.id=shipment_id and (b.user_id=auth.uid() or public.is_cometa_admin())));
-drop policy if exists comu_fulfillment_incidents_admin_seller on public.comu_fulfillment_incidents;
-create policy comu_fulfillment_incidents_admin_seller on public.comu_fulfillment_incidents for select to authenticated using (public.is_cometa_admin() or exists(select 1 from public.comu_seller_memberships m where m.seller_id=comu_fulfillment_incidents.seller_id and m.user_id=auth.uid() and m.active));
+create policy comu_hub_receipts_admin_v1 on public.comu_hub_receipts for select to authenticated using (public.is_cometa_admin());
+create policy comu_shipments_buyer_v1 on public.comu_shipments for select to authenticated using (exists(select 1 from public.comu_orders o join public.comu_buyers b on b.id=o.buyer_id where o.id=master_order_id and (b.user_id=auth.uid() or public.is_cometa_admin())));
+create policy comu_shipment_suborders_buyer_v1 on public.comu_shipment_suborders for select to authenticated using (exists(select 1 from public.comu_shipments s join public.comu_orders o on o.id=s.master_order_id join public.comu_buyers b on b.id=o.buyer_id where s.id=shipment_id and (b.user_id=auth.uid() or public.is_cometa_admin())));
+create policy comu_fulfillment_incidents_admin_seller_v1 on public.comu_fulfillment_incidents for select to authenticated using (public.is_cometa_admin() or exists(select 1 from public.comu_seller_memberships m where m.seller_id=comu_fulfillment_incidents.seller_id and m.user_id=auth.uid() and m.active));
 
 create or replace function public.comu_fulfillment_deadline_v1(p_at timestamptz) returns timestamptz language plpgsql immutable as $$
 declare local_at timestamp := p_at at time zone 'America/Mexico_City'; d date := local_at::date; h integer := extract(hour from local_at); dow integer := extract(isodow from local_at); target date;
