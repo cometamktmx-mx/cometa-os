@@ -1,23 +1,36 @@
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 
-const port = Number(process.env.COMU_WHOLESALE_HTTP_PORT || 3127);
-const base = `http://127.0.0.1:${port}`;
-async function ready() { for (let i = 0; i < 60; i += 1) { try { const response = await fetch(`${base}/api/comu/catalog`); if (response.status < 500) return response; } catch {} await delay(1000); } throw new Error("WHOLESALE_HTTP_SERVER_NOT_READY"); }
-const command = process.platform === "win32" ? "npm.cmd" : "npm";
-const child = spawn(command, ["run", "dev", "--", "-p", String(port)], { cwd: process.cwd(), shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } });
-let stderr = ""; child.stderr.on("data", (chunk) => { stderr += String(chunk).slice(-2000); });
+function envFile() { return readFile(".env.local", "utf8").then((text) => Object.fromEntries(text.split(/\r?\n/).filter((line) => /^[A-Z0-9_]+=/.test(line)).map((line) => { const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1)]; }))); }
+const env = await envFile(); const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL; const anonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY; const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+if (!supabaseUrl || !anonKey || !serviceKey || !new URL(supabaseUrl).hostname.includes("127.0.0.1")) throw new Error("WHOLESALE_AUTH_CERT_REQUIRES_LOCAL_SUPABASE");
+const port = Number(process.env.COMU_WHOLESALE_HTTP_PORT || 3127); const base = `http://127.0.0.1:${port}`; const runId = `comu-wholesale-cert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; const email = `${runId}@example.test`; const password = `Cert-${crypto.randomUUID()}-Aa1!`;
+const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+const created = await admin.auth.admin.createUser({ email, password, email_confirm: true }); if (created.error || !created.data.user) throw created.error || new Error("WHOLESALE_AUTH_USER_FAILED"); const userId = created.data.user.id;
+await admin.from("user_profiles").upsert({ user_id: userId, email, role: "client", status: "active" }, { onConflict: "user_id" });
+const jar = new Map(); const auth = createServerClient(supabaseUrl, anonKey, { cookies: { getAll: () => [...jar.entries()].map(([name, value]) => ({ name, value })), setAll: (cookies) => cookies.forEach(({ name, value }) => jar.set(name, value)) } }); const signed = await auth.auth.signInWithPassword({ email, password }); if (signed.error) throw signed.error; const cookieHeader = [...jar.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "-p", String(port)], { cwd: process.cwd(), shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } }); let stderr = ""; child.stderr.on("data", (chunk) => { stderr += String(chunk).slice(-2000); });
+async function ready() { for (let i = 0; i < 60; i += 1) { try { const response = await fetch(`${base}/api/comu/catalog`); if (response.status < 500) return; } catch {} await delay(1000); } throw new Error(`WHOLESALE_HTTP_SERVER_NOT_READY ${stderr}`); }
+async function request(path, init = {}) { return fetch(`${base}${path}`, { ...init, headers: { ...(init.headers || {}), Cookie: cookieHeader } }); }
+let sellerId = ""; let storefrontId = ""; let listingId = "";
 try {
-  const response = await ready();
-  const body = await response.json();
-  assert.ok(response.status !== 500, `catalog returned 500: ${JSON.stringify(body)}`);
-  assert.ok(body && typeof body === "object" && (body.ok === true || body.code === "COMU_FEATURE_DISABLED"), "catalog contract response");
-  const invalidProduct = await fetch(`${base}/api/comu/wholesale/product?sellerId=invalid&listingId=invalid`);
-  assert.ok(invalidProduct.status >= 400 && invalidProduct.status < 500, "invalid product request rejected");
-  const invalidStore = await fetch(`${base}/api/comu/wholesale?sellerId=invalid&storefrontId=invalid`);
-  assert.ok(invalidStore.status >= 400 && invalidStore.status < 500, "invalid storefront request rejected");
-  const tamperedCart = await fetch(`${base}/api/comu/cart`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listingId: "foreign", variantListingId: "foreign", quantity: 1, unitPrice: 1, discount: 99, total: 1 }) });
-  assert.ok(tamperedCart.status >= 400 && tamperedCart.status < 500, "tampered cart request rejected");
-  console.log("COMU WHOLESALE HTTP CERTIFICATION PASS");
-} catch (error) { console.error(error?.stack || error, stderr); process.exitCode = 1; } finally { child.kill("SIGTERM"); await delay(300); if (!child.killed) child.kill("SIGKILL"); }
+  await ready();
+  const { data: base } = await admin.from("comu_sellers").select("brand_id,brand_slug").eq("status", "ACTIVE").limit(1).maybeSingle(); const { data: productFixture } = await admin.from("pos_products").select("id").eq("brand_id", base?.brand_id || "").eq("active", true).limit(1).maybeSingle(); assert.ok(base && productFixture, "local seller/product fixture");
+  sellerId = crypto.randomUUID(); storefrontId = crypto.randomUUID(); listingId = crypto.randomUUID(); const seller = { id: sellerId }; const storefront = { id: storefrontId }; const listing = { id: listingId };
+  await admin.from("comu_sellers").insert({ id: sellerId, brand_id: base.brand_id, brand_slug: base.brand_slug, public_name: `Wholesale Cert ${runId}`, slug: runId, status: "ACTIVE", verification_status: "VERIFIED" });
+  await admin.from("comu_storefronts").insert({ id: storefrontId, seller_id: sellerId, name: `Wholesale Cert ${runId}`, slug: runId, status: "ACTIVE" });
+  await admin.from("comu_product_listings").insert({ id: listingId, seller_id: sellerId, storefront_id: storefrontId, product_id: productFixture.id, public_slug: runId, status: "PUBLISHED", wholesale_enabled: true });
+  const { data: productVariants } = await admin.from("pos_product_variants").select("id").eq("product_id", productFixture.id).eq("active", true); if (productVariants?.length) await admin.from("comu_variant_listings").insert(productVariants.map((variant) => ({ listing_id: listingId, variant_id: variant.id, enabled: true })));
+  await admin.from("comu_seller_memberships").upsert({ seller_id: seller.id, user_id: userId, role: "OWNER", active: true }, { onConflict: "seller_id,user_id" });
+  const policyWrite = await request("/api/comu/wholesale", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId: seller.id, storefrontId: storefront.id, enabled: true, minimumQuantity: 6, allowProductMix: true, allowVariantMix: true, tiers: [{ minQuantity: 6, pricingMode: "AMOUNT_OFF", value: 20 }, { minQuantity: 12, pricingMode: "AMOUNT_OFF", value: 35 }] }) }); assert.equal(policyWrite.status, 200);
+  const policy = await request(`/api/comu/wholesale?sellerId=${seller.id}&storefrontId=${storefront.id}`); assert.equal(policy.status, 200); const policyBody = await policy.json(); assert.equal(policyBody.ok, true);
+  const variantListings = await admin.from("comu_variant_listings").select("id,variant_id").eq("listing_id", listing.id); const runItems = (variantListings.data || []).map((variant) => ({ variantListingId: variant.id, quantityPerRun: 1 })); const productWrite = await request("/api/comu/wholesale/product", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId: seller.id, listingId: listing.id, mode: "CUSTOM", allowPieces: true, allowVariantMix: true, allowRun: runItems.length > 0, corridaEnabled: runItems.length > 0, tiers: [{ minQuantity: 6, pricingMode: "UNIT_PRICE", value: 220 }, { minQuantity: 12, pricingMode: "UNIT_PRICE", value: 205 }], runItems }) }); assert.equal(productWrite.status, 200);
+  const product = await request(`/api/comu/wholesale/product?sellerId=${seller.id}&listingId=${listing.id}`); assert.equal(product.status, 200); assert.equal((await product.json()).ok, true);
+  const buyerCart = await request("/api/comu/cart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listingId: "foreign", variantListingId: "foreign", quantity: 1, unitPrice: 1, discount: 99, total: 1 }) }); assert.ok(buyerCart.status >= 400 && buyerCart.status < 500, "tampering rejected by authenticated API");
+  console.log("COMU WHOLESALE AUTHENTICATED HTTP CERTIFICATION PASS");
+} catch (error) { console.error(error?.stack || error, stderr); process.exitCode = 1; } finally { await admin.from("comu_product_listings").delete().eq("id", listingId); await admin.from("comu_storefronts").delete().eq("id", storefrontId); await admin.from("comu_sellers").delete().eq("id", sellerId); await admin.from("comu_seller_memberships").delete().eq("user_id", userId); await admin.from("user_profiles").delete().eq("user_id", userId); await admin.auth.admin.deleteUser(userId); child.kill("SIGTERM"); await delay(300); if (!child.killed) child.kill("SIGKILL"); }
