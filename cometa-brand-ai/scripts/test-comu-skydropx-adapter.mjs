@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { normalizeSkydropxShipments, SkydropxShippingProvider } from "../src/lib/comu/shipping-provider.ts";
+import { normalizeSkydropxShipments, normalizeSkydropxTrackingStatus, SkydropxShippingProvider } from "../src/lib/comu/shipping-provider.ts";
 import { chooseServices } from "../src/lib/comu/shipping-pricing.ts";
 
 process.env.SKYDROPX_ENV = "sandbox";
@@ -60,6 +60,18 @@ const shipmentDestination = { country_code: "MX", postal_code: "21000", area_lev
 const shipment = await new SkydropxShippingProvider().createShipment({ orderId: "qa", destination: shipmentDestination, providerRateId: "rate-standard", package: { weightKg: 5, lengthCm: 20, widthCm: 30, heightCm: 30 } });
 assert.equal(shipment.providerShipmentId, "shipment-1");
 assert.equal(shipment.trackingNumber, "TRACK-1");
+assert.equal(normalizeSkydropxTrackingStatus("picked_up"), "IN_TRANSIT");
+assert.equal(normalizeSkydropxTrackingStatus("last_mile"), "OUT_FOR_DELIVERY");
+assert.equal(normalizeSkydropxTrackingStatus("delivered"), "DELIVERED");
+
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith("/oauth/token")) return response(200, { access_token: "test-token" });
+  if (String(url).endsWith("/shipments/shipment-1")) return response(200, { data: { attributes: { carrier_name: "estafeta", master_tracking_number: "TRACK-1" } }, included: [{ type: "package", attributes: { tracking_number: "TRACK-1" } }] });
+  return response(200, { data: [{ attributes: { status: "delivered" } }, { attributes: { status: "in_transit" } }] });
+};
+const tracking = await new SkydropxShippingProvider().getTracking("shipment-1");
+assert.equal(tracking.status, "DELIVERED");
+assert.equal(tracking.trackingNumber, "TRACK-1");
 
 globalThis.fetch = async (url) => String(url).endsWith("/oauth/token") ? response(200, { access_token: "test-token" }) : response(200, { id: "empty", is_completed: true, rates: [] });
 assert.deepEqual(await new SkydropxShippingProvider().quote(input), []);

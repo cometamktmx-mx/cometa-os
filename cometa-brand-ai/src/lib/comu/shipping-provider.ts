@@ -11,6 +11,10 @@ export function normalizeSkydropxShipments(body: unknown): ShipmentResult[] {
   });
 }
 
+export function normalizeSkydropxTrackingStatus(status: string): string {
+  return ({ created: "CREATED", picked_up: "IN_TRANSIT", in_transit: "IN_TRANSIT", last_mile: "OUT_FOR_DELIVERY", delivered: "DELIVERED", exception: "EXCEPTION", canceled: "CANCELLED", in_return: "EXCEPTION" } as Record<string, string>)[status.toLowerCase()] ?? "UNKNOWN";
+}
+
 export interface ShippingProvider {
   quote?(input: { orderId: string; destination: Record<string, unknown> | null; packages: ShipmentRequest["package"][] }): Promise<Array<{ serviceCode: string; etaDays: number; cost: number; carrier: string; serviceName?: string; currency?: string; providerRateId?: string; shipmentCreationType?: string }>>;
   createShipment(input: ShipmentRequest): Promise<ShipmentResult>;
@@ -57,5 +61,10 @@ export class SkydropxShippingProvider implements ShippingProvider {
     const response=await fetch(`${this.baseUrl}/api/v2/shipments`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({shipment:{rate_id:input.providerRateId,unique_shipment:true,auto_advance:process.env.SKYDROPX_ENV === "sandbox",printing_format:"standard",include_order_detail:false,address_from:addressFrom,address_to:addressTo,packages:[{package_number:"1",package_protected:false,declared_value:100,consignment_note:"53102400",package_type:"4G",products:[{name:"COMU QA Prenda textil",sku:"COMU-QA-001",product_type_code:"42152400",product_type_name:"Prenda textil"}]}]}})});
     if(!response.ok) throw new Error(`SKYDROPX_SHIPMENT_${response.status}`);
     const results=normalizeSkydropxShipments(await response.json()); if(!results.length) throw new Error("SKYDROPX_SHIPMENT_EMPTY"); return results[0];
+  }
+  async getTracking(providerShipmentId: string): Promise<{ status: string; trackingNumber: string }> {
+    const token=await this.accessToken(); const detailResponse=await fetch(`${this.baseUrl}/api/v1/shipments/${encodeURIComponent(providerShipmentId)}`,{headers:{authorization:`Bearer ${token}`}}); if(!detailResponse.ok) throw new Error(`SKYDROPX_SHIPMENT_${detailResponse.status}`);
+    const detail=await detailResponse.json() as { data?: Record<string, unknown>; included?: Array<Record<string, unknown>> }; const shipment=detail.data ?? {}; const attributes=shipment.attributes && typeof shipment.attributes === "object" ? shipment.attributes as Record<string, unknown> : {}; const packageRow=(detail.included ?? []).find((row)=>row.type === "package"); const packageAttributes=packageRow?.attributes && typeof packageRow.attributes === "object" ? packageRow.attributes as Record<string, unknown> : {}; const trackingNumber=String(packageAttributes.tracking_number ?? attributes.master_tracking_number ?? ""); const carrier=String(attributes.carrier_name ?? ""); if(!trackingNumber || !carrier) throw new Error("SKYDROPX_TRACKING_DATA_MISSING");
+    const trackingResponse=await fetch(`${this.baseUrl}/api/v1/shipments/tracking?tracking_number=${encodeURIComponent(trackingNumber)}&carrier_name=${encodeURIComponent(carrier)}`,{headers:{authorization:`Bearer ${token}`}}); if(!trackingResponse.ok) throw new Error(`SKYDROPX_TRACKING_${trackingResponse.status}`); const tracking=await trackingResponse.json() as { data?: Array<Record<string, unknown>> }; const latest=tracking.data?.[0]?.attributes && typeof tracking.data[0].attributes === "object" ? tracking.data[0].attributes as Record<string, unknown> : {}; return { status: normalizeSkydropxTrackingStatus(String(latest.status ?? "")), trackingNumber };
   }
 }
