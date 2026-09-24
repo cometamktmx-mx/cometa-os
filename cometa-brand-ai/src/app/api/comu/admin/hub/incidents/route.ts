@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { recordFulfillmentIncident } from "@/lib/comu/fulfillment";
+import { PosApiError } from "@/lib/pos/server";
+export async function POST(request: Request){try{const body=await request.json() as {suborderId?:string;incidentType?:"INCOMPLETE_PACKAGE"|"WRONG_PRODUCT"|"DAMAGED_PACKAGE"|"OTHER";note?:string};if(!body.suborderId||!body.incidentType)throw new PosApiError(400,"COMU_INCIDENT_INPUT_INVALID","Completa la incidencia.");return NextResponse.json({ok:true,incident:await recordFulfillmentIncident(body.suborderId,body.incidentType,body.note)})}catch(error){if(error instanceof PosApiError)return NextResponse.json({ok:false,code:error.code,message:error.message},{status:error.status});return NextResponse.json({ok:false,code:"COMU_INCIDENT_FAILED",message:"No se pudo registrar la incidencia."},{status:409})}}

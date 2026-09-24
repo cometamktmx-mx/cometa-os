@@ -28,8 +28,10 @@ export async function getBuyerOrder(orderId: string) {
 
 export async function cancelBuyerOrder(orderId: string, restock = false) {
   const { buyer, admin } = await requireComuBuyer();
-  const { data: existing } = await admin.from("comu_orders").select("id,status").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
+  const { data: existing } = await admin.from("comu_orders").select("id,status,comu_order_suborders(fulfillment_status)").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
   if (!existing) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "La orden no existe.");
+  const fulfillment = (existing.comu_order_suborders || []) as Array<{ fulfillment_status?: string }>;
+  if (fulfillment.some((suborder) => suborder.fulfillment_status && !["PAID", "PREPARING"].includes(suborder.fulfillment_status))) throw new PosApiError(409, "COMU_ORDER_FULFILLMENT_LOCKED", "Esta orden ya está lista para entrega y no se puede cancelar desde tu cuenta.");
   const { data: payment } = await admin.from("comu_payment_intents").select("stripe_payment_intent_id,status").eq("order_id", orderId).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (payment?.stripe_payment_intent_id && !["SUCCEEDED", "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED"].includes(payment.status)) {
     await getStripeClient().paymentIntents.cancel(payment.stripe_payment_intent_id);
