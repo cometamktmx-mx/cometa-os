@@ -8,6 +8,9 @@ import {
 } from "@/lib/brand-os/server";
 import { resolveBrandOsProductAccess } from "@/lib/brand-os/access";
 import { getPassivePosProductAvailability } from "@/lib/pos/access";
+import { getAdminClient } from "@/lib/pos/server";
+import { isFoodProfile } from "@/lib/pos/surface-policy";
+import { isComuFeatureEnabled } from "@/lib/comu/features";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +27,16 @@ export default async function BrandCommandCenterPage({
     const posAvailability = await getPassivePosProductAvailability(
       access.brand.slug
     );
+    const role = (access.accessRole || "").toLowerCase();
+    let comuState: "available" | "active" | "hidden" = "hidden";
+    if ((access.isPlatformAdmin || ["owner", "admin"].includes(role)) && isComuFeatureEnabled("sellerOnboarding") && posAvailability.state === "active") {
+      const admin = getAdminClient();
+      const [{ data: seller }, { data: profile }] = await Promise.all([
+        admin.from("comu_sellers").select("status").eq("brand_id", access.brand.id).order("created_at", { ascending: true }).limit(1).maybeSingle(),
+        admin.from("pos_business_profiles").select("profile_code").eq("brand_slug", access.brand.slug).maybeSingle(),
+      ]);
+      if (!isFoodProfile(profile?.profile_code)) comuState = seller?.status === "ACTIVE" ? "active" : "available";
+    }
     const osProductAccess = resolveBrandOsProductAccess({
       membershipActive: access.membershipActive,
       isPlatformAdmin: access.isPlatformAdmin,
@@ -39,6 +52,7 @@ export default async function BrandCommandCenterPage({
           osStatus={osProductAccess.effectiveAccessAllowed ? "active" : access.osAccess.status}
           osAccessAllowed={osProductAccess.effectiveAccessAllowed}
           posAvailability={posAvailability}
+          comuState={comuState}
         />
       </>
     );
