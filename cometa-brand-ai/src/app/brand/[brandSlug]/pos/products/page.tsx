@@ -17,6 +17,7 @@ import { buildPosHref } from "../../components/pos-sidebar";
 import { PosIcon } from "../../components/pos-icons";
 import { PosProductImage } from "../../components/pos-product-image";
 import { PosFoodRecipesAdmin } from "../../components/pos-food-recipes-admin";
+import { ComuChannelStatus } from "./comu-channel-status";
 import { isFoodProfile } from "@/lib/pos/surface-policy";
 import {
   PosBadge,
@@ -2399,6 +2400,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       <ProductDetailDrawer
         product={selectedCatalogProduct}
         currency={currency}
+        brandSlug={brand.slug}
         onClose={() => setSelectedCatalogProduct(null)}
       />
 
@@ -2890,10 +2892,12 @@ function AttributeField({
 function ProductDetailDrawer({
   product,
   currency,
+  brandSlug,
   onClose,
 }: {
   product: Product | null;
   currency: string;
+  brandSlug: string;
   onClose: () => void;
 }) {
   return (
@@ -2912,6 +2916,7 @@ function ProductDetailDrawer({
             </PosBadge>
             <PosBadge tone="neutral">{product.category?.name || "Sin categoría"}</PosBadge>
           </div>
+          <ComuChannelStatus brandSlug={brandSlug} product={product} />
           <div className="overflow-hidden rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)]">
             {product.variants.map((variant) => (
               <div key={variant.id} className="border-b border-[var(--pos-line-subtle)] p-3 last:border-0">
