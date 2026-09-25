@@ -28,14 +28,17 @@ export default async function BrandCommandCenterPage({
       access.brand.slug
     );
     const role = (access.accessRole || "").toLowerCase();
-    let comuState: "available" | "active" | "hidden" = "hidden";
-    if ((access.isPlatformAdmin || ["owner", "admin"].includes(role)) && isComuFeatureEnabled("sellerOnboarding") && posAvailability.state === "active") {
+    let comuState: "available" | "incomplete" | "active" | "hidden" = "hidden";
+    const comuReady = (["enabled", "catalog", "sellerOnboarding"] as const).every((feature) => isComuFeatureEnabled(feature));
+    if ((access.isPlatformAdmin || ["owner", "admin"].includes(role)) && comuReady && posAvailability.state === "active") {
       const admin = getAdminClient();
       const [{ data: seller }, { data: profile }] = await Promise.all([
         admin.from("comu_sellers").select("status").eq("brand_id", access.brand.id).order("created_at", { ascending: true }).limit(1).maybeSingle(),
         admin.from("pos_business_profiles").select("profile_code").eq("brand_slug", access.brand.slug).maybeSingle(),
       ]);
-      if (!isFoodProfile(profile?.profile_code)) comuState = seller?.status === "ACTIVE" ? "active" : "available";
+      if (!isFoodProfile(profile?.profile_code)) {
+        comuState = seller?.status === "ACTIVE" ? "active" : seller ? "incomplete" : "available";
+      }
     }
     const osProductAccess = resolveBrandOsProductAccess({
       membershipActive: access.membershipActive,
