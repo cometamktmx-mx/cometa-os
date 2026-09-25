@@ -9,7 +9,7 @@ export async function getPublicCatalog(search?: string) {
   const productIds = [...new Set(listings.map((item) => item.product_id))];
   const [{ data: sellers }, { data: storefronts }, { data: products }, { data: variants }, { data: media }, { data: policies }, { data: tiers }, { data: overrides }, { data: runs }] = await Promise.all([
     admin.from("comu_sellers").select("id,slug,public_name,logo_url,cover_url,city,state").in("id", sellerIds).eq("status", "ACTIVE").eq("verification_status", "VERIFIED"),
-    admin.from("comu_storefronts").select("id,slug,name,status").in("id", [...new Set(listings.map((item) => item.storefront_id))]).in("status", ["PUBLISHED", "ACTIVE"]),
+    admin.from("comu_storefronts").select("id,slug,name,status,headline,description,theme_config").in("id", [...new Set(listings.map((item) => item.storefront_id))]).in("status", ["PUBLISHED", "ACTIVE"]),
     admin.from("pos_products").select("id,name,description,image_url,brand_slug").in("id", productIds).eq("active", true).eq("sellable", true),
     admin.from("comu_variant_listings").select("id,listing_id,variant_id,enabled,price_override").in("listing_id", listings.map((item) => item.id)).eq("enabled", true),
     admin.from("comu_product_media").select("id,listing_id,variant_id,public_url,sort_order,is_primary").in("listing_id", listings.map((item) => item.id)).order("sort_order"),

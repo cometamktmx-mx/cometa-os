@@ -9,6 +9,6 @@ export default async function ComuOnboardingPage({ params }: { params: Promise<{
   const { brandSlug } = await params;
   await requireBrandAccess(brandSlug);
   const snapshot = await getOnboardingSnapshot(brandSlug);
-  if (snapshot.seller?.status === "ACTIVE") redirect("/comu/seller");
+  if (snapshot.seller?.status === "ACTIVE") redirect(`/brand/${encodeURIComponent(brandSlug)}/comu`);
   return <OnboardingClient initial={snapshot} />;
 }

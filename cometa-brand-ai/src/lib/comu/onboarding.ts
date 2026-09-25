@@ -75,29 +75,29 @@ function validateSlug(value: string) {
   return slug;
 }
 
-async function ensureSeller(admin: Admin, access: BrandAccess, input: { publicName: string; slug: string; description?: string; contact?: string }) {
+async function ensureSeller(admin: Admin, access: BrandAccess, input: { publicName: string; slug: string; description?: string; headline?: string; whatsapp?: string; city?: string; address?: string; showLocation?: boolean }) {
   const slug = validateSlug(input.slug || input.publicName);
   const { data: collision } = await admin.from("comu_sellers").select("id,brand_id").eq("slug", slug).maybeSingle();
   if (collision && collision.brand_id !== access.brand.id) throw new PosApiError(409, "COMU_SLUG_TAKEN", "Ese slug ya está en uso.");
   const { data: current } = await admin.from("comu_sellers").select("*").eq("brand_id", access.brand.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
   let seller = current;
   if (!seller) {
-    const { data, error } = await admin.from("comu_sellers").insert({ brand_id: access.brand.id, brand_slug: access.brand.slug, public_name: input.publicName, slug, description: input.description || null, status: "DRAFT", verification_status: "UNVERIFIED" }).select("*").single();
+    const { data, error } = await admin.from("comu_sellers").insert({ brand_id: access.brand.id, brand_slug: access.brand.slug, public_name: input.publicName, slug, description: input.description || null, city: input.city || null, status: "DRAFT", verification_status: "UNVERIFIED" }).select("*").single();
     if (error) throw new PosApiError(error.code === "23505" ? 409 : 500, error.code === "23505" ? "COMU_SLUG_TAKEN" : "COMU_SELLER_CREATE_FAILED", "No se pudo preparar la tienda COMU.");
     seller = data;
   } else {
-    const { data, error } = await admin.from("comu_sellers").update({ public_name: input.publicName, slug, description: input.description || null, brand_slug: access.brand.slug, updated_at: new Date().toISOString() }).eq("id", seller.id).select("*").single();
+    const { data, error } = await admin.from("comu_sellers").update({ public_name: input.publicName, slug, description: input.description || null, city: input.city || null, brand_slug: access.brand.slug, updated_at: new Date().toISOString() }).eq("id", seller.id).select("*").single();
     if (error) throw error;
     seller = data;
   }
   const { data: storefrontExisting } = await admin.from("comu_storefronts").select("*").eq("seller_id", seller.id).maybeSingle();
   let storefront = storefrontExisting;
   if (!storefront) {
-    const { data, error } = await admin.from("comu_storefronts").insert({ seller_id: seller.id, name: input.publicName, slug, description: input.description || null, status: "DRAFT" }).select("*").single();
+    const { data, error } = await admin.from("comu_storefronts").insert({ seller_id: seller.id, name: input.publicName, slug, headline: input.headline || null, description: input.description || null, theme_config: { whatsapp: input.whatsapp || null, address: input.address || null, showLocation: input.showLocation !== false }, status: "DRAFT" }).select("*").single();
     if (error) throw error;
     storefront = data;
   } else {
-    const { data, error } = await admin.from("comu_storefronts").update({ name: input.publicName, slug, description: input.description || null, updated_at: new Date().toISOString() }).eq("id", storefront.id).select("*").single();
+    const { data, error } = await admin.from("comu_storefronts").update({ name: input.publicName, slug, headline: input.headline || null, description: input.description || null, theme_config: { ...(storefront.theme_config || {}), whatsapp: input.whatsapp || null, address: input.address || null, showLocation: input.showLocation !== false }, updated_at: new Date().toISOString() }).eq("id", storefront.id).select("*").single();
     if (error) throw error;
     storefront = data;
   }
@@ -137,7 +137,7 @@ export async function saveOnboarding(brandSlug: string, body: Record<string, unk
   if (foodOnly || !hasPosProducts) throw new PosApiError(409, "COMU_ACTIVATION_NOT_ELIGIBLE", "Esta marca todavía no tiene un catálogo POS textil elegible para COMU.");
   const publicName = String(body.publicName || access.brand.name).trim();
   if (!publicName) throw new PosApiError(400, "COMU_PUBLIC_NAME_REQUIRED", "El nombre público es obligatorio.");
-  const { seller, storefront } = await ensureSeller(admin, access, { publicName, slug: String(body.slug || publicName), description: String(body.description || "").trim() });
+  const { seller, storefront } = await ensureSeller(admin, access, { publicName, slug: String(body.slug || publicName), description: String(body.description || "").trim(), headline: String(body.headline || "").trim(), whatsapp: String(body.whatsapp || "").trim(), city: String(body.city || "").trim(), address: String(body.address || "").trim(), showLocation: body.showLocation !== false });
   const selected = Array.isArray(body.selectedProductIds) ? body.selectedProductIds.map(String).filter(Boolean) : [];
   const { data: products } = await admin.from("pos_products").select("id,brand_id,brand_slug").in("id", selected).eq("brand_id", access.brand.id).eq("brand_slug", access.brand.slug).eq("active", true).eq("sellable", true);
   const validIds = (products || []).map((product) => product.id);

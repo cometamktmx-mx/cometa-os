@@ -1,5 +1,5 @@
-﻿import SellerDashboard from "./seller-dashboard";
+import { redirect } from "next/navigation";
 
 export default function ComuSellerPage() {
-  return <SellerDashboard />;
+  redirect("/workspace");
 }

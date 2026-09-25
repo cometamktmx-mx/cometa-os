@@ -8,6 +8,7 @@ export type PublicListing = {
   wholesale_enabled: boolean;
   retail_price_override?: number | null;
   seller?: { slug: string; public_name: string; logo_url?: string | null; cover_url?: string | null; city?: string | null; state?: string | null };
+  storefront?: { headline?: string | null; description?: string | null; theme_config?: Record<string, unknown> | null };
   product?: { name: string; description?: string | null; image_url?: string | null };
   media?: Array<{ public_url: string; is_primary?: boolean }>;
   variants?: Array<{ productVariant?: { price?: number | null } }>;
