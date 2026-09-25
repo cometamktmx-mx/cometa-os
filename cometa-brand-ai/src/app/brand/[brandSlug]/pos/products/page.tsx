@@ -2401,6 +2401,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         product={selectedCatalogProduct}
         currency={currency}
         brandSlug={brand.slug}
+        foodDirect={foodDirect}
         onClose={() => setSelectedCatalogProduct(null)}
       />
 
@@ -2893,11 +2894,13 @@ function ProductDetailDrawer({
   product,
   currency,
   brandSlug,
+  foodDirect,
   onClose,
 }: {
   product: Product | null;
   currency: string;
   brandSlug: string;
+  foodDirect: boolean;
   onClose: () => void;
 }) {
   return (
@@ -2916,7 +2919,7 @@ function ProductDetailDrawer({
             </PosBadge>
             <PosBadge tone="neutral">{product.category?.name || "Sin categoría"}</PosBadge>
           </div>
-          <ComuChannelStatus brandSlug={brandSlug} product={product} />
+          {!foodDirect ? <ComuChannelStatus brandSlug={brandSlug} product={product} /> : null}
           <div className="overflow-hidden rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)]">
             {product.variants.map((variant) => (
               <div key={variant.id} className="border-b border-[var(--pos-line-subtle)] p-3 last:border-0">
