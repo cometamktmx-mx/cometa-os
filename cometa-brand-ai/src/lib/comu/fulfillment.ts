@@ -53,6 +53,30 @@ export async function shipShipment(orderId: string) {
   return data;
 }
 
+export async function prepareDirectShipment(suborderId: string, sellerId: string, dimensions: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number }) {
+  const access = await requireSellerAccess(sellerId, ["OWNER", "ADMIN", "ORDER_MANAGER"]);
+  const { data: suborder } = await access.admin.from("comu_order_suborders").select("id,order_id,seller_id,fulfillment_route").eq("id", suborderId).eq("seller_id", sellerId).maybeSingle();
+  if (!suborder || suborder.fulfillment_route !== "DIRECT") throw new PosApiError(403, "COMU_DIRECT_NOT_ELIGIBLE", "Este pedido no permite envío directo.");
+  const { data: existing } = await access.admin.from("comu_shipments").select("*").eq("master_order_id", suborder.order_id).maybeSingle();
+  if (existing?.provider_shipment_id) return existing;
+  const { data: order } = await access.admin.from("comu_orders").select("shipping_address_snapshot").eq("id", suborder.order_id).maybeSingle();
+  const created = await new LocalTestShippingProvider().createShipment({ orderId: suborder.order_id, destination: order?.shipping_address_snapshot || null, package: dimensions });
+  const shipment = existing || (await access.admin.from("comu_shipments").insert({ master_order_id: suborder.order_id, provider: "LOCAL_TEST", status: "READY_TO_SHIP", destination_snapshot: order?.shipping_address_snapshot || null }).select("*").single()).data;
+  if (!shipment) throw new PosApiError(409, "COMU_SHIPMENT_CREATE_FAILED", "No se pudo preparar el envío.");
+  const { data: updated, error } = await access.admin.from("comu_shipments").update({ ...created, weight_kg: dimensions.weightKg, length_cm: dimensions.lengthCm, width_cm: dimensions.widthCm, height_cm: dimensions.heightCm, updated_at: new Date().toISOString() }).eq("id", shipment.id).is("provider_shipment_id", null).select("*").single();
+  if (error || !updated) throw new PosApiError(409, "COMU_SHIPMENT_CREATE_FAILED", "No se pudo preparar el envío.");
+  return updated;
+}
+
+export async function shipDirectShipment(suborderId: string, sellerId: string) {
+  const access = await requireSellerAccess(sellerId, ["OWNER", "ADMIN", "ORDER_MANAGER"]);
+  const { data: suborder } = await access.admin.from("comu_order_suborders").select("id,order_id,seller_id,fulfillment_route").eq("id", suborderId).eq("seller_id", sellerId).maybeSingle();
+  if (!suborder || suborder.fulfillment_route !== "DIRECT") throw new PosApiError(403, "COMU_DIRECT_NOT_ELIGIBLE", "Este pedido no permite envío directo.");
+  const { data: shipment } = await access.admin.from("comu_shipments").select("id,provider_shipment_id").eq("master_order_id", suborder.order_id).maybeSingle();
+  if (!shipment?.provider_shipment_id) throw new PosApiError(409, "COMU_SHIPMENT_NOT_PREPARED", "Prepara el envío antes de marcarlo.");
+  return transitionSuborder(suborderId, "SHIPPED", "SELLER");
+}
+
 export async function recordFulfillmentIncident(suborderId: string, incidentType: "INCOMPLETE_PACKAGE" | "WRONG_PRODUCT" | "DAMAGED_PACKAGE" | "OTHER", note?: string) {
   const actor = await requireComuActor();
   if (!actor.isAdmin) throw new PosApiError(403, "COMU_HUB_ACCESS_DENIED", "No tienes acceso al HUB.");

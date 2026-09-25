@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { PaymentStatus } from "@/app/api/comu/orders/[id]/payment-status/route";
+type FulfillmentView = { status?: string };
 
 export default function BuyerOrder({ params }: { params: Promise<{ id: string }> }) {
   const [data, setData] = useState<PaymentStatus | null>(null);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [tracking, setTracking] = useState<"live" | "delayed" | "paused" | "stable">("live");
+  const [fulfillment, setFulfillment] = useState<FulfillmentView | null>(null);
   const refreshRef = useRef<() => void>(() => {});
   useEffect(() => {
     let disposed = false;
@@ -53,6 +55,8 @@ export default function BuyerOrder({ params }: { params: Promise<{ id: string }>
         if (!loaded && paid && !window.location.href.includes("view=detail")) window.location.replace('/comu/account/orders/' + encodeURIComponent(id) + '/confirmation');
         loaded = true;
         setData(result);
+        const fulfillmentResponse = await fetch('/api/comu/orders/' + encodeURIComponent(id) + '/fulfillment', { cache: "no-store", signal: controller.signal });
+        if (fulfillmentResponse.ok) { const fulfillmentData = await fulfillmentResponse.json() as { fulfillment?: FulfillmentView }; setFulfillment(fulfillmentData.fulfillment || null); }
         setError(false);
       } catch {
         if (!disposed) setError(true); // Keep the last valid snapshot during network outages.
@@ -100,9 +104,10 @@ export default function BuyerOrder({ params }: { params: Promise<{ id: string }>
     DISPUTED: { title: "Tu compra está en revisión.", copy: "Hay una revisión abierta sobre tu compra. No realices otro pago para este pedido." },
   };
   const later = laterStates[order.status];
+  const fulfillmentCopy = fulfillment?.status === "DELIVERED" ? { title: "Entregado.", copy: "Tu compra fue entregada." } : fulfillment?.status === "SHIPPED" ? { title: "En camino.", copy: "Tu compra ya está en tránsito." } : fulfillment?.status === "READY_TO_SHIP" || fulfillment?.status === "CONSOLIDATED" ? { title: "Listo para envío.", copy: "Tu compra está lista para salir." } : fulfillment?.status === "READY_FOR_CONSOLIDATION" ? { title: "Estamos reuniendo tu compra.", copy: "Tus paquetes están llegando al HUB para reunirlos." } : fulfillment?.status === "PREPARING" || fulfillment?.status === "WAITING_FOR_SELLERS" ? { title: "Preparando tu pedido.", copy: "Las tiendas están preparando tus piezas." } : undefined;
   const special = late || expired || cancelled || failed || Boolean(later);
-  const title = late ? "Tu compra está en revisión." : expired ? "Tu reserva expiró." : cancelled ? "Pedido cancelado." : confirmed ? "Pedido confirmado." : failed ? "No pudimos completar el pago." : later?.title || (validating || order.status === "PAID" ? "Estamos confirmando tu pago." : "Tu pago está pendiente.");
-  const copy = late ? "Recibimos tu pago, pero tu reserva expiró antes de confirmarse. Nuestro equipo revisará tu compra." : expired ? "El tiempo para confirmar tu reserva terminó. Si ya pagaste, consulta el estado antes de intentar otra compra." : cancelled ? "Este pedido ya no está activo. Si realizaste un pago, revisa su estado antes de comprar nuevamente." : confirmed ? "El vendedor ya puede comenzar a preparar tus piezas." : failed ? "El pago no pudo completarse. Revisa tus datos o consulta con tu banco antes de intentarlo nuevamente." : later?.copy || (validating || order.status === "PAID" ? "Estamos validando la información de tu compra. Aquí verás la confirmación cuando esté lista." : "Todavía no tenemos una confirmación del pago. Si acabas de pagar, la actualización puede tardar unos segundos.");
+  const title = late ? "Tu compra está en revisión." : expired ? "Tu reserva expiró." : cancelled ? "Pedido cancelado." : fulfillmentCopy?.title || (confirmed ? "Pedido confirmado." : failed ? "No pudimos completar el pago." : later?.title || "Tu pago está pendiente.");
+  const copy = late ? "Recibimos tu pago, pero tu reserva expiró antes de confirmarse. Nuestro equipo revisará tu compra." : expired ? "El tiempo para confirmar tu reserva terminó." : cancelled ? "Este pedido ya no está activo." : fulfillmentCopy?.copy || (confirmed ? "El vendedor ya puede comenzar a preparar tus piezas." : failed ? "El pago no pudo completarse." : later?.copy || "Estamos validando la información de tu compra.");
   const reassurance = late || confirmed || validating ? "No necesitas volver a pagar." : !special ? "Si ya pagaste, no necesitas volver a pagar." : null;
   const steps = ["Pago recibido", "Confirmando compra", "Pedido confirmado", "Preparando pedido"];
   const completedSteps = order.status === "COMPLETED" && payment?.status === "SUCCEEDED" ? 4 : confirmed ? 3 : !special && validating ? 1 : 0;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PaymentStatus } from "@/app/api/comu/orders/[id]/payment-status/route";
 
 type Address = { id: string; label: string; recipient_name: string; line1: string; city: string; state: string; postal_code: string; is_default?: boolean };
+type ShippingQuote = { service_code: string; service_name?: string; cost: number; etaDays?: number; allocation?: { buyerShippingCharge: number; sellerShippingSubsidy: number } };
 type StripeElement = { mount: (selector: string) => void; unmount: () => void };
 type StripeError = { type?: string; code?: string; decline_code?: string; message?: string; payment_intent?: { id?: string } };
 type StripeElements = { create: (type: "payment") => StripeElement; submit: () => Promise<{ error?: StripeError }> };
@@ -47,6 +48,9 @@ export default function ComuCheckoutPage() {
   const [paymentView, setPaymentView] = useState<{ phase: "IDLE" | "PROCESSING" | "CONFIRMING" | "SUCCESS" | "FAILED" | "PENDING_REVIEW"; text?: string; retry?: boolean; received?: boolean }>({ phase: "IDLE" });
   const [confirmedOrder, setConfirmedOrder] = useState<PaymentStatus["order"] | null>(null);
   const [cartState, setCartState] = useState<"loading" | "empty" | "unavailable" | "ready" | "error">("loading");
+  const [cartSubtotal, setCartSubtotal] = useState(0);
+  const [shippingMode, setShippingMode] = useState<"STANDARD" | "FAST">("STANDARD");
+  const [shippingQuotes, setShippingQuotes] = useState<ShippingQuote[]>([]);
 
   async function readPaymentStatus(id: string, signal?: AbortSignal): Promise<PaymentStatus> {
     const response = await fetch(`/api/comu/orders/${encodeURIComponent(id)}/payment-status`, { cache: "no-store", signal: signal || AbortSignal.timeout(8000) });
@@ -137,10 +141,11 @@ export default function ComuCheckoutPage() {
 
   function loadCart() {
     return fetch("/api/comu/cart", { cache: "no-store" }).then(async (response) => {
-      const data = await response.json() as { ok?: boolean; items?: Array<{ is_available?: boolean }> };
+      const data = await response.json() as { ok?: boolean; items?: Array<{ is_available?: boolean; line_total?: number; quantity?: number; unit_price?: number }> };
       if (!response.ok || !data.ok || !Array.isArray(data.items)) throw new Error("cart");
       const state = !data.items.length ? "empty" : data.items.some((item) => item.is_available !== true) ? "unavailable" : "ready";
       setCartState(state);
+      setCartSubtotal(data.items.reduce((sum, item) => sum + Number(item.line_total ?? Number(item.quantity || 0) * Number(item.unit_price || 0)), 0));
       return state;
     }).catch(() => { setCartState("error"); return "error" as const; });
   }
@@ -226,43 +231,37 @@ export default function ComuCheckoutPage() {
     } finally { busyRef.current = false; setBusy(false); }
   }
 
+  async function createPaymentIntent() {
+    if (!orderId || busyRef.current || clientSecret) return;
+    busyRef.current = true; setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/comu/payments/intents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId, idempotencyKey: `${orderId}:payment` }) });
+      const data = await response.json() as { ok?: boolean; clientSecret?: string };
+      if (!response.ok || !data.ok || !data.clientSecret) { setMessage("No se pudo iniciar el pago. Inténtalo nuevamente."); return; }
+      setClientSecret(data.clientSecret); setMessage("Tus piezas están reservadas durante 15 minutos.");
+    } catch { setMessage("No se pudo iniciar el pago. Inténtalo nuevamente."); } finally { busyRef.current = false; setBusy(false); }
+  }
+
   async function prepareOrder() {
     if (busyRef.current || paymentLockedRef.current || recovering || orderId || cartState !== "ready" || loading || loadFailed || showForm || !addresses.some((address) => address.id === addressId)) return;
-    busyRef.current = true;
-    setBusy(true);
-    setMessage("");
-    const key = crypto.randomUUID();
+    busyRef.current = true; setBusy(true); setMessage(""); const key = crypto.randomUUID();
     try {
-      // Recheck immediately before reserving: another tab may have changed the cart.
       if (await loadCart() !== "ready") return;
-      const response = await fetch("/api/comu/checkout", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idempotencyKey: key, addressId }),
-      });
+      if (!shippingQuotes.length) {
+        const quoteResponse = await fetch("/api/comu/shipping/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: "cart-preview", subtotal: cartSubtotal, provider: "LOCAL_TEST" }) });
+        const quoteData = await quoteResponse.json() as { ok?: boolean; quotes?: ShippingQuote[] };
+        if (!quoteResponse.ok || !quoteData.ok) { setMessage("No se pudo cotizar el envío. Inténtalo nuevamente."); return; }
+        setShippingQuotes(quoteData.quotes || []); setMessage("Elige tu velocidad de envío para continuar al pago."); return;
+      }
+      const response = await fetch("/api/comu/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: key, addressId, shippingMode }) });
       const data = await response.json() as { ok?: boolean; code?: string; order?: { id: string; reservation_id?: string } };
-      if (!response.ok || !data.ok || !data.order?.id) {
-        if (data.code === "COMU_CART_EMPTY") { setCartState("empty"); return; }
-        if (["COMU_LISTING_UNAVAILABLE", "COMU_VARIANT_UNAVAILABLE", "COMU_INSUFFICIENT_STOCK"].includes(data.code || "")) { setCartState("unavailable"); return; }
-        if (data.code === "COMU_RESERVATION_FAILED" && await loadCart() !== "ready") return;
-        setMessage("No se pudo preparar la orden. Revisa tu dirección y carrito e inténtalo nuevamente.");
-        return;
-      }
-      setOrderId(data.order.id);
-      window.history?.replaceState(null, "", `/comu/checkout?orderId=${encodeURIComponent(data.order.id)}`);
-      setReservationId(data.order.reservation_id || null);
-      const paymentResponse = await fetch("/api/comu/payments/intents", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: data.order.id, idempotencyKey: `${key}:payment` }),
-      });
+      if (!response.ok || !data.ok || !data.order?.id) { if (data.code === "COMU_CART_EMPTY") setCartState("empty"); else if (["COMU_LISTING_UNAVAILABLE", "COMU_VARIANT_UNAVAILABLE", "COMU_INSUFFICIENT_STOCK"].includes(data.code || "")) setCartState("unavailable"); else setMessage("No se pudo preparar la orden. Revisa tu dirección y carrito e inténtalo nuevamente."); return; }
+      setOrderId(data.order.id); window.history?.replaceState(null, "", `/comu/checkout?orderId=${encodeURIComponent(data.order.id)}`); setReservationId(data.order.reservation_id || null);
+      const paymentResponse = await fetch("/api/comu/payments/intents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: data.order.id, idempotencyKey: `${key}:payment` }) });
       const payment = await paymentResponse.json() as { ok?: boolean; clientSecret?: string };
-      if (!paymentResponse.ok || !payment.ok || !payment.clientSecret) {
-        setMessage("No se pudo iniciar el pago. Inténtalo nuevamente.");
-        return;
-      }
-      setClientSecret(payment.clientSecret);
-      setMessage("Tus piezas están reservadas durante 15 minutos.");
-    } catch { setMessage("No se pudo completar la solicitud. Revisa tu conexión e inténtalo nuevamente."); }
-    finally { busyRef.current = false; setBusy(false); }
+      if (!paymentResponse.ok || !payment.ok || !payment.clientSecret) { setMessage("No se pudo iniciar el pago. Inténtalo nuevamente."); return; }
+      setClientSecret(payment.clientSecret); setMessage("Tus piezas están reservadas durante 15 minutos.");
+    } catch { setMessage("No se pudo completar la solicitud. Revisa tu conexión e inténtalo nuevamente."); } finally { busyRef.current = false; setBusy(false); }
   }
 
   async function pay() {
@@ -373,7 +372,7 @@ export default function ComuCheckoutPage() {
         {clientSecret && <p className="mt-3 text-sm text-slate-600">Esta dirección se conservará en tu orden.</p>}
       </>}
     </section>
-    {!clientSecret ? <button disabled={busy || Boolean(orderId) || loading || loadFailed || showForm || !addressId} onClick={() => void prepareOrder()} className="mt-8 rounded-full bg-[#17201d] px-6 py-3 font-bold text-white disabled:opacity-50">{busy ? "Procesando…" : "Continuar al pago"}</button> :
+    {!clientSecret ? (orderId || shippingQuotes.length) ? <section className="mt-8 rounded-3xl border border-black/10 bg-white p-6"><h2 className="text-xl font-black">Envío</h2><div className="mt-4 grid gap-3">{shippingQuotes.map((quote) => { const mode = quote.service_code.toUpperCase().includes("FAST") ? "FAST" : "STANDARD"; const charge = quote.allocation?.buyerShippingCharge ?? quote.cost; return <label key={`${quote.service_code}-${mode}`} className={`flex cursor-pointer items-center justify-between gap-4 rounded-2xl border p-4 ${shippingMode === mode ? "border-emerald-700 bg-emerald-50" : "border-black/10"}`}><span className="flex items-center gap-3"><input type="radio" name="shipping-mode" checked={shippingMode === mode} onChange={() => setShippingMode(mode)} /><span><strong className="block">{mode === "FAST" ? "Rápido" : "Estándar"}</strong><small className="text-slate-600">{quote.service_name || "Servicio local"} · {quote.etaDays || "—"} días</small></span></span><strong>{charge === 0 ? "GRATIS" : new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(charge)}{mode === "FAST" ? <small className="ml-2 text-xs text-emerald-700">Más rápido</small> : null}</strong></label>; })}</div><button disabled={busy || !shippingQuotes.length} onClick={() => void (orderId ? createPaymentIntent() : prepareOrder())} className="mt-6 rounded-full bg-[#17201d] px-6 py-3 font-bold text-white disabled:opacity-50">{busy ? "Procesando…" : "Continuar al pago"}</button></section> : <button disabled={busy || loading || loadFailed || showForm || !addressId} onClick={() => void prepareOrder()} className="mt-8 rounded-full bg-[#17201d] px-6 py-3 font-bold text-white disabled:opacity-50">{busy ? "Cotizando…" : "Cotizar envío"}</button> :
       <section className="mt-8 rounded-3xl border border-black/10 bg-white p-5">
         <div id="comu-payment-element" />
         {!process.env.NEXT_PUBLIC_COMU_STRIPE_PUBLISHABLE_KEY && <p role="status">El pago no está disponible en este momento. Inténtalo más tarde.</p>}
