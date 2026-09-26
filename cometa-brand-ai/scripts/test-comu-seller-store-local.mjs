@@ -20,6 +20,8 @@ const checks = [
   ["asset upload endpoint connected", text.editor.includes("/api/comu/storefronts/assets") && text.assets.includes("export async function POST")],
   ["theme persistence connected", text.editor.includes("theme: { accentColor }") && text.api.includes("accentColor")],
   ["public identity connected", text.catalog.includes("logo_url,cover_url,theme_config") && text.publicSeller.includes("const accent")],
+  ["public identity presentation", text.publicSeller.includes("object-cover") && text.publicSeller.includes("safeAccent") && text.publicSeller.includes("contrastText")],
+  ["public contact fallbacks", text.publicSeller.includes("mapQuery") && text.publicSeller.includes("theme.showLocation === false")],
   ["asset values preserved on save", text.api.includes("current?.logo_url") && text.api.includes("current?.cover_url")],
   ["required route copy", ["Así te ven tus compradores", "Información pública", "Acciones rápidas", "Guardar cambios"].every((value) => text.editor.includes(value))],
   ["no mojibake in touched store files", !Object.values(text).some((value) => /Ã|Â|�/.test(value))],
