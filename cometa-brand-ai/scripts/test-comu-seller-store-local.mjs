@@ -5,6 +5,9 @@ const files = {
   dashboard: "src/app/comu/seller/seller-dashboard.tsx",
   editor: "src/app/comu/seller/storefront-editor.tsx",
   api: "src/app/api/comu/storefronts/route.ts",
+  assets: "src/app/api/comu/storefronts/assets/route.ts",
+  catalog: "src/lib/comu/public-catalog.ts",
+  publicSeller: "src/app/comu/sellers/[slug]/page.tsx",
 };
 const text = Object.fromEntries(Object.entries(files).map(([key, file]) => [key, fs.readFileSync(file, "utf8")]));
 const checks = [
@@ -14,7 +17,9 @@ const checks = [
   ["reactive preview", text.editor.includes("Vista previa") && text.editor.includes("{name ||")],
   ["public and quick actions", ["Ver tienda pública", "Ir a productos", "Configurar envíos"].every((value) => text.editor.includes(value))],
   ["identity visual surface", text.editor.includes("Identidad visual")],
-  ["unsupported persistence is explicit", text.editor.includes("disponible próximamente")],
+  ["asset upload endpoint connected", text.editor.includes("/api/comu/storefronts/assets") && text.assets.includes("export async function POST")],
+  ["theme persistence connected", text.editor.includes("theme: { accentColor }") && text.api.includes("accentColor")],
+  ["public identity connected", text.catalog.includes("logo_url,cover_url,theme_config") && text.publicSeller.includes("const accent")],
   ["asset values preserved on save", text.api.includes("current?.logo_url") && text.api.includes("current?.cover_url")],
   ["required route copy", ["Así te ven tus compradores", "Información pública", "Acciones rápidas", "Guardar cambios"].every((value) => text.editor.includes(value))],
   ["no mojibake in touched store files", !Object.values(text).some((value) => /Ã|Â|�/.test(value))],
