@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -175,7 +175,7 @@ export default function PosShell({
     async function loadPosContext() {
       const revision = ++bootstrapRevision.current;
       if (!brandSlug) {
-        setLoadError("No se encontrÃ³ una marca vÃ¡lida en la URL.");
+        setLoadError("No se encontró una marca válida en la URL.");
         setIsLoading(false);
         return;
       }
@@ -224,7 +224,7 @@ export default function PosShell({
           throw new Error(
             data?.details ||
               data?.error ||
-              "No se pudo cargar la informaciÃ³n de Cometa POS."
+              "No se pudo cargar la información de Cometa POS."
           );
         }
 
@@ -438,7 +438,7 @@ export default function PosShell({
               onOperatorAction={async (action) => {
                 const response = await fetch("/api/pos/operator-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandSlug: visibleBrand.slug, action }) });
                 if (!response.ok) {
-                  setLoadError("No se pudo cerrar la sesiÃ³n operacional.");
+                  setLoadError("No se pudo cerrar la sesión operacional.");
                   return;
                 }
                 setCurrentOperator(null);
@@ -461,7 +461,7 @@ export default function PosShell({
 
             {loadError ? (
               <div className="mx-4 mt-4 rounded-[var(--pos-radius-md)] bg-[var(--pos-warning-soft)] px-4 py-3 text-sm font-medium text-[var(--pos-warning)] md:mx-6 xl:mx-8">
-                Cometa POS no pudo sincronizar toda la informaciÃ³n de la marca.
+                Cometa POS no pudo sincronizar toda la información de la marca.
                 Detalle: {loadError}
                 <button className="pos-ui-focus ml-3 underline" onClick={() => setRetryVersion((value) => value + 1)}>Reintentar</button>
               </div>
@@ -478,7 +478,7 @@ export default function PosShell({
             <div className="p-4 md:p-6 xl:p-8">
               {surfaceState === "recovery" ? children : surfaceState === "loading" ? (
                 <p className="py-12 text-center text-sm text-[var(--pos-text-muted)]">
-                  {loadError ? "No se pudo preparar Cometa POS." : "Preparando Cometa POSâ€¦"}
+                  {loadError ? "No se pudo preparar Cometa POS." : "Preparando Cometa POS…"}
                 </p>
               ) : surfaceState === "blocked" && visibleLifecycle ? (
                 <PosCommercialLockedState
@@ -534,11 +534,11 @@ function PosCommercialLockedState({
           Acceso operacional pausado
         </p>
         <h1 className="mt-2 text-2xl font-bold text-[var(--pos-text-primary)]">
-          Cometa POS necesita atenciÃ³n comercial
+          Cometa POS necesita atención comercial
         </h1>
         <p className="mt-3 text-sm leading-6 text-[var(--pos-text-secondary)]">
           {getLifecycleMessage(lifecycle) ||
-            "La suscripciÃ³n no permite usar los mÃ³dulos operacionales en este momento."}
+            "La suscripción no permite usar los módulos operacionales en este momento."}
         </p>
         <p className="mt-3 text-xs text-[var(--pos-text-muted)]">
           Estado efectivo: {lifecycle.effectiveStatus}
@@ -548,7 +548,7 @@ function PosCommercialLockedState({
             href={`/brand/${brandSlug}/pos/subscription`}
             className="pos-ui-focus inline-flex min-h-11 items-center justify-center rounded-[var(--pos-radius-sm)] bg-white px-5 text-sm font-semibold text-slate-950"
           >
-            Ver suscripciÃ³n y activaciÃ³n
+            Ver suscripción y activación
           </Link>
           <Link
             href="/workspace"
@@ -584,11 +584,11 @@ function LifecycleBanner({
   const urgent = !lifecycle.accessAllowed;
   const title = lifecycle.effectiveStatus === "trial"
     ? lifecycle.trial.expiringSoon
-      ? "Tu prueba estÃ¡ por terminar"
+      ? "Tu prueba está por terminar"
       : "Prueba gratuita de Cometa POS"
     : lifecycle.effectiveStatus === "grace_period"
       ? "Periodo de gracia"
-      : "AcciÃ³n requerida";
+      : "Acción requerida";
 
   return (
     <div
@@ -610,7 +610,7 @@ function LifecycleBanner({
         >
           {lifecycle.effectiveStatus === "trial_expired"
             ? "Activar Cometa POS"
-            : "Ver suscripciÃ³n"}
+            : "Ver suscripción"}
         </Link>
       ) : null}
     </div>
