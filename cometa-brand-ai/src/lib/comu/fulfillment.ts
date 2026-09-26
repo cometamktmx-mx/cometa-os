@@ -13,7 +13,7 @@ export async function transitionSuborder(suborderId: string, status: string, act
 
 export async function getSellerFulfillmentOrders(sellerId: string) {
   const access = await requireSellerAccess(sellerId, ["OWNER", "ADMIN", "ORDER_MANAGER"]);
-  const { data, error } = await access.admin.from("comu_order_suborders").select("*,comu_orders(id,order_number,status,fulfillment_status,created_at,shipping_address_snapshot),comu_order_items(*,comu_order_item_snapshots(*))").eq("seller_id", sellerId).order("created_at", { ascending: false });
+  const { data, error } = await access.admin.from("comu_order_suborders").select("*,comu_orders(id,order_number,status,fulfillment_status,grand_total,shipping_mode,created_at,shipping_address_snapshot),comu_order_items(*,comu_order_item_snapshots(*))").eq("seller_id", sellerId).order("created_at", { ascending: false });
   if (error) throw new PosApiError(500, "COMU_FULFILLMENT_LOOKUP_FAILED", "No se pudieron cargar los pedidos.");
   return (data || []).map((item) => ({ ...item, overdue: isOverdue(item.deadline_at) }));
 }
