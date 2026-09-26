@@ -21,6 +21,7 @@ const checks = [
   ["theme persistence connected", text.editor.includes("theme: { accentColor }") && text.api.includes("accentColor")],
   ["public identity connected", text.catalog.includes("logo_url,cover_url,theme_config") && text.publicSeller.includes("const accent")],
   ["public identity presentation", text.publicSeller.includes("object-cover") && text.publicSeller.includes("safeAccent") && text.publicSeller.includes("contrastText")],
+  ["public storefront polish", text.publicSeller.includes("object-contain") && text.publicSeller.includes("aspect-[16/7]") && text.publicSeller.includes("pieceLabel")],
   ["public contact fallbacks", text.publicSeller.includes("mapQuery") && text.publicSeller.includes("theme.showLocation === false")],
   ["asset values preserved on save", text.api.includes("current?.logo_url") && text.api.includes("current?.cover_url")],
   ["required route copy", ["Así te ven tus compradores", "Información pública", "Acciones rápidas", "Guardar cambios"].every((value) => text.editor.includes(value))],
