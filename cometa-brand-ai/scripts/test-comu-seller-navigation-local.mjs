@@ -7,6 +7,7 @@ const legacy = read("src/app/comu/seller/page.tsx");
 const productChannel = read("src/app/brand/[brandSlug]/pos/products/comu-channel-status.tsx");
 const sellerAdmin = read("src/app/brand/[brandSlug]/comu/page.tsx");
 const sellerLayout = read("src/app/brand/[brandSlug]/comu/layout.tsx");
+const sellerNav = read("src/app/brand/[brandSlug]/comu/seller-nav.tsx");
 const sellerSurfaceFiles = [
   "src/app/brand/[brandSlug]/comu/page.tsx",
   "src/app/brand/[brandSlug]/comu/store/page.tsx",
@@ -25,9 +26,9 @@ const checks = [
   ["legacy route redirects a single active seller", legacy.includes("/brand/${encodeURIComponent(brandSlug)}/comu")],
   ["canonical route renders seller admin", sellerAdmin.includes("SellerDashboard")],
   ["product channel links within brand context", productChannel.includes("/brand/${encodeURIComponent(brandSlug)}/comu")],
-  ["seller navigation exposes canonical sections", ["/store", "/products", "/wholesale", "/shipping", "/settings"].every((path) => sellerLayout.includes(path))],
+  ["seller navigation exposes canonical sections", ["/store", "/products", "/wholesale", "/shipping", "/settings"].every((path) => sellerNav.includes(path))],
   ["seller surface routes exist", sellerSurfaceFiles.every((source) => source.includes("SellerDashboard"))],
-  ["seller surface copy has no mojibake", [sellerAdmin, sellerLayout, ...sellerSurfaceFiles].every((source) => !/[ÃÂâ�]/.test(source))],
+  ["seller surface copy has no mojibake", [sellerAdmin, sellerLayout, sellerNav, ...sellerSurfaceFiles].every((source) => !/[ÃÂâ�]/.test(source))],
 ];
 
 const failures = checks.filter(([, pass]) => !pass).map(([name]) => name);
