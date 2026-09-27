@@ -6,6 +6,19 @@ import { allocateStripeProcessingFee } from "@/lib/comu/marketplace-economics.mj
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000000";
+const DEFAULT_STALE_WEBHOOK_MS = 15 * 60 * 1000;
+const DEFAULT_MAX_WEBHOOK_ATTEMPTS = 5;
+
+function staleWebhookBefore(now = Date.now()): string {
+  const configured = Number(process.env.COMU_STRIPE_WEBHOOK_STALE_MS);
+  const threshold = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_STALE_WEBHOOK_MS;
+  return new Date(now - threshold).toISOString();
+}
+
+function maxWebhookAttempts(): number {
+  const configured = Number(process.env.COMU_STRIPE_WEBHOOK_MAX_ATTEMPTS);
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_MAX_WEBHOOK_ATTEMPTS;
+}
 
 async function reconcilePaymentEconomics(admin: ReturnType<typeof getAdminClient>, paymentIntentId: string) {
   const { data: payment, error: paymentError } = await admin.from("comu_payment_intents").select("id,order_id,stripe_processing_fee_cents,stripe_fee_finalized_at").eq("stripe_payment_intent_id", paymentIntentId).maybeSingle();
@@ -157,26 +170,18 @@ export async function POST(request: Request) {
   const { error: insertError } = await admin.from("stripe_webhook_events").insert({ stripe_event_id: event.id, event_type: event.type, livemode: event.livemode, status: "received", metadata: { comu: true } });
   if (insertError && insertError.code !== "23505") return Response.json({ ok: false, code: "STRIPE_LEDGER_WRITE_FAILED" }, { status: 500 });
 
-  // The legacy ledger does not have a PROCESSING enum value. We use the
-  // nullable processed_at column as an atomic claim marker while status stays
-  // `received`; only the claimant may later transition the row to processed or
-  // failed. This avoids a check-then-act race without a schema change.
-  let claim: "CLAIMED_NEW" | "CLAIMED_RETRY" | "ALREADY_PROCESSING" | "ALREADY_PROCESSED" | null = null;
-  const { data: newClaim } = await admin.from("stripe_webhook_events").update({ processed_at: claimAt, error_message: null }).eq("stripe_event_id", event.id).eq("livemode", event.livemode).eq("status", "received").is("processed_at", null).select("status").maybeSingle();
-  if (newClaim) {
-    claim = insertError ? "CLAIMED_NEW" : "CLAIMED_NEW";
-  } else {
-    const { data: retryClaim } = await admin.from("stripe_webhook_events").update({ status: "received", processed_at: claimAt, error_message: null }).eq("stripe_event_id", event.id).eq("livemode", event.livemode).eq("status", "failed").select("status").maybeSingle();
-    if (retryClaim) claim = "CLAIMED_RETRY";
-    else {
-      const { data: current, error: currentError } = await admin.from("stripe_webhook_events").select("status,processed_at").eq("stripe_event_id", event.id).eq("livemode", event.livemode).maybeSingle();
-      if (currentError || !current) return Response.json({ ok: false, code: "STRIPE_LEDGER_READ_FAILED" }, { status: 500 });
-      if (current.status === "processed") claim = "ALREADY_PROCESSED";
-      else claim = "ALREADY_PROCESSING";
-    }
-  }
+  const { data: claim, error: claimError } = await admin.rpc("comu_claim_stripe_webhook_event", {
+    p_stripe_event_id: event.id,
+    p_livemode: event.livemode,
+    p_claimed_at: claimAt,
+    p_stale_before: staleWebhookBefore(),
+    p_max_attempts: maxWebhookAttempts(),
+  });
+  if (claimError) return Response.json({ ok: false, code: "STRIPE_LEDGER_CLAIM_FAILED" }, { status: 500 });
   if (claim === "ALREADY_PROCESSED") return Response.json({ ok: true, duplicate: true });
   if (claim === "ALREADY_PROCESSING") return Response.json({ ok: true, processing: true });
+  if (claim === "MANUAL_REVIEW") return Response.json({ ok: false, code: "WEBHOOK_RETRY_EXHAUSTED" }, { status: 409 });
+  if (claim !== "CLAIMED_NEW" && claim !== "CLAIMED_RETRY") return Response.json({ ok: false, code: "STRIPE_LEDGER_CLAIM_FAILED" }, { status: 500 });
   try {
     const intent = event.data.object as Stripe.PaymentIntent;
     let financeResult: FinanceResult = { status: "PROCESSED" };
@@ -197,12 +202,14 @@ export async function POST(request: Request) {
     } else if (event.type === "refund.created" || event.type === "refund.updated" || event.type === "refund.failed" || event.type === "charge.refund.updated") {
       financeResult = await ingestRefund(admin, event, event.data.object as Stripe.Refund);
     }
-    const { error } = await admin.from("stripe_webhook_events").update({ status: "processed", processed_at: new Date().toISOString(), error_message: financeResult.status === "UNRESOLVED" ? financeResult.reason : null, metadata: { comu: true, financeStatus: financeResult.status, reason: financeResult.reason || null } }).eq("stripe_event_id", event.id).eq("livemode", event.livemode);
+    const { error } = await admin.from("stripe_webhook_events").update({ status: "processed", processed_at: new Date().toISOString(), processing_started_at: null, next_retry_at: null, error_message: financeResult.status === "UNRESOLVED" ? financeResult.reason : null, metadata: { comu: true, financeStatus: financeResult.status, reason: financeResult.reason || null } }).eq("stripe_event_id", event.id).eq("livemode", event.livemode);
     if (error) throw error;
     return Response.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : (typeof error === "object" && error !== null ? JSON.stringify(error) : "COMU_STRIPE_WEBHOOK_FAILED");
-    await admin.from("stripe_webhook_events").update({ status: "failed", error_message: message.slice(0, 240) }).eq("stripe_event_id", event.id).eq("livemode", event.livemode);
+    const { data: failedEvent } = await admin.from("stripe_webhook_events").select("attempt_count").eq("stripe_event_id", event.id).eq("livemode", event.livemode).maybeSingle();
+    const exhausted = Number(failedEvent?.attempt_count || 0) >= maxWebhookAttempts();
+    await admin.from("stripe_webhook_events").update({ status: "failed", processing_started_at: null, next_retry_at: exhausted ? null : new Date(Date.now() + Math.min(60 * 60 * 1000, 2 ** Math.max(0, Number(failedEvent?.attempt_count || 1)) * 1000)).toISOString(), manual_review_required: exhausted, manual_review_reason: exhausted ? "WEBHOOK_RETRY_EXHAUSTED" : null, error_message: message.slice(0, 240) }).eq("stripe_event_id", event.id).eq("livemode", event.livemode);
     return Response.json({ ok: false, code: "COMU_STRIPE_WEBHOOK_FAILED" }, { status: 500 });
   }
 }

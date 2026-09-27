@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { parseEnv } from "node:util";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { assertOutboundEnabled } from "../src/lib/comu/outbound-guards.mjs";
 
 const env = { ...parseEnv(await readFile(new URL("../.env.local", import.meta.url), "utf8")), ...process.env };
 const dbUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL || "");
@@ -42,6 +43,7 @@ const refundKey = `comu_refund_${payment.id}_${item.allocation_id}`;
 const refund = ok(await admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "3B.4 real post-transfer recovery", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] }), "request refund");
 assert.ok(["REQUESTED", "PROCESSING", "SUCCEEDED"].includes(refund.status));
 if (refund.status !== "SUCCEEDED") ok(await admin.from("comu_refunds").update({ status: "PROCESSING" }).eq("id", refund.id), "refund processing");
+assertOutboundEnabled("refund");
 const stripeRefund = await stripe.refunds.create({ charge: chargeId, amount: refundAmount, metadata: { comu_refund_id: refund.id, comu_settlement_id: settlement.id } }, { idempotencyKey: refundKey });
 assert.notEqual(stripeRefund.livemode, true); assert.equal(stripeRefund.amount, refundAmount); assert.equal(stripeRefund.currency, "mxn"); assert.equal(stripeRefund.status, "succeeded");
 const refundBalanceTransaction = typeof stripeRefund.balance_transaction === "string" ? stripeRefund.balance_transaction : null;
@@ -51,6 +53,7 @@ const reversal = ok(await admin.from("comu_transfer_reversals").select("id,strip
 assert.equal(reversal.amount_cents, refundAmount); assert.equal(reversal.stripe_transfer_id, transferId); assert.ok(["REQUESTED", "PROCESSING", "SUCCEEDED"].includes(reversal.status));
 const reversalKey = `comu_transfer_reversal_${reversal.id}`;
 if (reversal.status !== "SUCCEEDED") ok(await admin.from("comu_transfer_reversals").update({ status: "PROCESSING", idempotency_key: reversalKey }).eq("id", reversal.id), "reversal processing");
+assertOutboundEnabled("reversal");
 const stripeReversal = await stripe.transfers.createReversal(transferId, { amount: refundAmount, metadata: { comu_transfer_reversal_id: reversal.id, comu_refund_id: refund.id } }, { idempotencyKey: reversalKey });
 assert.equal(stripeReversal.amount, refundAmount); assert.equal(stripeReversal.transfer, transferId); assert.equal(stripeReversal.currency, "mxn");
 const reversalBalanceTransaction = typeof stripeReversal.balance_transaction === "string" ? stripeReversal.balance_transaction : null;
@@ -59,8 +62,10 @@ ok(await admin.from("comu_transfer_reversals").update({ status: "SUCCEEDED", str
 const persistedReversal = ok(await admin.from("comu_transfer_reversals").select("status,stripe_transfer_reversal_id,amount_cents").eq("id", reversal.id).single(), "persisted reversal");
 assert.equal(persistedReversal.status, "SUCCEEDED"); assert.equal(persistedReversal.stripe_transfer_reversal_id, stripeReversal.id); assert.equal(persistedReversal.amount_cents, refundAmount);
 
+assertOutboundEnabled("refund");
 const sameRefund = await stripe.refunds.create({ charge: chargeId, amount: refundAmount, metadata: { comu_refund_id: refund.id, comu_settlement_id: settlement.id } }, { idempotencyKey: refundKey });
 assert.equal(sameRefund.id, stripeRefund.id);
+assertOutboundEnabled("reversal");
 const sameReversal = await stripe.transfers.createReversal(transferId, { amount: refundAmount, metadata: { comu_transfer_reversal_id: reversal.id, comu_refund_id: refund.id } }, { idempotencyKey: reversalKey });
 assert.equal(sameReversal.id, stripeReversal.id);
 const concurrentRefunds = await Promise.all([admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "duplicate", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] }), admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "duplicate", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] })]);

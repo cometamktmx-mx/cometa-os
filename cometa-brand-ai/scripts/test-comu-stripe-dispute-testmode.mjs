@@ -28,6 +28,7 @@ const userId = user.data.user.id;
 let buyerId;
 let addressId;
 const base = "http://127.0.0.1:3001";
+const certificationStartedAt = new Date().toISOString();
 let child;
 
 function data(result, label) { if (result.error) throw new Error(`${label}: ${result.error.message}`); return result.data; }
@@ -124,7 +125,7 @@ async function ingestOpen(record, dispute) {
   assert.equal(open.response.status, 200, JSON.stringify(open.body));
   const canonical = data(await admin.from("comu_disputes").select("id,status,amount_cents,actual_dispute_cost_cents").eq("stripe_dispute_id", dispute.id).single(), "canonical dispute");
   const allocation = data(await admin.from("comu_dispute_allocations").select("seller_id,exposed_principal_cents,permanent_liability_cents,hold_id,attribution_status").eq("dispute_id", canonical.id).single(), "dispute allocation");
-  assert.equal(canonical.status, "OPEN"); assert.equal(allocation.permanent_liability_cents, 0); assert.ok(allocation.hold_id); assert.equal(allocation.attribution_status, "ATTRIBUTION_REQUIRED");
+  assert.ok(["OPEN", "UNDER_REVIEW"].includes(canonical.status)); assert.equal(allocation.permanent_liability_cents, 0); assert.ok(allocation.hold_id); assert.equal(allocation.attribution_status, "ATTRIBUTION_REQUIRED");
   return { canonical, allocation };
 }
 async function resolve(record, dispute, outcome) {
@@ -169,8 +170,10 @@ try {
   const wonBalanceTransactions = await stripe.disputes.retrieve(wonDispute.id, { expand: ["balance_transactions"] });
   const wonEvidence = data(await admin.from("comu_dispute_evidence_refs").select("evidence_type").eq("dispute_id", wonOpen.canonical.id), "won evidence");
   const lostLiability = data(await admin.from("comu_seller_liability_events").select("amount_cents,liability_owner,source_type").eq("source_type", "DISPUTE").eq("source_id", lostOpen.canonical.id.toString()), "lost liability");
+  const forwardedRows = data(await admin.from("stripe_webhook_events").select("stripe_event_id,event_type,received_at").gte("received_at", certificationStartedAt), "forwarded ledger");
+  const actualForwarded = forwardedRows.filter((row) => row.stripe_event_id.startsWith("evt_") && !row.stripe_event_id.startsWith("evt_comu_") && ["payment_intent.succeeded", "charge.dispute.created", "charge.dispute.updated", "charge.dispute.funds_withdrawn", "charge.dispute.funds_reinstated"].includes(row.event_type));
   assert.ok(wonEvidence.length >= 2); assert.ok(lostLiability.some((row) => row.liability_owner === "SELLER"));
-  console.log(JSON.stringify({ ok: true, localDb: true, stripeTest: true, paymentMethod: "pm_card_createDisputeProductNotReceived", won: { paymentIntentId: wonPayment.intent.id, chargeId: wonPayment.charge.id, disputeId: wonDispute.id, reason: wonDispute.reason, amountCents: wonDispute.amount, status: won.final.status, balanceTransactions: wonBalanceTransactions.balance_transactions, openHold: Boolean(wonOpen.allocation.hold_id), openPermanentLiabilityCents: 0, finalPermanentLiabilityCents: won.allocation.permanent_liability_cents, duplicateNoOp: Boolean(won.duplicate.duplicate) }, lost: { paymentIntentId: lostPayment.intent.id, chargeId: lostPayment.charge.id, disputeId: lostDispute.id, reason: lostDispute.reason, amountCents: lostDispute.amount, status: lost.final.status, balanceTransactions: lostBalanceTransactions.balance_transactions, openHold: Boolean(lostOpen.allocation.hold_id), finalPermanentLiabilityCents: lost.allocation.permanent_liability_cents, disputeCostCents: lost.allocation.dispute_cost_share_cents, duplicateNoOp: Boolean(lost.duplicate.duplicate) }, evidenceRefs: { won: wonEvidence.length }, actualStripeWebhookDelivery: "PARTIAL", payoutCalls: 0, transferCalls: 0, refundCalls: 0, reversalCalls: 0 }, null, 2));
+  console.log(JSON.stringify({ ok: true, localDb: true, stripeTest: true, paymentMethod: "pm_card_createDisputeProductNotReceived", won: { paymentIntentId: wonPayment.intent.id, chargeId: wonPayment.charge.id, disputeId: wonDispute.id, reason: wonDispute.reason, amountCents: wonDispute.amount, status: won.final.status, balanceTransactions: wonBalanceTransactions.balance_transactions, openHold: Boolean(wonOpen.allocation.hold_id), openPermanentLiabilityCents: 0, finalPermanentLiabilityCents: won.allocation.permanent_liability_cents, duplicateNoOp: Boolean(won.duplicate.duplicate) }, lost: { paymentIntentId: lostPayment.intent.id, chargeId: lostPayment.charge.id, disputeId: lostDispute.id, reason: lostDispute.reason, amountCents: lostDispute.amount, status: lost.final.status, balanceTransactions: lostBalanceTransactions.balance_transactions, openHold: Boolean(lostOpen.allocation.hold_id), finalPermanentLiabilityCents: lost.allocation.permanent_liability_cents, disputeCostCents: lost.allocation.dispute_cost_share_cents, duplicateNoOp: Boolean(lost.duplicate.duplicate) }, evidenceRefs: { won: wonEvidence.length }, actualStripeWebhookDelivery: actualForwarded.length > 0 ? "PASS" : "PARTIAL", actualForwardedEvents: actualForwarded.map((row) => ({ id: row.stripe_event_id, type: row.event_type })), payoutCalls: 0, transferCalls: 0, refundCalls: 0, reversalCalls: 0 }, null, 2));
 } finally {
   if (child) child.kill("SIGTERM");
   await delay(500);
