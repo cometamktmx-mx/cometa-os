@@ -15,6 +15,8 @@
   --os-critical: #be123c;
   --os-intelligence-accent: #4338ca;
   --os-marketing-accent: #0f766e;
+  --font-geist-sans: Arial, Helvetica, sans-serif;
+  --font-geist-mono: "Courier New", Courier, monospace;
 }
 
 @theme inline {
