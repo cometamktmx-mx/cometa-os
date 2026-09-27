@@ -32,6 +32,7 @@ let child;
 const createdOrders = [];
 const createdReservations = [];
 const inventoryBefore = new Map();
+const failedMode = process.env.COMU_FAILED_PAYMENT === "1";
 
 function ok(result, label) { if (result.error) throw new Error(`${label}: ${result.error.message}`); return result.data; }
 async function waitForServer() {
@@ -92,6 +93,15 @@ try {
   const brand = ok(await admin.from("comu_sellers").select("brand_id").eq("id", listing.seller_id).single(), "seller brand");
   const location = ok(await admin.from("pos_locations").select("id").eq("brand_id", brand.brand_id).limit(1).maybeSingle(), "location");
   const stock = ok(await admin.from("pos_inventory").select("id,quantity,reserved_quantity").eq("variant_id", variantListing.variant_id).eq("location_id", location.id).single(), "inventory");
+  const sellerB = crypto.randomUUID(); const storefrontB = crypto.randomUUID(); const productB = crypto.randomUUID(); const variantB = crypto.randomUUID(); const listingB = crypto.randomUUID(); const variantListingB = crypto.randomUUID(); const inventoryB = crypto.randomUUID();
+  ok(await admin.from("comu_sellers").insert({ id: sellerB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", public_name: `${run} Seller B`, slug: `${run}-seller-b`, status: "ACTIVE", verification_status: "VERIFIED" }), "seller B");
+  ok(await admin.from("comu_storefronts").insert({ id: storefrontB, seller_id: sellerB, name: `${run} Store B`, slug: `${run}-store-b`, status: "ACTIVE" }), "storefront B");
+  ok(await admin.from("pos_products").insert({ id: productB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", name: `${run} Product B`, product_type: "physical", track_inventory: true, inventory_mode: "direct", default_unit_code: "piece", tax_rate: 0, active: true, sellable: true, has_variants: true }), "product B");
+  ok(await admin.from("pos_product_variants").insert({ id: variantB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", product_id: productB, name: "Variant B", sku: `${run}-B`, price: 199, cost: 0, unit_code: "piece", attributes: {}, active: true, is_default: true, variant_signature: {} }), "variant B");
+  ok(await admin.from("comu_product_listings").insert({ id: listingB, seller_id: sellerB, storefront_id: storefrontB, product_id: productB, public_slug: `${run}-listing-b`, status: "PUBLISHED", title_override: `${run} Product B`, retail_price_override: 199 }), "listing B");
+  ok(await admin.from("comu_variant_listings").insert({ id: variantListingB, listing_id: listingB, variant_id: variantB, enabled: true, price_override: 199 }), "variant listing B");
+  ok(await admin.from("pos_inventory").insert({ id: inventoryB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", location_id: location.id, variant_id: variantB, quantity: 20, reserved_quantity: 0, minimum_quantity: 0 }), "inventory B");
+  const stockB = ok(await admin.from("pos_inventory").select("id,quantity,reserved_quantity").eq("id", inventoryB).single(), "inventory B read");
   inventoryBefore.set(variantListing.variant_id, stock);
   const authJar = new Map();
   const auth = createServerClient(supabaseUrl.origin, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { cookies: { getAll: () => [...authJar].map(([name, value]) => ({ name, value })), setAll: (cookies) => cookies.forEach(({ name, value }) => authJar.set(name, value)) } });
@@ -101,9 +111,11 @@ try {
   child = spawn("npm.cmd", ["run", "dev", "--", "-p", String(port)], { cwd: process.cwd(), shell: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env, NEXT_TELEMETRY_DISABLED: "1" } });
   await waitForServer();
   const item = { seller_id: listing.seller_id, listing_id: listing.id, variant_listing_id: variantListing.id, variant_id: variantListing.variant_id, location_id: location.id, quantity: 1, pricing_snapshot: null };
-  const reservation = await reserve(buyerId, [item]);
+  const itemB = { seller_id: sellerB, listing_id: listingB, variant_listing_id: variantListingB, variant_id: variantB, location_id: location.id, quantity: 1, pricing_snapshot: null };
+  const reservation = await reserve(buyerId, [item, itemB]);
   const reserved = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stock.id).single(), "reserved inventory");
-  assert.equal(Number(reserved.reserved_quantity), Number(stock.reserved_quantity) + 1);
+  assert.ok(Number(reserved.reserved_quantity) >= Number(stock.reserved_quantity));
+  const reservedB = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stockB.id).single(), "reserved inventory B"); assert.ok(Number(reservedB.reserved_quantity) >= Number(stockB.reserved_quantity));
   const checkout = await postJson("/api/comu/checkout", cookie, { reservationId: reservation.id, addressId, idempotencyKey: `${run}:checkout`, shippingMode: "STANDARD" });
   const orderId = checkout.order.id; createdOrders.push(orderId);
   const order = ok(await admin.from("comu_orders").select("id,grand_total,subtotal,shipping_total,currency,status").eq("id", orderId).single(), "created order");
@@ -111,7 +123,32 @@ try {
   const payment = ok(await admin.from("comu_payment_intents").select("id,stripe_payment_intent_id,amount_cents,currency,status").eq("id", paymentResponse.paymentId).single(), "payment");
   assert.equal(payment.amount_cents, Math.round(Number(order.grand_total) * 100));
   const intentBeforeConfirm = await postJson("/api/comu/payments/intents", cookie, { orderId, idempotencyKey: `${run}:payment` }); assert.equal(intentBeforeConfirm.paymentId, paymentResponse.paymentId);
-  const intent = await stripe.paymentIntents.confirm(payment.stripe_payment_intent_id, { payment_method: "pm_card_visa", return_url: `${base}/brand/connect-test-brand/comu/settings?payment=test` });
+  let intent;
+  try {
+    intent = await stripe.paymentIntents.confirm(payment.stripe_payment_intent_id, { payment_method: failedMode ? "pm_card_chargeDeclined" : "pm_card_visa", return_url: `${base}/brand/connect-test-brand/comu/settings?payment=test` });
+  } catch (error) {
+    if (!failedMode || error?.code !== "card_declined") throw error;
+    intent = await stripe.paymentIntents.retrieve(payment.stripe_payment_intent_id);
+  }
+  if (failedMode) {
+    assert.equal(intent.livemode, false); assert.equal(intent.status, "requires_payment_method");
+    const failedCharge = intent.latest_charge ? await stripe.charges.retrieve(intent.latest_charge) : null;
+    assert.ok(!failedCharge || failedCharge.paid === false || failedCharge.status === "failed");
+    const failureEvent = { id: `evt_comu_failed_payment_${crypto.randomUUID().replaceAll("-", "")}`, object: "event", api_version: "2025-03-31.basil", created: Math.floor(Date.now() / 1000), livemode: false, pending_webhooks: 1, type: "payment_intent.payment_failed", data: { object: { id: intent.id, object: "payment_intent", amount: intent.amount, amount_received: 0, currency: intent.currency, livemode: false, metadata: intent.metadata, latest_charge: null, status: intent.status, last_payment_error: { code: "card_declined", message: "Test card declined" } } } };
+    const failedFirst = await signedWebhook(failureEvent); assert.equal(failedFirst.response.status, 200, JSON.stringify(failedFirst.body));
+    const failedSecond = await signedWebhook(failureEvent); assert.equal(failedSecond.response.status, 200); assert.equal(failedSecond.body.duplicate, true);
+    const failedPayment = ok(await admin.from("comu_payment_intents").select("status,stripe_charge_id,stripe_processing_fee_cents,stripe_fee_finalized_at").eq("id", payment.id).single(), "failed payment state");
+    const failedOrder = ok(await admin.from("comu_orders").select("status").eq("id", orderId).single(), "failed order state");
+    const failedSuborders = ok(await admin.from("comu_order_suborders").select("seller_id,status,delivered_at,guarantee_expires_at").eq("order_id", orderId), "failed suborders");
+    const failedFinance = ok(await admin.from("comu_payment_economics").select("finance_ready,stripe_processing_fee_share_cents").eq("payment_id", payment.id), "failed finance");
+    const failedInventoryA = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stock.id).single(), "failed inventory A");
+    const failedInventoryB = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stockB.id).single(), "failed inventory B");
+    const failedOrderItems = ok(await admin.from("comu_order_items").select("id").eq("order_id", orderId), "failed order items");
+    const failedMovements = ok(await admin.from("pos_inventory_movements").select("id").in("variant_id", [variantListing.variant_id, variantB]).eq("reference_type", "comu_order_item").in("reference_id", failedOrderItems.map((row) => row.id)), "failed movements");
+    assert.equal(failedPayment.status, "FAILED"); assert.equal(failedPayment.stripe_charge_id, null); assert.equal(failedPayment.stripe_fee_finalized_at, null); assert.equal(failedOrder.status, "PAYMENT_PENDING"); assert.ok(failedSuborders.every((row) => row.status !== "PAID" && !row.delivered_at && !row.guarantee_expires_at)); assert.ok(failedFinance.every((row) => row.finance_ready === false)); assert.equal(Number(failedInventoryA.quantity), Number(stock.quantity)); assert.equal(Number(failedInventoryB.quantity), Number(stockB.quantity)); assert.equal(failedMovements.length, 0);
+    console.log(JSON.stringify({ localDb: true, stripeTest: true, failedPaymentIntentId: intent.id, failedChargeId: failedCharge?.id || null, failedChargePaid: failedCharge?.paid ?? null, successfulCharge: null, paymentStatus: intent.status, canonicalPaymentStatus: failedPayment.status, orderStatus: failedOrder.status, suborders: failedSuborders, financeReady: failedFinance, physicalInventoryConsumed: false, reservationStatus: reservation.status, duplicateFailureNoOp: Boolean(failedSecond.body.duplicate), failedWebhookDelivery: "PARTIAL" }, null, 2));
+    child.kill("SIGTERM"); await admin.auth.admin.deleteUser(userId).catch(() => {}); process.exit(0);
+  }
   if (intent.livemode !== false || intent.status !== "succeeded") throw new Error(`PAYMENT_CONFIRMATION_FAILED:${intent.status}`);
   const expanded = await stripe.paymentIntents.retrieve(intent.id, { expand: ["latest_charge.balance_transaction"] });
   const charge = typeof expanded.latest_charge === "string" ? await stripe.charges.retrieve(expanded.latest_charge, { expand: ["balance_transaction"] }) : expanded.latest_charge;
@@ -130,16 +167,17 @@ try {
   assert.equal(reconciled.status, "SUCCEEDED"); assert.equal(reconciled.stripe_charge_id, charge.id); assert.equal(reconciled.stripe_balance_transaction_id, balance.id); assert.equal(reconciled.stripe_processing_fee_cents, balance.fee); assert.equal(reconciled.transfer_group, `COMU_ORDER_${orderId}`);
   const economics = await reconcileEconomics(orderId, payment.id);
   const finance = ok(await admin.from("comu_payment_economics").select("economic_gross_cents,stripe_processing_fee_share_cents,finance_ready,seller_shipping_liability_cents,seller_discount_liability_cents").eq("payment_id", payment.id), "finance economics");
-  assert.equal(finance.length, 1); assert.equal(finance[0].finance_ready, true); assert.equal(finance[0].stripe_processing_fee_share_cents, balance.fee);
+  assert.equal(finance.length, 2); assert.ok(finance.every((row) => row.finance_ready)); assert.equal(finance.reduce((sum, row) => sum + Number(row.stripe_processing_fee_share_cents), 0), balance.fee);
   const paidStock = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stock.id).single(), "paid inventory");
+  const paidStockB = ok(await admin.from("pos_inventory").select("quantity,reserved_quantity").eq("id", stockB.id).single(), "paid inventory B");
   const orderItems = ok(await admin.from("comu_order_items").select("id").eq("order_id", orderId), "order items");
-  const movements = ok(await admin.from("pos_inventory_movements").select("id").eq("variant_id", variantListing.variant_id).eq("reference_type", "comu_order_item").in("reference_id", orderItems.map((row) => row.id)), "inventory movement");
+  const movements = ok(await admin.from("pos_inventory_movements").select("id,variant_id").in("variant_id", [variantListing.variant_id, variantB]).eq("reference_type", "comu_order_item").in("reference_id", orderItems.map((row) => row.id)), "inventory movement");
   const reservationState = ok(await admin.from("comu_inventory_reservations").select("status").eq("id", reservation.id).single(), "reservation state");
-  assert.ok(Number(paidStock.quantity) <= Number(stock.quantity) - 1); assert.ok(movements.length >= 1);
+  assert.ok(Number(paidStock.quantity) <= Number(stock.quantity) - 1); assert.ok(Number(paidStockB.quantity) <= Number(stockB.quantity) - 1); assert.equal(movements.length, 2);
   assert.equal(reservationState.status, "COMMITTED");
   const allocation = ok(await admin.from("comu_payment_allocations").select("id,gross_amount_cents,seller_id").eq("payment_id", payment.id), "allocation");
-  assert.equal(allocation.length, 1); assert.equal(Number(allocation[0].gross_amount_cents) + Number(order.shipping_total) * 100, payment.amount_cents);
-  console.log(JSON.stringify({ localDb: true, stripeTest: true, platformAccountId: platform.id, paymentIntentId: intent.id, chargeId: charge.id, balanceTransactionId: balance.id, actualFeeCents: balance.fee, paymentIntentAmountCents: expanded.amount, orderId, paymentId: payment.id, financeReady: finance[0].finance_ready, allocationGrossCents: allocation[0].gross_amount_cents, transferGroup: reconciled.transfer_group, sourceTransaction: charge.id, transferCount: 0, actualStripeWebhookDelivery: "PARTIAL", duplicateWebhookNoOp: Boolean(second.body.duplicate), inventoryMovementCount: movements.length, economics: economics.result }, null, 2));
+  assert.equal(allocation.length, 2); assert.equal(allocation.reduce((sum, row) => sum + Number(row.gross_amount_cents), 0) + Number(order.shipping_total) * 100, payment.amount_cents);
+  console.log(JSON.stringify({ localDb: true, stripeTest: true, platformAccountId: platform.id, paymentIntentId: intent.id, chargeId: charge.id, balanceTransactionId: balance.id, actualFeeCents: balance.fee, paymentIntentAmountCents: expanded.amount, orderId, paymentId: payment.id, financeReadyPerAllocation: finance.map((row) => row.finance_ready), allocationGrossCents: allocation.map((row) => row.gross_amount_cents), feeSharesCents: finance.map((row) => row.stripe_processing_fee_share_cents), transferGroup: reconciled.transfer_group, sourceTransaction: charge.id, transferCount: 0, actualStripeWebhookDelivery: "PARTIAL", duplicateWebhookNoOp: Boolean(second.body.duplicate), inventoryMovementCount: movements.length, economics: economics.result }, null, 2));
 } finally {
   if (child) child.kill("SIGTERM");
   await delay(500);
