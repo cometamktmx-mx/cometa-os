@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const route = await readFile("src/app/api/comu/stripe/connect-webhook/route.ts", "utf8");
+const stripe = await readFile("src/lib/comu/stripe.ts", "utf8");
+const finance = await readFile("src/lib/comu/finance.ts", "utf8");
+const guards = await readFile("src/lib/comu/outbound-guards.mjs", "utf8");
+
+const signatureIndex = route.indexOf("constructEvent");
+const modeIndex = route.indexOf("event.livemode !== runtimeLive");
+assert.ok(signatureIndex >= 0, "Connect route must verify Stripe signatures");
+assert.ok(modeIndex > signatureIndex, "livemode must be checked after signature verification");
+assert.match(route, /ignored: true/);
+assert.doesNotMatch(route, /if \(event\.livemode\)/);
+assert.doesNotMatch(stripe, /COMU_CONNECT_TEST_MODE_REQUIRED/);
+assert.doesNotMatch(finance, /COMU_CONNECT_TEST_ONLY/);
+assert.doesNotMatch(finance, /!transfer\.livemode/);
+assert.match(finance, /comu_connect_webhook_events/);
+assert.match(finance, /account\.updated/);
+assert.match(finance, /transfer\.created/);
+assert.match(finance, /transfer\.reversed/);
+assert.match(finance, /payout\.paid/);
+assert.match(finance, /payout\.failed/);
+assert.match(guards, /COMU_OUTBOUND_MONEY_ENABLED/);
+assert.match(guards, /COMU_TRANSFERS_ENABLED/);
+assert.match(guards, /COMU_REFUNDS_ENABLED/);
+assert.match(guards, /COMU_REVERSALS_ENABLED/);
+console.log("PASS connect signature-before-mode policy");
+console.log("PASS signed Live/Test isolation policy");
+console.log("PASS Connect account/update and transfer/payout routing retained");
+console.log("PASS outbound guards unchanged");

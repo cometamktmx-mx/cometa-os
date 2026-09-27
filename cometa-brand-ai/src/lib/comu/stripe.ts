@@ -11,9 +11,8 @@ export function getStripeClient() {
   return new Stripe(getComuStripeSecretKey());
 }
 
-// Day 4 is explicitly test-only; this never changes the POS or buyer Stripe client.
+// Connect uses the COMU server credential; the webhook route enforces its runtime mode.
 export function getConnectStripeClient() {
-  if (!getComuStripeSecretKey().startsWith("sk_test_")) throw new Error("COMU_CONNECT_TEST_MODE_REQUIRED");
   return new Stripe(getComuStripeSecretKey(), { maxNetworkRetries: 2, timeout: 20000 });
 }
 

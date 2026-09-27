@@ -194,7 +194,6 @@ export async function runAdminFinanceOperation(input: Record<string, unknown>) {
 }
 
 export async function processConnectEvent(admin: Admin, event: Stripe.Event) {
-  if (event.livemode) throw new Error("COMU_CONNECT_TEST_ONLY");
   const { data: existing, error: readError } = await admin.from("comu_connect_webhook_events").select("status").eq("stripe_event_id", event.id).maybeSingle();
   if (readError) throw fail();
   if (existing?.status === "PROCESSED") return { duplicate: true };
@@ -207,7 +206,7 @@ export async function processConnectEvent(admin: Admin, event: Stripe.Event) {
   } else if (event.type === "transfer.created") {
     const transfer = await stripe.transfers.retrieve(event.data.object.id);
     const settlementId = transfer.metadata.comu_settlement_id;
-    if (settlementId && !transfer.livemode && !transfer.reversed && !transfer.amount_reversed) await executeRpc(admin, "comu_finish_transfer", { p_settlement_id: settlementId, p_transfer_id: transfer.id, p_amount_cents: transfer.amount, p_currency: transfer.currency, p_destination: typeof transfer.destination === "string" ? transfer.destination : transfer.destination?.id });
+    if (settlementId && !transfer.reversed && !transfer.amount_reversed) await executeRpc(admin, "comu_finish_transfer", { p_settlement_id: settlementId, p_transfer_id: transfer.id, p_amount_cents: transfer.amount, p_currency: transfer.currency, p_destination: typeof transfer.destination === "string" ? transfer.destination : transfer.destination?.id });
   } else if (["transfer.reversed", "payout.paid", "payout.failed"].includes(event.type)) {
     const accountId = event.account;
     if (accountId) {

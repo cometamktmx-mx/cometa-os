@@ -1,5 +1,5 @@
 import { getAdminClient } from "@/lib/pos/server";
-import { getConnectStripeClient } from "@/lib/comu/stripe";
+import { getConnectStripeClient, getStripeRuntimeMode } from "@/lib/comu/stripe";
 import { processConnectEvent } from "@/lib/comu/finance";
 export const runtime = "nodejs";
 export async function POST(request: Request) {
@@ -9,7 +9,9 @@ export async function POST(request: Request) {
   let event;
   try { event = getConnectStripeClient().webhooks.constructEvent(await request.text(), signature, secret); }
   catch { return Response.json({ ok: false }, { status: 400 }); }
-  if (event.livemode) return Response.json({ ok: false }, { status: 400 });
+  let runtimeLive: boolean;
+  try { runtimeLive = getStripeRuntimeMode(); } catch { return Response.json({ ok: false, code: "STRIPE_RUNTIME_MODE_UNKNOWN" }, { status: 500 }); }
+  if (event.livemode !== runtimeLive) return Response.json({ ok: true, ignored: true, code: "COMU_STRIPE_MODE_MISMATCH" }, { status: 200 });
   try { return Response.json({ ok: true, ...(await processConnectEvent(getAdminClient(), event)) }); }
   catch { return Response.json({ ok: false }, { status: 500 }); }
 }
