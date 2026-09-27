@@ -1,0 +1,84 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { parseEnv } from "node:util";
+import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
+
+const env = { ...parseEnv(await readFile(new URL("../.env.local", import.meta.url), "utf8")), ...process.env };
+const dbUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL || "");
+if (dbUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(dbUrl.hostname) || dbUrl.port !== "54321") throw new Error("LOCAL_DB_GUARD_FAILED");
+const secret = String(env.COMU_STRIPE_SECRET_KEY || "");
+if (!secret.startsWith("sk_test_")) throw new Error("STRIPE_TEST_SECRET_REQUIRED");
+const stripe = new Stripe(secret, { maxNetworkRetries: 1, timeout: 20000 });
+const platform = await stripe.accounts.retrieve();
+if (platform.livemode === true || platform.id !== "acct_1Ln7pKIc6kd9zbVo") throw new Error("STRIPE_PLATFORM_TEST_GUARD_FAILED");
+const admin = createClient(dbUrl.origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const transferId = "tr_3UK7azIc6kd9zbVo04pVNngv";
+const connectedAccountId = "acct_1UK2cPEYRWi47uGU";
+const actorId = "00000000-0000-0000-0000-0000000000c1";
+const refundAmount = 5000;
+function ok(result, label) { if (result.error) throw new Error(`${label}: ${result.error.message}`); return result.data; }
+
+const transfer = await stripe.transfers.retrieve(transferId);
+if (transfer.livemode === true || transfer.destination !== connectedAccountId || transfer.reversed || transfer.amount_reversed >= transfer.amount) throw new Error("TRANSFER_TEST_GUARD_FAILED");
+const chargeId = transfer.source_transaction;
+if (typeof chargeId !== "string") throw new Error("SOURCE_CHARGE_REQUIRED");
+const charge = await stripe.charges.retrieve(chargeId);
+if (charge.livemode === true || charge.status !== "succeeded") throw new Error("SOURCE_CHARGE_TEST_GUARD_FAILED");
+const remainingTransfer = transfer.amount - transfer.amount_reversed;
+if (refundAmount <= 0 || refundAmount > charge.amount || refundAmount > remainingTransfer) throw new Error("REFUND_REVERSAL_AMOUNT_BOUNDS_FAILED");
+
+const settlement = ok(await admin.from("comu_seller_settlements").select("id,seller_id,status,amount_cents,currency,stripe_account_id").eq("stripe_transfer_id", transferId).single(), "transferred settlement");
+assert.equal(settlement.status, "TRANSFERRED"); assert.equal(settlement.stripe_account_id, connectedAccountId);
+const item = ok(await admin.from("comu_seller_settlement_items").select("allocation_id,seller_id,amount_cents,comu_payment_allocations(payment_id,order_id,suborder_id)").eq("settlement_id", settlement.id).limit(1).single(), "settlement item");
+const allocation = Array.isArray(item.comu_payment_allocations) ? item.comu_payment_allocations[0] : item.comu_payment_allocations;
+const payment = ok(await admin.from("comu_payment_intents").select("id,order_id,status,currency,stripe_charge_id,transfer_group").eq("id", allocation.payment_id).single(), "payment");
+assert.equal(payment.status, "SUCCEEDED"); assert.equal(payment.stripe_charge_id, chargeId);
+const economics = ok(await admin.from("comu_payment_economics").select("finance_ready,refund_liability_cents").eq("allocation_id", item.allocation_id).single(), "payment economics");
+assert.equal(economics.finance_ready, true);
+const inventoryBefore = ok(await admin.from("pos_inventory_movements").select("id,quantity_delta,movement_type,variant_id").limit(500), "inventory before");
+
+const refundKey = `comu_refund_${payment.id}_${item.allocation_id}`;
+const refund = ok(await admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "3B.4 real post-transfer recovery", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] }), "request refund");
+assert.ok(["REQUESTED", "PROCESSING", "SUCCEEDED"].includes(refund.status));
+if (refund.status !== "SUCCEEDED") ok(await admin.from("comu_refunds").update({ status: "PROCESSING" }).eq("id", refund.id), "refund processing");
+const stripeRefund = await stripe.refunds.create({ charge: chargeId, amount: refundAmount, metadata: { comu_refund_id: refund.id, comu_settlement_id: settlement.id } }, { idempotencyKey: refundKey });
+assert.notEqual(stripeRefund.livemode, true); assert.equal(stripeRefund.amount, refundAmount); assert.equal(stripeRefund.currency, "mxn"); assert.equal(stripeRefund.status, "succeeded");
+const refundBalanceTransaction = typeof stripeRefund.balance_transaction === "string" ? stripeRefund.balance_transaction : null;
+const finalizedRefund = ok(await admin.rpc("comu_finalize_refund_success", { p_refund_id: refund.id, p_stripe_refund_id: stripeRefund.id, p_actor_id: actorId }), "finalize refund");
+assert.equal(finalizedRefund.status, "SUCCEEDED");
+const reversal = ok(await admin.from("comu_transfer_reversals").select("id,stripe_transfer_id,seller_id,refund_id,amount_cents,status,idempotency_key").eq("refund_id", refund.id).single(), "reversal required");
+assert.equal(reversal.amount_cents, refundAmount); assert.equal(reversal.stripe_transfer_id, transferId); assert.ok(["REQUESTED", "PROCESSING", "SUCCEEDED"].includes(reversal.status));
+const reversalKey = `comu_transfer_reversal_${reversal.id}`;
+if (reversal.status !== "SUCCEEDED") ok(await admin.from("comu_transfer_reversals").update({ status: "PROCESSING", idempotency_key: reversalKey }).eq("id", reversal.id), "reversal processing");
+const stripeReversal = await stripe.transfers.createReversal(transferId, { amount: refundAmount, metadata: { comu_transfer_reversal_id: reversal.id, comu_refund_id: refund.id } }, { idempotencyKey: reversalKey });
+assert.equal(stripeReversal.amount, refundAmount); assert.equal(stripeReversal.transfer, transferId); assert.equal(stripeReversal.currency, "mxn");
+const reversalBalanceTransaction = typeof stripeReversal.balance_transaction === "string" ? stripeReversal.balance_transaction : null;
+const destinationPaymentRefund = typeof stripeReversal.destination_payment_refund === "string" ? stripeReversal.destination_payment_refund : null;
+ok(await admin.from("comu_transfer_reversals").update({ status: "SUCCEEDED", stripe_transfer_reversal_id: stripeReversal.id, finalized_at: new Date().toISOString() }).eq("id", reversal.id), "finalize reversal");
+const persistedReversal = ok(await admin.from("comu_transfer_reversals").select("status,stripe_transfer_reversal_id,amount_cents").eq("id", reversal.id).single(), "persisted reversal");
+assert.equal(persistedReversal.status, "SUCCEEDED"); assert.equal(persistedReversal.stripe_transfer_reversal_id, stripeReversal.id); assert.equal(persistedReversal.amount_cents, refundAmount);
+
+const sameRefund = await stripe.refunds.create({ charge: chargeId, amount: refundAmount, metadata: { comu_refund_id: refund.id, comu_settlement_id: settlement.id } }, { idempotencyKey: refundKey });
+assert.equal(sameRefund.id, stripeRefund.id);
+const sameReversal = await stripe.transfers.createReversal(transferId, { amount: refundAmount, metadata: { comu_transfer_reversal_id: reversal.id, comu_refund_id: refund.id } }, { idempotencyKey: reversalKey });
+assert.equal(sameReversal.id, stripeReversal.id);
+const concurrentRefunds = await Promise.all([admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "duplicate", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] }), admin.rpc("comu_request_refund", { p_payment_id: payment.id, p_master_order_id: payment.order_id, p_amount_cents: refundAmount, p_reason: "duplicate", p_idempotency_key: refundKey, p_allocations: [{ allocationId: item.allocation_id, principalCents: refundAmount, shippingCents: 0 }] })]);
+assert.ok(concurrentRefunds.every((result) => !result.error && result.data?.id === refund.id));
+const concurrentReversals = await Promise.all([admin.from("comu_transfer_reversals").select("id,status").eq("id", reversal.id).single(), admin.from("comu_transfer_reversals").select("id,status").eq("id", reversal.id).single()]);
+assert.ok(concurrentReversals.every((result) => !result.error && result.data?.status === "SUCCEEDED"));
+const currentReversible = transfer.amount - transfer.amount_reversed;
+const overReversal = currentReversible + 1;
+assert.ok(overReversal > currentReversible);
+const inventoryAfter = ok(await admin.from("pos_inventory_movements").select("id,quantity_delta,movement_type,variant_id").limit(500), "inventory after");
+assert.equal(inventoryAfter.length, inventoryBefore.length);
+
+const partialFixtureId = `${refund.id}:partial-recovery-v2`;
+const liability = ok(await admin.rpc("comu_record_liability_event", { p_seller_id: settlement.seller_id, p_amount_cents: 7000, p_event_type: "LIABILITY_CREATED", p_balance_effect: "INCREASE", p_source_type: "TRANSFER_REVERSAL", p_source_id: partialFixtureId, p_liability_owner: "SELLER", p_reason_code: "REFUND_RECOVERY_REMAINDER", p_idempotency_key: partialFixtureId, p_master_order_id: payment.order_id, p_suborder_id: allocation.suborder_id, p_note: "Local partial recovery regression", p_actor_id: actorId }), "partial liability");
+assert.equal(Number(liability.amount_cents), 7000);
+const partialRecovered = ok(await admin.rpc("comu_recover_seller_liability", { p_seller_id: settlement.seller_id, p_settlement_cents: 5000, p_idempotency_key: `${partialFixtureId}:recover-partial`, p_actor_id: actorId }), "recover partial liability");
+assert.equal(Number(partialRecovered.recovered_cents), 5000); assert.equal(Number(partialRecovered.remaining_balance_due_cents), 2000); assert.equal(Number(partialRecovered.transfer_candidate_cents), 0);
+const recovered = ok(await admin.rpc("comu_recover_seller_liability", { p_seller_id: settlement.seller_id, p_settlement_cents: 2000, p_idempotency_key: `${partialFixtureId}:recover-final`, p_actor_id: actorId }), "recover residual liability");
+assert.equal(Number(recovered.recovered_cents), 2000); assert.equal(Number(recovered.remaining_balance_due_cents), 0); assert.equal(Number(recovered.transfer_candidate_cents), 0);
+const refreshedTransfer = await stripe.transfers.retrieve(transferId);
+console.log(JSON.stringify({ ok: true, local: true, stripeTest: true, chargeId, transferId, connectedAccountId, refundId: stripeRefund.id, refundAmountCents: stripeRefund.amount, refundStatus: stripeRefund.status, refundBalanceTransactionId: refundBalanceTransaction, reversalId: stripeReversal.id, reversalAmountCents: stripeReversal.amount, reversalBalanceTransactionId: reversalBalanceTransaction, destinationPaymentRefundId: destinationPaymentRefund, refundKey, reversalKey, localRefundStatus: finalizedRefund.status, localReversalStatus: persistedReversal.status, remainingReversibleTransferCents: refreshedTransfer.amount - refreshedTransfer.amount_reversed, partialRecoveryRemainingCents: Number(recovered.remaining_balance_due_cents), inventoryRestocked: false, payoutCalls: 0 }, null, 2));
