@@ -148,14 +148,22 @@ async function executeRpc(admin: Admin, name: string, args: Record<string, unkno
 
 export async function transferSettlement(admin: Admin, settlementId: string) {
   const stripe = getConnectStripeClient();
-  const { data: existing, error } = await admin.from("comu_seller_settlements").select("seller_id,stripe_account_id").eq("id", settlementId).single();
+  const { data: existing, error } = await admin.from("comu_seller_settlements").select("id,seller_id,stripe_account_id,status,amount_cents,currency,idempotency_key").eq("id", settlementId).single();
   if (error || !existing) throw fail();
   await syncAccount(admin, await stripe.accounts.retrieve(existing.stripe_account_id));
   const settlement = await executeRpc(admin, "comu_claim_transfer", { p_settlement_id: settlementId });
   if (settlement.status === "TRANSFERRED") return { status: "TRANSFERRED" };
   try {
-    const transfer = await stripe.transfers.create({ amount: cents(settlement.amount_cents), currency: settlement.currency.toLowerCase(), destination: settlement.stripe_account_id, transfer_group: `comu-settlement:${settlement.id}`, metadata: { comu_settlement_id: settlement.id, comu_seller_id: settlement.seller_id } }, { idempotencyKey: `comu-transfer:${settlement.idempotency_key}` });
-    if (transfer.livemode || transfer.reversed || transfer.amount_reversed) throw new Error("COMU_TRANSFER_REVIEW_REQUIRED");
+    const { data: item, error: itemError } = await admin.from("comu_seller_settlement_items")
+      .select("allocation_id,comu_payment_allocations(payment_id,order_id,suborder_id,comu_payment_intents(stripe_charge_id,transfer_group,status))")
+      .eq("settlement_id", settlement.id).order("allocation_id").limit(1).maybeSingle();
+    if (itemError || !item) throw new Error("COMU_SETTLEMENT_PAYMENT_NOT_FOUND");
+    const allocation = Array.isArray(item.comu_payment_allocations) ? item.comu_payment_allocations[0] : item.comu_payment_allocations;
+    const payment = Array.isArray(allocation?.comu_payment_intents) ? allocation.comu_payment_intents[0] : allocation?.comu_payment_intents;
+    if (!allocation?.order_id || payment?.status !== "SUCCEEDED" || !payment.stripe_charge_id) throw new Error("COMU_SETTLEMENT_CHARGE_NOT_READY");
+    const transferGroup = payment.transfer_group || `COMU_ORDER_${allocation.order_id}`;
+    const transfer = await stripe.transfers.create({ amount: cents(settlement.amount_cents), currency: settlement.currency.toLowerCase(), destination: settlement.stripe_account_id, source_transaction: payment.stripe_charge_id, transfer_group: transferGroup, metadata: { comu_settlement_id: settlement.id, comu_seller_id: settlement.seller_id, comu_order_id: allocation.order_id, comu_suborder_id: allocation.suborder_id } }, { idempotencyKey: `comu-transfer:${settlement.idempotency_key}` });
+    if (transfer.livemode || transfer.reversed || transfer.amount_reversed || transfer.source_transaction !== payment.stripe_charge_id || transfer.transfer_group !== transferGroup) throw new Error("COMU_TRANSFER_REVIEW_REQUIRED");
     await executeRpc(admin, "comu_finish_transfer", { p_settlement_id: settlement.id, p_transfer_id: transfer.id, p_amount_cents: transfer.amount, p_currency: transfer.currency, p_destination: typeof transfer.destination === "string" ? transfer.destination : transfer.destination?.id });
     return { status: "TRANSFERRED" };
   } catch (error) {
