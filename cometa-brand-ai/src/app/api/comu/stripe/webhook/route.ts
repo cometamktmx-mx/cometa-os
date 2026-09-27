@@ -34,6 +34,12 @@ async function reconcilePaymentEconomics(admin: ReturnType<typeof getAdminClient
 
 type FinanceResult = { status: "PROCESSED" | "UNRESOLVED"; reason?: string };
 
+function disputeCostCents(dispute: Stripe.Dispute): number {
+  const transactions = (dispute as Stripe.Dispute & { balance_transactions?: Array<string | Stripe.BalanceTransaction> }).balance_transactions;
+  if (!Array.isArray(transactions)) return 0;
+  return Math.max(0, transactions.reduce((sum, transaction) => sum + (typeof transaction === "string" ? 0 : Number(transaction.fee || 0)), 0));
+}
+
 async function resolvePayment(admin: ReturnType<typeof getAdminClient>, paymentIntentId?: string | null, chargeId?: string | null) {
   let query = admin.from("comu_payment_intents").select("id,order_id,stripe_payment_intent_id,stripe_charge_id,amount_cents,currency");
   if (paymentIntentId) query = query.eq("stripe_payment_intent_id", paymentIntentId);
@@ -85,7 +91,7 @@ async function ingestDispute(admin: ReturnType<typeof getAdminClient>, event: St
   const stripeStatus = dispute.status;
   if (["WON", "LOST", "CLOSED"].includes(canonical.status)) return { status: "PROCESSED", reason: "TERMINAL_STATE" };
   if (stripeStatus === "won") {
-    const { error } = await admin.rpc("comu_resolve_dispute", { p_dispute_id: canonical.id, p_outcome: "WON", p_liability_owner: "SELLER", p_reason_code: "STRIPE_DISPUTE_WON", p_note: "Stripe dispute won", p_actual_cost_cents: 0, p_actor_id: SYSTEM_ACTOR_ID, p_idempotency_key: event.id });
+    const { error } = await admin.rpc("comu_resolve_dispute", { p_dispute_id: canonical.id, p_outcome: "WON", p_liability_owner: "SELLER", p_reason_code: "STRIPE_DISPUTE_WON", p_note: "Stripe dispute won", p_actual_cost_cents: disputeCostCents(dispute), p_actor_id: SYSTEM_ACTOR_ID, p_idempotency_key: event.id });
     if (error) throw error;
   } else if (stripeStatus === "lost") {
     const { data: allocations, error } = await admin.from("comu_dispute_allocations").select("liability_owner,attribution_status").eq("dispute_id", canonical.id);
@@ -97,7 +103,7 @@ async function ingestDispute(admin: ReturnType<typeof getAdminClient>, event: St
       if (updateError) throw updateError;
       return { status: "PROCESSED", reason: "ATTRIBUTION_REQUIRED" };
     }
-    const { error: resolveError } = await admin.rpc("comu_resolve_dispute", { p_dispute_id: canonical.id, p_outcome: "LOST", p_liability_owner: owner, p_reason_code: owner === "COMETA" ? "COMETA_SYSTEM_ERROR" : "STRIPE_DISPUTE_LOST", p_note: "Stripe dispute lost", p_actual_cost_cents: 0, p_actor_id: SYSTEM_ACTOR_ID, p_idempotency_key: event.id });
+    const { error: resolveError } = await admin.rpc("comu_resolve_dispute", { p_dispute_id: canonical.id, p_outcome: "LOST", p_liability_owner: owner, p_reason_code: owner === "COMETA" ? "COMETA_SYSTEM_ERROR" : "STRIPE_DISPUTE_LOST", p_note: "Stripe dispute lost", p_actual_cost_cents: disputeCostCents(dispute), p_actor_id: SYSTEM_ACTOR_ID, p_idempotency_key: event.id });
     if (resolveError) throw resolveError;
   } else if (!createdNow && (stripeStatus === "under_review" || stripeStatus === "needs_response" || stripeStatus === "warning_needs_response")) {
     const { error } = await admin.from("comu_disputes").update({ status: "UNDER_REVIEW", updated_at: new Date().toISOString() }).eq("id", canonical.id);
