@@ -1,6 +1,6 @@
 import { PosApiError } from "@/lib/pos/server";
 import { requireSellerAccess, requireComuActor } from "./seller-access";
-import { getConnectStripeClient } from "./stripe";
+import { assertConnectAccountAssociation, assertConnectAccountCreationAllowed, getComuAppOrigin, getConnectStripeClient } from "./stripe";
 import { assertOutboundEnabled } from "./outbound-guards.mjs";
 import type Stripe from "stripe";
 
@@ -54,6 +54,7 @@ async function syncAccount(admin: Admin, account: Stripe.Account) {
 
 export async function createSellerConnectAccount() {
   const { admin, seller } = await requireFinanceSeller();
+  const live = assertConnectAccountCreationAllowed();
   const stripe = getConnectStripeClient();
   const { error: insertError } = await admin.from("comu_seller_payment_accounts").upsert({ seller_id: seller.id }, { onConflict: "seller_id", ignoreDuplicates: true });
   if (insertError) throw fail();
@@ -61,6 +62,7 @@ export async function createSellerConnectAccount() {
   if (error || !saved) throw fail();
   if (saved.stripe_account_id) {
     const account = await stripe.accounts.retrieve(saved.stripe_account_id);
+    assertConnectAccountAssociation(account, seller.id, live);
     return syncAccount(admin, account);
   }
   if (saved.account_request_started_at && Date.now() - Date.parse(saved.account_request_started_at) > 23 * 3600000) throw new PosApiError(409, "COMU_CONNECT_RECONCILIATION_REQUIRED", "La configuración necesita revisión antes de crear otra cuenta.");
@@ -70,7 +72,7 @@ export async function createSellerConnectAccount() {
     type: "express", country: seller.country || "MX", capabilities: { transfers: { requested: true } },
     business_profile: { product_description: "Ventas de productos en COMU" },
     settings: { payouts: { schedule: { interval: "daily" } } },
-    metadata: { comu_seller_id: seller.id, comu_mode: "test" },
+    metadata: { comu_seller_id: seller.id, comu_mode: live ? "live" : "test" },
   }, { idempotencyKey: `comu-account:${saved.account_request_key}` });
   const { error: saveError } = await admin.from("comu_seller_payment_accounts").update({ stripe_account_id: account.id, ...connectStatus(account), updated_at: new Date().toISOString() }).eq("seller_id", seller.id);
   if (saveError) throw fail();
@@ -79,10 +81,13 @@ export async function createSellerConnectAccount() {
 
 export async function getSellerConnectStatus() {
   const { admin, seller } = await requireFinanceSeller();
+  const live = assertConnectAccountCreationAllowed();
   const { data, error } = await admin.from("comu_seller_payment_accounts").select("stripe_account_id").eq("seller_id", seller.id).maybeSingle();
   if (error) throw fail();
   if (!data?.stripe_account_id) return { onboarding_status: "NOT_STARTED", details_submitted: false, charges_enabled: false, payouts_enabled: false, transfers_enabled: false, requirements_due: [] };
-  return syncAccount(admin, await getConnectStripeClient().accounts.retrieve(data.stripe_account_id));
+  const account = await getConnectStripeClient().accounts.retrieve(data.stripe_account_id);
+  assertConnectAccountAssociation(account, seller.id, live);
+  return syncAccount(admin, account);
 }
 
 export async function createSellerOnboardingLink() {
@@ -90,11 +95,13 @@ export async function createSellerOnboardingLink() {
   const { data, error } = await admin.from("comu_seller_payment_accounts").select("stripe_account_id").eq("seller_id", seller.id).maybeSingle();
   if (error) throw fail();
   if (!data?.stripe_account_id) throw new PosApiError(409, "COMU_CONNECT_ACCOUNT_REQUIRED", "Primero configura tu cuenta de pagos.");
-  // Explicit local-only return URLs for this test phase; never derive them from an untrusted Host header.
-  if (process.env.NODE_ENV === "production") throw new PosApiError(403, "COMU_CONNECT_LOCAL_ONLY", "Esta configuración está disponible únicamente en el entorno de prueba local.");
-  const appOrigin = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const live = assertConnectAccountCreationAllowed();
+  const appOrigin = getComuAppOrigin(live);
+  const stripe = getConnectStripeClient();
+  const account = await stripe.accounts.retrieve(data.stripe_account_id);
+  assertConnectAccountAssociation(account, seller.id, live);
   const settingsPath = `/brand/${encodeURIComponent(seller.brand_slug)}/comu/settings`;
-  const link = await getConnectStripeClient().accountLinks.create({ account: data.stripe_account_id, type: "account_onboarding", return_url: `${appOrigin}${settingsPath}?connect=return`, refresh_url: `${appOrigin}${settingsPath}?connect=refresh` });
+  const link = await stripe.accountLinks.create({ account: data.stripe_account_id, type: "account_onboarding", return_url: `${appOrigin}${settingsPath}?connect=return`, refresh_url: `${appOrigin}${settingsPath}?connect=refresh` });
   return { url: link.url, expires_at: link.expires_at };
 }
 
