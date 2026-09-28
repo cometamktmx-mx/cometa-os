@@ -50,6 +50,21 @@ function loadModule(source, imports) {
   return context.exports;
 }
 const mode = loadModule(stripe, { "server-only": {}, stripe: class { constructor() { throw new Error("REAL_STRIPE_CLIENT_FORBIDDEN"); } } });
+if (process.argv.includes("--production-config")) {
+  Object.assign(env, process.env, { NODE_ENV: "production" });
+  assert.equal(env.VERCEL_ENV, "production");
+  assert.equal(mode.getStripeRuntimeMode(), true);
+  assert.equal(mode.assertConnectAccountCreationAllowed(), true);
+  assert.equal(mode.getComuAppOrigin(true), "https://app.cometaos.com");
+  const runtimeGuards = loadModule(guards, {});
+  assert.notEqual(env.COMU_OUTBOUND_MONEY_ENABLED, "true");
+  for (const kind of ["transfer", "refund", "reversal"]) {
+    assert.notEqual(env[`COMU_${kind.toUpperCase()}S_ENABLED`], "true");
+    assert.equal(runtimeGuards.outboundGuard(kind).enabled, false);
+  }
+  console.log("COMU_PRODUCTION_CERTIFICATION: LIVE; origin=https://app.cometaos.com; outbound/transfers/refunds/reversals=OFF; Stripe/DB calls=0");
+  for (const key of Object.keys(env)) delete env[key];
+}
 for (const [prefix, live] of [["sk_test_", false], ["rk_test_", false], ["sk_live_", true], ["rk_live_", true]]) {
   env.COMU_STRIPE_SECRET_KEY = `${prefix}synthetic`;
   assert.equal(mode.getStripeRuntimeMode(), live);
