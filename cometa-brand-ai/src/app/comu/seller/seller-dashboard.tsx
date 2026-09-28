@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getConnectSettingsState, startConnectSettingsOnboarding } from "./connect-settings-actions";
 import StorefrontEditor from "./storefront-editor";
 import WholesaleManager from "./wholesale-manager";
 import ShippingSettings from "./shipping-settings";
@@ -99,13 +100,57 @@ function SettingsPanel({ brandSlug, seller, storefrontId, products, listings }: 
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
       <div className="space-y-6">
         <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,.03)] sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Estado operativo</p><h2 className="mt-2 text-2xl font-black tracking-[-.04em] text-white">Salud de la tienda</h2><p className="mt-1 text-sm text-slate-400">Una lectura clara de lo que mantiene tu operación lista.</p></div><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${complete === requirements.length ? statusTone("ready") : statusTone("pending")}`}>{complete} de {requirements.length} listas</span></div><div className="mt-5"><SettingStatus label="Estado de la tienda" value={seller.status === "ACTIVE" ? "Activa" : seller.status === "PENDING_VERIFICATION" ? "Pendiente" : seller.status} tone={seller.status === "ACTIVE" ? "ready" : "pending"} /><SettingStatus label="Verificación" value={verificationLabel(seller.verification_status)} tone={verificationTone} /><SettingStatus label="Inventario" value={posConnected ? "Conectado al POS" : "Pendiente"} tone={posConnected ? "ready" : "pending"} /><SettingStatus label="Catálogo COMU" value={`${published} publicados · ${hidden} ocultos`} tone={published > 0 ? "ready" : "pending"} /><SettingStatus label="Mayoreo" value={wholesaleActive ? "Activo" : "No configurado"} tone={wholesaleActive ? "ready" : "neutral"} /><SettingStatus label="Envíos" value={shippingLabel} tone={shippingTone} /></div></section>
-        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-2xl font-black tracking-[-.04em] text-white">Conexiones</h2><p className="mt-1 text-sm text-slate-400">Revisa las herramientas que mantienen tu operación conectada.</p><div className="mt-5 grid gap-3 md:grid-cols-2"><Connection title="COMETA POS" value={posConnected ? "Conectado" : "Pendiente"} copy="Productos e inventario sincronizados con tu punto de venta." href={`/brand/${encodeURIComponent(brandSlug)}/pos`} ready={posConnected} /><Connection title="Envíos" value={shippingLabel} copy="Define cómo quieres manejar tus entregas." href={`${base}/shipping`} ready={policies.length >= 1} /><Connection title="Mayoreo" value={wholesaleActive ? "Activo" : "No configurado"} copy="Configura condiciones especiales por volumen." href={`${base}/wholesale`} ready={wholesaleActive} /><div className="rounded-2xl border border-white/[.08] bg-[#0b1712] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">Pagos y depósitos</p><p className="mt-1 text-xs leading-5 text-slate-500">Estamos preparando esta configuración para tu tienda COMU.</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone("pending")}`}>En preparación</span></div><button type="button" disabled className="mt-4 cursor-not-allowed rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-500">Configurar pagos</button></div></div></section>
+        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-2xl font-black tracking-[-.04em] text-white">Conexiones</h2><p className="mt-1 text-sm text-slate-400">Revisa las herramientas que mantienen tu operación conectada.</p><div className="mt-5 grid gap-3 md:grid-cols-2"><Connection title="COMETA POS" value={posConnected ? "Conectado" : "Pendiente"} copy="Productos e inventario sincronizados con tu punto de venta." href={`/brand/${encodeURIComponent(brandSlug)}/pos`} ready={posConnected} /><Connection title="Envíos" value={shippingLabel} copy="Define cómo quieres manejar tus entregas." href={`${base}/shipping`} ready={policies.length >= 1} /><Connection title="Mayoreo" value={wholesaleActive ? "Activo" : "No configurado"} copy="Configura condiciones especiales por volumen." href={`${base}/wholesale`} ready={wholesaleActive} /><PaymentConnection key={brandSlug} brandSlug={brandSlug} /></div></section>
         <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-2xl font-black tracking-[-.04em] text-white">Verificación COMU</h2><p className="mt-1 text-sm text-slate-400">COMETA valida a los vendedores para generar confianza dentro de la plataforma.</p><div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/[.08] bg-[#0b1712] p-4"><div><p className="text-sm font-bold text-white">Estado actual</p><p className="mt-1 text-xs text-slate-500">La verificación es gestionada directamente por COMETA.</p></div><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${statusTone(verificationTone)}`}>{verificationLabel(seller.verification_status)}</span></div>{seller.verified_at && verified ? <p className="mt-3 text-xs text-slate-500">Verificada el {new Intl.DateTimeFormat("es-MX", { dateStyle: "long" }).format(new Date(seller.verified_at))}.</p> : null}</section>
         <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-black text-white">Información de la tienda</h2><p className="mt-1 text-sm text-slate-400">{storeInfoReady ? "Tu información pública está completa." : "Completa los datos que verán tus compradores."}</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(storeInfoReady ? "ready" : "pending")}`}>{storeInfoReady ? "Completa" : "Información pendiente"}</span></div><Link href={`${base}/store`} className="mt-4 inline-flex rounded-xl border border-white/15 px-3 py-2 text-xs font-bold text-slate-200 hover:border-emerald-300/40">Administrar tienda</Link></section>
       </div>
       <aside className="space-y-6"><section className={`rounded-[1.5rem] border p-5 sm:p-6 ${complete === requirements.length ? "border-emerald-300/20 bg-emerald-300/[.06]" : "border-amber-300/20 bg-amber-300/[.05]"}`}><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Estado general</p><h2 className="mt-2 text-2xl font-black text-white">{complete === requirements.length ? "Tu tienda está lista" : "Requiere atención"}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{complete === requirements.length ? "Tu operación COMU cumple con los requisitos principales." : "Completa estos puntos para mantener tu tienda preparada."}</p>{missing.length ? <ul className="mt-5 space-y-2 text-sm text-amber-100">{missing.map((item) => <li key={item} className="flex gap-2"><span className="text-amber-300">•</span>{item}</li>)}</ul> : null}</section><section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-xl font-black text-white">Publicaciones</h2><div className="mt-4 grid grid-cols-2 gap-3"><InfoMini label="Publicados" value={published} /><InfoMini label="Ocultos" value={hidden} /></div><Link href={`${base}/products`} className="mt-4 inline-flex text-sm font-bold text-emerald-200">Administrar productos →</Link></section><section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-xl font-black text-white">Acciones rápidas</h2><div className="mt-3 space-y-1"><QuickLink href={`${base}/store`} label="Editar información de la tienda" /><QuickLink href={`${base}/products`} label="Administrar productos" /><QuickLink href={`${base}/wholesale`} label="Configurar mayoreo" /><QuickLink href={`${base}/shipping`} label="Configurar envíos" /><QuickLink href={`${base}/orders`} label="Ver pedidos" /><QuickLink href={publicHref} label="Ver tienda pública" /></div></section><section className="rounded-[1.5rem] border border-emerald-300/15 bg-emerald-300/[.05] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Consejo operativo</p><p className="mt-3 text-sm leading-6 text-slate-300">Mantén actualizada la información de tu tienda y revisa periódicamente tus productos, envíos y reglas de mayoreo.</p></section></aside>
     </div>
   </section>;
+}
+
+export function PaymentConnection({ brandSlug }: { brandSlug: string }) {
+  const [state, setState] = useState<Awaited<ReturnType<typeof getConnectSettingsState>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const pending = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void getConnectSettingsState(brandSlug).then((result) => { if (active) setState(result); })
+      .catch(() => { if (active) setState({ ok: false, error: "No pudimos consultar tus pagos. Inténtalo nuevamente." }); });
+    return () => { active = false; };
+  }, [brandSlug]);
+  async function refresh() {
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setMessage("");
+    try { setState(await getConnectSettingsState(brandSlug)); }
+    catch { setState({ ok: false, error: "No pudimos consultar tus pagos. Inténtalo nuevamente." }); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  async function configure() {
+    if (pending.current || !state?.ok || state.suspended || !["NOT_STARTED", "PENDING", "RESTRICTED"].includes(state.status)) return;
+    pending.current = true; setBusy(true); setMessage("");
+    let redirected = false;
+    try {
+      const result = await startConnectSettingsOnboarding(brandSlug);
+      if (!result.ok) { setMessage(result.error); return; }
+      const url = new URL(result.url);
+      if (url.protocol !== "https:" || url.hostname !== "connect.stripe.com") throw new Error("INVALID_ONBOARDING_URL");
+      window.location.assign(url.href);
+      redirected = true;
+    } catch { setMessage("No pudimos abrir la configuración de pagos. Actualiza el estado antes de reintentar."); }
+    finally { if (!redirected) { pending.current = false; setBusy(false); } }
+  }
+  const status = state?.ok ? state.status : null;
+  const labels = { NOT_STARTED: "Pendiente", PENDING: "Configuración pendiente", REVIEW: "En revisión", COMPLETE: "Pagos configurados", RESTRICTED: "Requiere atención" };
+  const suspended = state?.ok && state.suspended;
+  const canConfigure = !!status && !suspended && ["NOT_STARTED", "PENDING", "RESTRICTED"].includes(status);
+  return <div className="rounded-2xl border border-white/[.08] bg-[#0b1712] p-4">
+    <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">Pagos y depósitos</p><p className="mt-1 text-xs leading-5 text-slate-500">Configura tus datos de cobro de forma segura. La configuración no activa liquidaciones.</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(suspended || status === "RESTRICTED" ? "attention" : status === "COMPLETE" ? "ready" : "pending")}`}>{suspended ? "En revisión" : status ? labels[status] : state ? "No disponible" : "Consultando…"}</span></div>
+    {canConfigure && <button type="button" disabled={busy} onClick={() => void configure()} className="mt-4 rounded-xl border border-emerald-300/30 px-3 py-2 text-xs font-bold text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Abriendo…" : status === "NOT_STARTED" ? "Configurar pagos" : status === "RESTRICTED" ? "Resolver requisitos" : "Continuar configuración"}</button>}
+    <button type="button" disabled={busy || !state} onClick={() => void refresh()} className="mt-4 ml-3 text-xs font-bold text-slate-300 disabled:opacity-50">Actualizar estado</button>
+    {(message || (state && !state.ok)) && <p role="status" className="mt-3 text-xs text-amber-100">{message || (state && !state.ok ? state.error : "")}</p>}
+  </div>;
 }
 
 function Connection({ title, value, copy, href, ready }: { title: string; value: string; copy: string; href: string; ready: boolean }) { return <div className="rounded-2xl border border-white/[.08] bg-[#0b1712] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">{title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{copy}</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(ready ? "ready" : "pending")}`}>{value}</span></div><Link href={href} className="mt-4 inline-flex text-xs font-bold text-emerald-200">Administrar →</Link></div>; }
