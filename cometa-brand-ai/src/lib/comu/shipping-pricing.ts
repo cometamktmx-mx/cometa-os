@@ -1,17 +1,20 @@
+import { moneyCents, mxn, roundedRatio, scaledInteger } from "./pricing-integers.mjs";
+
 export type ShippingMode = "RETAIL" | "WHOLESALE";
 export type ShippingPolicy = { freeShippingThreshold?: number | null; sellerSubsidyPercent?: number; sellerMaxSubsidy?: number | null; cometaSubsidy?: number; buyerPaysPercent?: number };
 export type ShippingAllocation = { providerCost: number; baselineCost: number; buyerShippingCharge: number; sellerShippingSubsidy: number; cometaShippingSubsidy: number };
 export type ShippingPackage = { weightKg: number; lengthCm: number; widthCm: number; heightCm: number; itemCount: number; preset: string };
 export type ShippingQuote = { provider: string; serviceCode: string; etaDays: number; cost: number; package: ShippingPackage };
 export function allocateShipping(providerCost: number, baselineCost: number, subtotal: number, policy: ShippingPolicy = {}): ShippingAllocation {
-  const provider = Math.max(0, providerCost); const baseline = Math.max(0, Math.min(baselineCost, provider));
-  const cometa = Math.min(provider, Math.max(0, policy.cometaSubsidy ?? 0));
-  const free = policy.freeShippingThreshold != null && subtotal >= policy.freeShippingThreshold;
-  const percent = Math.max(0, Math.min(100, policy.sellerSubsidyPercent ?? 0));
-  const requestedSeller = free ? baseline : baseline * (percent / 100);
-  const seller = Math.min(Math.max(0, policy.sellerMaxSubsidy == null ? requestedSeller : Math.min(requestedSeller, policy.sellerMaxSubsidy)), provider - cometa);
-  const buyer = Math.max(0, provider - seller - cometa);
-  return { providerCost: provider, baselineCost: baseline, buyerShippingCharge: Number(buyer.toFixed(2)), sellerShippingSubsidy: Number(seller.toFixed(2)), cometaShippingSubsidy: Number(cometa.toFixed(2)) };
+  const provider = moneyCents(providerCost), baseline = Math.min(moneyCents(baselineCost), provider);
+  const cometa = Math.min(provider, moneyCents(policy.cometaSubsidy ?? 0));
+  const free = policy.freeShippingThreshold != null && moneyCents(subtotal) >= moneyCents(policy.freeShippingThreshold);
+  const percent = Math.min(1000000, scaledInteger(policy.sellerSubsidyPercent ?? 0, 4));
+  const requestedSeller = free ? baseline : roundedRatio(baseline, percent, 1000000);
+  const seller = Math.min(policy.sellerMaxSubsidy == null ? requestedSeller : Math.min(requestedSeller, moneyCents(policy.sellerMaxSubsidy)), provider - cometa);
+  // Compute the buyer's residual last so funding conserves every cent.
+  const buyer = provider - seller - cometa;
+  return { providerCost: mxn(provider), baselineCost: mxn(baseline), buyerShippingCharge: mxn(buyer), sellerShippingSubsidy: mxn(seller), cometaShippingSubsidy: mxn(cometa) };
 }
 export function chooseServices(quotes: ShippingQuote[]) { const valid = quotes.filter((q) => q.cost >= 0 && q.etaDays > 0); if (!valid.length) return { standard: null, fast: null }; const standard = [...valid].sort((a,b) => a.cost-b.cost || a.etaDays-b.etaDays)[0]; const fast = [...valid].filter((q) => q.etaDays <= 3).sort((a,b) => a.cost-b.cost || a.etaDays-b.etaDays)[0] ?? [...valid].sort((a,b) => a.etaDays-b.etaDays || a.cost-b.cost)[0]; return { standard, fast };
 }

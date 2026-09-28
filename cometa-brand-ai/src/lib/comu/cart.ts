@@ -1,5 +1,6 @@
 ﻿import { PosApiError } from "@/lib/pos/server";
 import { requireComuBuyer } from "./buyers";
+import { lineCents, moneyCents, mxn, roundedRatio, scaledInteger, unavailable } from "./pricing-money";
 
 function calculateCartPricing(admin: ReturnType<typeof import("@/lib/pos/server").getAdminClient>, rawItems: Array<Record<string, unknown>>) {
   return (async () => {
@@ -14,7 +15,42 @@ function calculateCartPricing(admin: ReturnType<typeof import("@/lib/pos/server"
     if (le || pe || te || oe) throw new PosApiError(500, "COMU_WHOLESALE_LOOKUP_FAILED", "No se pudieron calcular los precios.");
     const lm = new Map((listings || []).map((row) => [String(row.id), row])); const pm = new Map((policies || []).map((row) => [String(row.storefront_id), row])); const om = new Map((overrides || []).map((row) => [String(row.listing_id), row]));
     const quantities = new Map<string, number>(); const sellerTotals = new Map<string, number>(); for (const item of rawItems) { const l = lm.get(String(item.listing_id)); if (l) { quantities.set(`${l.seller_id}:${l.product_id}`, (quantities.get(`${l.seller_id}:${l.product_id}`) || 0) + Number(item.quantity || 0)); sellerTotals.set(String(l.seller_id), (sellerTotals.get(String(l.seller_id)) || 0) + Number(item.quantity || 0)); } }
-    const lines = rawItems.map((item) => { const l = lm.get(String(item.listing_id)); const vl = item.comu_variant_listings as { price_override?: number | null } | null; const pl = item.comu_product_listings as { retail_price_override?: number | null } | null; const retail = Number(vl?.price_override ?? pl?.retail_price_override ?? l?.retail_price_override ?? 0); const policy = l ? pm.get(String(l.storefront_id)) : null; const override = om.get(String(item.listing_id)); const custom = override?.mode === "CUSTOM"; const mixStore = Boolean(override?.allow_product_mix ?? policy?.allow_product_mix); const qualified = l && mixStore ? sellerTotals.get(String(l.seller_id)) || 0 : l ? quantities.get(`${l.seller_id}:${l.product_id}`) || 0 : 0; const tier = (tiers || []).filter((t) => l && t.storefront_id === l.storefront_id && t.product_id === (custom ? l.product_id : null) && Number(t.min_quantity) <= qualified).sort((a, b) => Number(b.min_quantity) - Number(a.min_quantity))[0]; const threshold = custom ? Number(tier?.min_quantity || 0) : Number(policy?.minimum_quantity || 6); let unit = retail; if ((custom || policy?.enabled) && override?.mode !== "DISABLED" && qualified >= threshold && tier) unit = tier.pricing_mode === "UNIT_PRICE" ? Number(tier.value) : tier.pricing_mode === "AMOUNT_OFF" ? Math.max(0, retail - Number(tier.value)) : Math.max(0, retail * (1 - Number(tier.value) / 100)); const quantity = Number(item.quantity || 0); return { cartItemId: String(item.id), unitPrice: unit, retailUnitPrice: retail, discount: Math.round((retail - unit) * quantity * 100) / 100, qualifiedQuantity: qualified, mode: tier && unit !== retail ? "WHOLESALE_MIX" : "RETAIL", tierId: tier?.id || null, pricingSnapshot: { retailUnitPrice: retail, finalUnitPrice: unit, mode: tier && unit !== retail ? "WHOLESALE_MIX" : "RETAIL", tierId: tier?.id || null, qualifiedQuantity: qualified } }; }); return { lines };
+    const lines = rawItems.map((item) => {
+      const listing = lm.get(String(item.listing_id));
+      if (!listing) unavailable();
+      // effective_price is hydrated exclusively from the selected POS variant
+      // and the existing variant/listing retail overrides, never browser input.
+      const retailCents = moneyCents(item.effective_price, true);
+      const policy = pm.get(String(listing.storefront_id));
+      const override = om.get(String(item.listing_id));
+      const custom = override?.mode === "CUSTOM";
+      const mixStore = Boolean(override?.allow_product_mix ?? policy?.allow_product_mix);
+      const qualified = mixStore ? sellerTotals.get(String(listing.seller_id)) || 0 : quantities.get(listing.seller_id + ":" + listing.product_id) || 0;
+      const tier = (tiers || []).filter((candidate) => candidate.storefront_id === listing.storefront_id && candidate.product_id === (custom ? listing.product_id : null) && Number(candidate.min_quantity) <= qualified).sort((a, b) => Number(b.min_quantity) - Number(a.min_quantity))[0];
+      const threshold = custom ? Number(tier?.min_quantity || 0) : Number(policy?.minimum_quantity || 6);
+      let unitCents = retailCents;
+      const applicable = Boolean((custom || policy?.enabled) && override?.mode !== "DISABLED" && qualified >= threshold && tier);
+      if (applicable && tier) {
+        if (tier.pricing_mode === "UNIT_PRICE") unitCents = moneyCents(tier.value, true);
+        else if (tier.pricing_mode === "AMOUNT_OFF") unitCents = retailCents - moneyCents(tier.value);
+        else if (tier.pricing_mode === "PERCENT_OFF") {
+          const basisPoints = scaledInteger(tier.value, 2);
+          if (basisPoints > 10000) unavailable();
+          unitCents = roundedRatio(retailCents, 10000 - basisPoints, 10000);
+        } else unavailable();
+      }
+      // COMU has no certified free-product checkout mechanism.
+      if (unitCents <= 0) unavailable();
+      const subtotalCents = lineCents(unitCents, item.quantity);
+      const retailSubtotalCents = lineCents(retailCents, item.quantity);
+      const mode = applicable && unitCents !== retailCents ? "WHOLESALE_MIX" : "RETAIL";
+      const tierId = applicable ? tier?.id || null : null;
+      const unit = mxn(unitCents), retail = mxn(retailCents);
+      return { cartItemId: String(item.id), unitPrice: unit, retailUnitPrice: retail,
+        discount: (retailSubtotalCents - subtotalCents) / 100, qualifiedQuantity: qualified, mode, tierId,
+        pricingSnapshot: { retailUnitPrice: retail, finalUnitPrice: unit, mode, tierId, qualifiedQuantity: qualified } };
+    });
+    return { lines };
   })();
 }
 
@@ -38,7 +74,7 @@ export async function getOrCreateCart() {
     const variantListing = item.comu_variant_listings as { listing_id?: string; variant_id?: string; enabled?: boolean; price_override?: number | null } | null;
     const variant = variantMap.get(variantListing?.variant_id || "");
     const product = productMap.get(listing?.product_id || "");
-    const price = Number(variantListing?.price_override ?? listing?.retail_price_override ?? variant?.price ?? 0);
+    const price = mxn(moneyCents(variantListing?.price_override ?? listing?.retail_price_override ?? variant?.price, true));
     const quantity = Number(item.quantity);
     const isAvailable = Boolean(
       listing?.status === "PUBLISHED" && listing.comu_sellers?.status === "ACTIVE" && listing.comu_sellers.verification_status === "VERIFIED" &&

@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import { requireComuFeature } from "@/lib/comu/features";
 import { requireComuBuyer } from "@/lib/comu/buyers";
 import { createReservation } from "@/lib/comu/reservations";
-import { createOrderFromReservation } from "@/lib/comu/orders";
+import { createOrderFromReservation, requireCheckoutShippingProvider } from "@/lib/comu/orders";
 import { PosApiError } from "@/lib/pos/server";
 
 export async function POST(request: Request) {
   try {
     requireComuFeature("catalog");
+    requireCheckoutShippingProvider();
     const { buyer, admin } = await requireComuBuyer();
     const input: unknown = await request.json().catch(() => null);
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new PosApiError(400, "COMU_ADDRESS_REQUIRED", "Selecciona una dirección de entrega.");

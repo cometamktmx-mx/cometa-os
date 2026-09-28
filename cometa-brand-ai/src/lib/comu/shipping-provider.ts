@@ -23,6 +23,13 @@ export interface ShippingProvider {
 }
 
 export class LocalTestShippingProvider implements ShippingProvider {
+  constructor() {
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
+      throw Object.assign(new Error("El envío requiere una cotización válida para producción."), {
+        status: 409, code: "COMU_SHIPPING_PRODUCTION_QUOTE_REQUIRED",
+      });
+    }
+  }
   async createShipment(input: ShipmentRequest): Promise<ShipmentResult> {
     const compact = input.orderId.replaceAll("-", "").slice(0, 12).toUpperCase();
     return { provider: "LOCAL_TEST", providerShipmentId: `mock_${compact}`, trackingNumber: `COMUQA${compact}`, carrier: "COMETA TEST", labelUrl: null };
