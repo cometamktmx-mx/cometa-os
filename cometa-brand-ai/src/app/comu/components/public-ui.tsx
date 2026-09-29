@@ -1,7 +1,13 @@
 import Link from "next/link";
+import Image from "next/image";
+import { FavoriteButton } from "./commerce";
 
 export type PublicListing = {
   id: string;
+  seller_id?: string;
+  public_category?: string | null;
+  ratingAverage?: number;
+  reviewCount?: number;
   public_slug: string;
   title_override: string | null;
   description_override?: string | null;
@@ -11,7 +17,7 @@ export type PublicListing = {
   storefront?: { headline?: string | null; description?: string | null; logo_url?: string | null; cover_url?: string | null; theme_config?: Record<string, unknown> | null };
   product?: { name: string; description?: string | null; image_url?: string | null };
   media?: Array<{ public_url: string; is_primary?: boolean }>;
-  variants?: Array<{ productVariant?: { price?: number | null } }>;
+  variants?: Array<{ id?: string; price_override?: number | null; availability?: string; productVariant?: { name?: string; price?: number | null } }>;
 };
 
 export function SectionHeading({ eyebrow, title, href, link = "Ver selección" }: { eyebrow: string; title: string; href?: string; link?: string }) {
@@ -20,12 +26,12 @@ export function SectionHeading({ eyebrow, title, href, link = "Ver selección" }
 
 export function ProductCard({ listing, featured = false }: { listing: PublicListing; featured?: boolean }) {
   const image = listing.media?.find((item) => item.is_primary)?.public_url || listing.product?.image_url;
-  const price = listing.retail_price_override ?? listing.variants?.[0]?.productVariant?.price;
-  return <Link href={`/comu/products/${listing.public_slug}`} className={`group block ${featured ? "md:col-span-2" : ""}`}><div className={`relative overflow-hidden rounded-[1.6rem] bg-[#ebe7e1] ${featured ? "aspect-[1.35/1]" : "aspect-[.82/1]"}`}>{image ? <img src={image} alt="" className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.04]" /> : <div className="flex h-full items-end bg-[linear-gradient(145deg,#ded6cb,#f3eee7)] p-5"><span className="max-w-[10rem] text-2xl font-black leading-none text-[#625449]">Una pieza para descubrir.</span></div>}{listing.wholesale_enabled ? <span className="absolute left-4 top-4 rounded-full bg-[#f6f0e7]/95 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.14em] text-[#5f4938]">Mayoreo</span> : null}<span aria-label="Guardar en favoritos" className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-[#fffdf9]/90 text-lg text-[#5f4938] transition group-hover:scale-110">♡</span></div><div className="px-1 pt-4"><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-[.12em] text-[#8b7564]">{listing.seller?.public_name || "Selección COMU"}</p><h3 className="mt-1 font-black tracking-[-.02em] text-[#19201c]">{listing.title_override || listing.product?.name || "Producto COMU"}</h3></div>{price !== null && price !== undefined ? <p className="shrink-0 text-sm font-black text-[#5b4a3e]">${Number(price).toFixed(2)}</p> : null}</div><p className="mt-2 text-xs text-[#8a827a]">{listing.seller?.city || "Vendedor verificado"}</p></div></Link>;
+  const price = listing.variants?.[0]?.price_override ?? listing.retail_price_override ?? listing.variants?.[0]?.productVariant?.price;
+  return <article className={featured ? "md:col-span-2" : ""}><div className="relative"><Link href={`/comu/products/${listing.public_slug}`} className="group block"><div className={`relative overflow-hidden rounded-[1.4rem] bg-[#ebe7e1] ${featured ? "aspect-[1.35/1]" : "aspect-[.82/1]"}`}>{image ? <Image unoptimized src={image} alt={listing.title_override || listing.product?.name || "Producto"} fill sizes={featured ? "(max-width: 640px) 90vw, 50vw" : "(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 25vw"} className="object-cover transition duration-500 group-hover:scale-[1.03]" /> : <div className="grid h-full place-items-center text-sm text-[#72675e]">Imagen por llegar</div>}{listing.wholesale_enabled && <span className="absolute bottom-3 left-3 rounded-full bg-[#fffdf9]/95 px-3 py-1.5 text-xs font-semibold">Mayoreo</span>}</div><div className="mt-4 flex items-start justify-between gap-4"><div><p className="text-xs text-[#72675e]">{listing.seller?.public_name}</p><h3 className="mt-1 font-semibold">{listing.title_override || listing.product?.name}</h3>{listing.reviewCount != null && listing.reviewCount > 0 && listing.ratingAverage != null && <p className="mt-2 text-xs text-[#72675e]">★ {listing.ratingAverage.toFixed(1)} ({listing.reviewCount})</p>}{Boolean(listing.variants?.length) && listing.variants?.every(row => row.availability === "out_of_stock") && <p className="mt-2 text-xs text-[#72675e]">Agotado por ahora</p>}</div>{price != null && Number(price) > 0 && <p className="shrink-0 text-sm font-semibold">{new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(Number(price))}</p>}</div></Link><FavoriteButton id={listing.id} /></div></article>;
 }
 
 export function SellerCard({ seller }: { seller: NonNullable<PublicListing["seller"]> }) {
-  return <Link href={`/comu/sellers/${seller.slug}`} className="group relative overflow-hidden rounded-[1.7rem] bg-[#252d28] p-6 text-[#f5f0e9] transition hover:-translate-y-1"><div className="absolute inset-0 opacity-40 transition duration-500 group-hover:scale-105 group-hover:opacity-55">{seller.cover_url ? <img src={seller.cover_url} alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full bg-[linear-gradient(135deg,#38463e,#b08f72)]" />}</div><div className="relative flex min-h-56 flex-col justify-between"><div className="flex items-center justify-between"><span className="rounded-full border border-white/25 bg-black/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.16em]">Verificada</span><span className="text-xl">↗</span></div><div><h3 className="text-2xl font-black tracking-[-.04em]">{seller.public_name}</h3><p className="mt-1 text-sm text-white/70">{seller.city || seller.state || "Comunidad COMU"}</p></div></div></Link>;
+  return <Link href={`/comu/sellers/${seller.slug}`} className="group relative overflow-hidden rounded-[1.7rem] bg-[#252d28] p-6 text-[#f5f0e9] transition hover:-translate-y-1"><div className="absolute inset-0 opacity-40 transition duration-500 group-hover:scale-105 group-hover:opacity-55">{seller.cover_url ? <Image unoptimized src={seller.cover_url} alt="" fill sizes="(max-width: 768px) 90vw, 33vw" className="object-cover" /> : <div className="h-full w-full bg-[linear-gradient(135deg,#38463e,#b08f72)]" />}</div><div className="relative flex min-h-56 flex-col justify-between"><div className="flex items-center justify-between"><span className="rounded-full border border-white/25 bg-black/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.16em]">Verificada</span><span className="text-xl">↗</span></div><div><h3 className="text-2xl font-black tracking-[-.04em]">{seller.public_name}</h3><p className="mt-1 text-sm text-white/70">{seller.city || seller.state || "Comunidad COMU"}</p></div></div></Link>;
 }
 
 export function EmptyState({ title, body }: { title: string; body: string }) {

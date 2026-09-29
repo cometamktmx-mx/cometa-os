@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function NotFound() { return <main className="mx-auto max-w-3xl px-5 py-24"><p className="comu-eyebrow">COMU</p><h1 className="comu-title mt-5">Esta pieza del camino no está disponible.</h1><p className="mt-6 text-[#72675e]">Hay más por descubrir en nuestra selección.</p><Link className="comu-button mt-8" href="/comu/search">Volver a explorar</Link></main>; }

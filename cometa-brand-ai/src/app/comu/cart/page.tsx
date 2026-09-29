@@ -1,36 +1,20 @@
-﻿"use client";
-
+"use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-
-type Item = { id: string; quantity: number; variant_listing_id: string; listing_id: string; effective_price?: number; is_available?: boolean; product_name?: string; comu_product_listings?: { title_override?: string; comu_sellers?: { public_name?: string } } };
-const cartError = "No pudimos cargar tu carrito. Inténtalo nuevamente.";
-export default function ComuCartPage() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
-  function load() {
-    return fetch("/api/comu/cart").then(async (response) => {
-      const data = await response.json() as { ok?: boolean; items?: Item[] };
-      if (!response.ok || !data.ok || !Array.isArray(data.items)) {
-        setItems([]);
-        setMessage(response.status === 401 ? "Inicia sesión para ver tu carrito." : cartError);
-        return;
-      }
-      setItems(data.items);
-      setMessage("");
-    }).catch(() => {
-      setItems([]);
-      setMessage(cartError);
-    }).finally(() => { setLoading(false); });
+import { useRef, useState } from "react";
+import { useCommerce, CartThumbnail, cartVariant, type CartItem } from "../components/commerce";
+import { EmptyState, ProductCard } from "../components/public-ui";
+import { formatMxn } from "@/lib/comu/buyer-experience";
+export default function Cart() {
+  const { items, catalog, loading, error, refresh } = useCommerce(); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(false); const lock = useRef(false);
+  const groups = [...new Set(items.map(row => row.comu_product_listings?.comu_sellers?.slug || "store"))];
+  const total = items.reduce((sum, row) => sum + row.effective_price * row.quantity, 0);
+  const categories = new Set(catalog.filter(row => items.some(item => item.listing_id === row.id)).map(row => row.public_category).filter(Boolean));
+  const recommended = catalog.filter(row => !items.some(item => item.listing_id === row.id) && row.public_category && categories.has(row.public_category)).slice(0, 4);
+  async function change(item: CartItem, quantity?: number) {
+    if (lock.current) return;
+    if (quantity !== undefined && (!Number.isSafeInteger(quantity) || quantity < 1)) { setNotice("Elige una cantidad válida."); return; }
+    lock.current = true; setBusy(true);
+    try { const response = await fetch(`/api/comu/cart${quantity === undefined ? `?itemId=${item.id}` : ""}`, { method: quantity === undefined ? "DELETE" : "PATCH", headers: { "Content-Type": "application/json" }, ...(quantity !== undefined ? { body: JSON.stringify({ itemId: item.id, quantity, purchaseMode: item.purchase_mode, runId: item.run_id, runCount: item.purchase_mode === "RUN" ? quantity : item.run_count }) } : {}) }); if (!response.ok) { setNotice("No pudimos actualizar esta pieza."); return; } await refresh(); setNotice("Carrito actualizado"); } catch { setNotice("No pudimos actualizar el carrito."); } finally { lock.current = false; setBusy(false); }
   }
-  async function remove(itemId: string) {
-    try {
-      const response = await fetch(`/api/comu/cart?itemId=${encodeURIComponent(itemId)}`, { method: "DELETE" });
-      if (!response.ok) { setMessage(cartError); return; }
-      setLoading(true);
-      await load();
-    } catch { setMessage(cartError); }
-  }
-  useEffect(() => { void load(); }, []);
- const total=items.reduce((sum,item)=>sum+Number(item.effective_price||0)*Number(item.quantity),0); return <main className="mx-auto max-w-5xl px-5 py-12"><p className="text-xs font-black uppercase tracking-[.2em] text-emerald-700">Tu selección</p><h1 className="mt-3 text-5xl font-black tracking-[-.07em]">Carrito</h1>{loading?<p role="status" className="mt-6 text-sm">Cargando tu carrito…</p>:null}{message?<p className="mt-6 text-sm text-rose-700">{message}</p>:null}<div className="mt-10 space-y-3">{items.map((item)=><div key={item.id} className="flex items-center justify-between rounded-3xl bg-white p-5"><div><p className="font-black">{item.product_name || item.comu_product_listings?.title_override || "Producto COMU"}</p><p className="text-sm text-slate-500">{item.comu_product_listings?.comu_sellers?.public_name} · {item.quantity} pieza(s)</p></div><button onClick={() => void remove(item.id)} className="text-sm font-bold underline">Quitar</button></div>)}{!loading&&!items.length&&!message?<section className="rounded-3xl border border-dashed border-black/10 p-10 text-center"><h2 className="text-2xl font-black">Tu carrito está vacío.</h2><p className="mt-3 text-slate-500">Agrega algunas piezas antes de continuar.</p><Link href="/comu/search" className="mt-6 inline-flex rounded-full bg-emerald-800 px-6 py-3 font-bold text-white">Explorar productos</Link></section>:null}</div>{!loading&&!message&&items.length>0?<div className="mt-8 flex items-center justify-between rounded-3xl bg-[#17201d] p-6 text-white"><span className="font-bold">Total estimado</span><span className="text-2xl font-black">${total.toFixed(2)} MXN</span></div>:null}{!loading&&!message&&items.length?<Link href="/comu/checkout" className="mt-6 inline-flex rounded-full bg-emerald-700 px-6 py-3 font-bold text-white">Continuar al checkout</Link>:null}</main> }
+  return <main className="mx-auto max-w-7xl px-5 py-12 md:py-16"><p className="comu-eyebrow">Elegido por ti</p><h1 className="comu-title mt-4">Tu selección.</h1><p className="mt-5 text-[#72675e]">Revisa tus piezas, sin prisa.</p>{loading ? <p role="status" className="mt-12">Cargando tu carrito…</p> : error ? <section className="mt-12"><EmptyState title="Tu selección te espera." body={error} /><div className="mt-5 flex gap-4"><Link href="/login?next=%2Fcomu%2Fcart" className="comu-button">Iniciar sesión</Link><button onClick={() => void refresh()} className="comu-button comu-secondary">Reintentar</button></div></section> : !items.length ? <section className="mt-12"><EmptyState title="Hay mucho por descubrir." body="Tu carrito está vacío. Encuentra una pieza que se sienta como tú." /><Link className="comu-button mt-7" href="/comu/search">Explorar productos</Link></section> : <div className="mt-12 grid items-start gap-12 lg:grid-cols-[1fr_320px]"><div className="space-y-10">{groups.map(slug => <section key={slug}><h2 className="border-b border-[#d9cfc4] pb-4 text-xl font-semibold">{items.find(row => (row.comu_product_listings?.comu_sellers?.slug || "store") === slug)?.comu_product_listings?.comu_sellers?.public_name || "Tu tienda"}</h2><ul className="divide-y divide-[#d9cfc4]">{items.filter(row => (row.comu_product_listings?.comu_sellers?.slug || "store") === slug).map(item => <li key={item.id} className="flex gap-4 py-6"><CartThumbnail item={item} catalog={catalog} /><div className="min-w-0 flex-1"><Link href={`/comu/products/${item.comu_product_listings?.public_slug}`} className="font-semibold">{item.product_name || item.comu_product_listings?.title_override}</Link><p className="mt-1 text-sm text-[#72675e]">{cartVariant(item, catalog)}</p><p className="mt-2 text-sm">{formatMxn(item.effective_price)} por pieza{item.wholesale_mode !== "RETAIL" && <span className="ml-2 text-[#3f5b44]">· Mayoreo aplicado</span>}</p>{item.is_available === false && <p className="mt-2 text-sm text-[#914f35]">Revisa la disponibilidad de esta selección.</p>}<div className="mt-4 flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 text-xs">{item.purchase_mode === "RUN" ? "Corridas" : "Cantidad"}<input key={`${item.id}-${item.quantity}-${item.run_count}`} aria-label={`Cantidad de ${item.product_name}`} type="number" min={1} step={1} defaultValue={item.purchase_mode === "RUN" ? item.run_count : item.quantity} disabled={busy} onBlur={event => { const value = Number(event.target.value); if (value !== (item.purchase_mode === "RUN" ? item.run_count : item.quantity)) void change(item, value); }} className="w-16 rounded-lg border border-[#d9cfc4] bg-[#fffdf9] p-2" /></label><button disabled={busy} onClick={() => void change(item)} className="text-xs underline underline-offset-4">Quitar</button><strong className="ml-auto text-sm">{formatMxn(item.effective_price * item.quantity)}</strong></div></div></li>)}</ul></section>)}</div><aside className="rounded-3xl bg-[#eee7de] p-7 lg:sticky lg:top-36"><h2 className="text-xl font-semibold">Resumen</h2><div className="mt-6 flex justify-between text-sm"><span>Productos</span><span>{formatMxn(total)}</span></div><div className="mt-4 flex justify-between gap-4 text-sm"><span>Envío</span><span className="text-right text-[#72675e]">Por confirmar</span></div><p className="mt-6 border-t border-[#cfc4b8] pt-5 text-xs leading-6 text-[#72675e]">Estamos preparando la compra en COMU. Tu envío deberá confirmarse antes de crear un pedido o realizar un cobro.</p><button onClick={() => setNotice("La compra todavía no está disponible. Conservamos tu selección; no se creó un pedido ni se realizó un cobro.")} className="comu-button mt-6 w-full">Continuar con mi compra</button><Link className="mt-5 block text-center text-sm underline" href="/comu/search">Seguir descubriendo</Link></aside></div>}{notice && <p role="status" className="mt-7 rounded-xl bg-[#e2eadf] p-5 text-sm">{notice}</p>}{recommended.length > 0 && <section className="mt-20"><h2 className="mb-8 text-3xl font-semibold tracking-tight">Completa tu compra</h2><div className="grid gap-x-5 gap-y-9 sm:grid-cols-2 lg:grid-cols-4">{recommended.map(listing => <ProductCard key={listing.id} listing={listing} />)}</div></section>}</main>;
+}

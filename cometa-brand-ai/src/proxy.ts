@@ -4,6 +4,7 @@ import { copySupabaseCookies, updateSession } from "./lib/supabase/middleware";
 import { safeInternalNext } from "./lib/auth/safe-next";
 import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
+import { isPublicComuRoute } from "./lib/comu/public-routes";
 
 const publicRoutes = [
   "/",
@@ -29,7 +30,7 @@ const protectedAdminApis = [
 ];
 
 function isPublicRoute(pathname: string) {
-  return publicRoutes.includes(pathname);
+  return publicRoutes.includes(pathname) || isPublicComuRoute(pathname);
 }
 
 function isProtectedAdminPage(pathname: string) {

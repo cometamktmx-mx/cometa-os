@@ -1,0 +1,1 @@
+export default function Loading() { return <div role="status" className="mx-auto max-w-7xl px-5 py-20"><p className="comu-eyebrow">COMU</p><p className="mt-5 text-2xl font-semibold">Preparando algo para ti…</p><div aria-hidden="true" className="mt-10 h-64 rounded-3xl bg-[#eee7de] motion-safe:animate-pulse" /></div>; }
