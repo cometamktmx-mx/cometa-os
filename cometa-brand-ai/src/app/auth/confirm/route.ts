@@ -14,6 +14,17 @@ export async function GET(request: NextRequest) {
   const requestedType = request.nextUrl.searchParams.get("type");
   const nextValue = request.nextUrl.searchParams.get("next");
 
+  if (requestedType === "recovery") {
+    const url = new URL("/reset-password", request.url);
+    if (tokenHash) url.searchParams.set("token_hash", tokenHash);
+    else url.searchParams.set("error", "recovery_token_missing");
+    url.searchParams.set("type", "recovery");
+    const response = NextResponse.redirect(url, 303);
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    return response;
+  }
+
   if (requestedType === "email") {
     const url = new URL("/confirm-signup", request.url);
     if (tokenHash) url.searchParams.set("token_hash", tokenHash);
