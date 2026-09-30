@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function ResetPasswordPage() {
@@ -10,16 +10,34 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [error, setError] = useState("");
+  const submitting = useRef(false);
+  const recoveryVerified = useRef(false);
 
   useEffect(() => {
     let active = true;
     async function prepareSession() {
-      const code = new URLSearchParams(window.location.search).get("code");
-      if (code) await supabase.auth.exchangeCodeForSession(code);
-      const { data } = await supabase.auth.getSession();
-      if (!active) return;
-      setSessionReady(Boolean(data.session));
-      if (!data.session) setError("El enlace no es válido o ya expiró. Solicita uno nuevo.");
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const hash = new URLSearchParams(window.location.hash.slice(1));
+        if (params.has("error") || hash.has("error")) throw new Error("RECOVERY_LINK_FAILED");
+        // Token-hash links are consumed only when the user submits the new password.
+        if (params.get("type") === "recovery" && params.get("token_hash")) {
+          if (active) setSessionReady(true);
+          return;
+        }
+        // detectSessionInUrl already handles PKCE/implicit links; avoid exchanging
+        // the single-use code twice (including React Strict Mode effect replay).
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !data.session) throw new Error("RECOVERY_SESSION_MISSING");
+        if (!active) return;
+        window.history.replaceState(null, "", "/reset-password");
+        setSessionReady(true);
+      } catch {
+        if (active) {
+          setSessionReady(false);
+          setError("El enlace no es válido o ya expiró. Solicita uno nuevo.");
+        }
+      }
     }
     void prepareSession();
     return () => { active = false; };
@@ -27,17 +45,29 @@ export default function ResetPasswordPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!sessionReady || submitting.current) return;
     if (password.length < 8) return setError("La contraseña debe tener al menos 8 caracteres.");
     if (password !== confirmation) return setError("Las contraseñas no coinciden.");
+    submitting.current = true;
     try {
       setLoading(true);
       setError("");
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+      if (params.get("type") === "recovery" && tokenHash && !recoveryVerified.current) {
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+        if (verifyError || !data.session) throw new Error("RECOVERY_VERIFICATION_FAILED");
+        recoveryVerified.current = true;
+        window.history.replaceState(null, "", "/reset-password");
+      }
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
       window.location.href = "/login?password=updated";
     } catch {
       setError("No pudimos actualizar la contraseña. Solicita un enlace nuevo.");
       setLoading(false);
+    } finally {
+      submitting.current = false;
     }
   }
 

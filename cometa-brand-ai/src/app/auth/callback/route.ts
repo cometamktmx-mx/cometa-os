@@ -15,10 +15,15 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      return NextResponse.redirect(new URL(next, request.url));
+      // The installed SDK returns redirectType at runtime but omits it from
+      // the public AuthTokenResponse type; narrow without widening the contract.
+      const recovery = ("redirectType" in data && data.redirectType === "recovery") || request.nextUrl.searchParams.get("type") === "recovery";
+      const response = NextResponse.redirect(new URL(recovery ? "/reset-password" : next, request.url));
+      response.headers.set("Cache-Control", "private, no-store");
+      return response;
     }
   }
 
@@ -26,4 +31,3 @@ export async function GET(request: NextRequest) {
     new URL("/login?error=auth_callback_failed", request.url)
   );
 }
-
