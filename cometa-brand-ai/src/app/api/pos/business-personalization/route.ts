@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { getBusinessDocumentProfile } from "@/lib/pos/business-document-profile";
 import { getBrandSlugFromUrl, handlePosError, ok, optionalText, readJsonBody, requirePosContext, type PosRequestContext } from "@/lib/pos/server";
 import { requirePosPermission } from "@/lib/pos/rbac";
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const context = requireSettings(await requirePosContext(getBrandSlugFromUrl(request)));
+    const context = requireSettings(await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "settings.manage" }));
     const body = await readJsonBody<Record<string, unknown>>(request);
     const payload = {
       display_name: optionalText(body.commercialName, 140),

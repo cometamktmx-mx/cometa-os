@@ -1,3 +1,5 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
+import { PosPermissionError } from "@/lib/pos/rbac";
 import {
   PosApiError,
   assertDatabaseResult,
@@ -110,7 +112,7 @@ export async function GET(request: Request) {
     assertDatabaseResult(error, "No se pudo cargar la analítica solicitada.");
     return ok({ view, data });
   } catch (error) {
-    if (error instanceof PosApiError) return handlePosError(error);
+    if (error instanceof PosApiError || error instanceof PosPermissionError) return handlePosError(error);
     console.error("POS reports analytics error:", error);
     return handlePosError(new PosApiError(500, "POS_REPORTS_ANALYTICS_ERROR", "No se pudieron cargar los reportes."));
   }
@@ -119,10 +121,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "intelligence.signals",
-    });
+    const { admin, brand } = await requirePosMutationAccess({ brandSlug, operation: "signals.generate" });
     const body = await readJsonBody<Record<string, unknown>>(request);
     if (body.action !== "generate_signals") {
       throw new PosApiError(400, "POS_REPORTS_INVALID_ACTION", "La acción de reportes no es válida.");
@@ -142,7 +141,7 @@ export async function POST(request: Request) {
     assertDatabaseResult(error, "No se pudieron generar las señales del negocio.");
     return ok({ data });
   } catch (error) {
-    if (error instanceof PosApiError) return handlePosError(error);
+    if (error instanceof PosApiError || error instanceof PosPermissionError) return handlePosError(error);
     console.error("POS reports signals generation error:", error);
     return handlePosError(new PosApiError(500, "POS_REPORTS_SIGNALS_ERROR", "No se pudieron generar las señales."));
   }

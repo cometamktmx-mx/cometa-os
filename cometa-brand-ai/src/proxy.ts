@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { copySupabaseCookies, updateSession } from "./lib/supabase/middleware";
-import { safeInternalNext } from "./lib/auth/safe-next";
+import { posReturnTo } from "./lib/pos/navigation";
 import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
 import { isPublicComuRoute } from "./lib/comu/public-routes";
 
 const publicRoutes = [
+  "/manifest.json",
+  "/sw.js",
   "/",
   "/login",
   "/signup",
@@ -240,12 +242,13 @@ export async function proxy(request: NextRequest) {
     const { user, response } = await getProxyUser(request);
 
     if (pathname === "/" && user) {
-      const requestedNext = safeInternalNext(request.nextUrl.searchParams.get("next"), "/workspace");
-      const destination = requestedNext === "/" ? "/workspace" : requestedNext;
+      const requestedNext = posReturnTo(request.nextUrl.searchParams.get("next"), request.nextUrl.searchParams.get("returnTo")) || "/entry";
+      const destination = requestedNext === "/" ? "/entry" : requestedNext;
       const target = new URL(destination, request.url);
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = target.pathname;
       redirectUrl.search = target.search;
+      redirectUrl.hash = target.hash;
       return copySupabaseCookies(response, NextResponse.redirect(redirectUrl));
     }
 

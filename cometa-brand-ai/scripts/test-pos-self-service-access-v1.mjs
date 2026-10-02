@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { createRequire } from "node:module";
+const nativeRequire = createRequire(import.meta.url);
 
 // Execute production guards with deterministic Auth/DB adapters; no network.
 process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
@@ -68,16 +70,19 @@ function load(file) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const require = (name) => {
+    if (name.startsWith("node:")) return nativeRequire(name);
     if (name === "server-only") return {};
     if (name.endsWith(".css")) return {};
     if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (name === "../components/pos-shell") return { default: "PosShell" };
+    if (name === "@/components/pos-exit") return { PosExit: "PosExit" };
     if (name === "next/link") return { default: "Link" };
     if (name === "next/navigation") return { redirect: (url) => { throw new Error(`redirect:${url}`); } };
     if (name === "next/headers") return { cookies: async () => ({ getAll: () => [] }) };
     if (name === "next/server") return { NextResponse: { json: (body, options) => Response.json(body, options) } };
     if (name === "@supabase/supabase-js") return { createClient: () => db };
     if (name === "@supabase/ssr") return { createServerClient: () => ({ auth: {
+      getSession: async () => ({ data: { session: state.auth ? { access_token: `fixture.${Buffer.from(JSON.stringify({ session_id: "11111111-1111-1111-1111-111111111111" })).toString("base64url")}.verified-by-getUser` } : null }, error: null }),
       getUser: async () => ({ data: { user: state.auth ? { id: "creator", email: null } : null }, error: null }),
     } }) };
     if (name === "@/lib/brand-resolver") return {
@@ -85,6 +90,7 @@ function load(file) {
       resolveBrandFromSupabase: async (_db, { brandSlug }) => ({ id: brandSlug, slug: brandSlug, name: brandSlug, exists: brandSlug !== "missing", sourceTable: "brands" }),
     };
     if (name.startsWith("@/")) return load(`src/${name.slice(2)}.ts`);
+    if (name.startsWith(".")) return load(path.resolve(path.dirname(absolute), name + ".ts"));
     throw new Error(`Unexpected import: ${name}`);
   };
   new Function("require", "module", "exports", code)(require, loaded, loaded.exports);
@@ -95,6 +101,7 @@ function reset() {
     user_profiles: [{ user_id: "creator", role: "client", status: "active" }],
     user_brand_access: [{ user_id: "creator", brand_slug: "owned-brand", access_role: "owner", status: "active" }],
     pos_subscriptions: [{ id: "subscription", brand_slug: "owned-brand" }],
+    pos_devices: [],
   } };
 }
 const { getPosAccountRole, getPosSurfaceState } = load("src/lib/pos/surface-policy.ts");

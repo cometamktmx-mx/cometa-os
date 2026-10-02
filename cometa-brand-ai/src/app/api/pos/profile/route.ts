@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   booleanValue,
@@ -10,7 +11,6 @@ import {
   requirePosContext,
   type PosRequestContext,
 } from "@/lib/pos/server";
-import { requirePosOperationalAccess } from "@/lib/pos/access";
 import {
   isPosProfileFamily,
   type PosProfileFamily,
@@ -230,10 +230,7 @@ export async function POST(request: Request) {
           >)
         : {};
 
-    const operationalContext = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "pos.access",
-    });
+    const operationalContext = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "settings.manage" });
     const { admin, brand, user } =
       await initializePosBrand(operationalContext);
 

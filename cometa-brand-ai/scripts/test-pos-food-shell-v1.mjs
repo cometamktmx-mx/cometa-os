@@ -149,7 +149,7 @@ function controller(initialData = data) {
     useCallback(fn) { return fn; }, useMemo(fn) { return fn(); },
     useEffect(fn) { const i = cursor++; if (!(i in slots)) { slots[i] = true; fn(); } },
   };
-  const fakeWindow = { setTimeout(fn) { timers.push(fn); return 1; }, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {}, addEventListener() {}, removeEventListener() {} };
+  const fakeWindow = { dispatchEvent() {}, setTimeout(fn) { timers.push(fn); return 1; }, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {}, addEventListener() {}, removeEventListener() {} };
   const oldWindow = globalThis.window, oldFetch = globalThis.fetch;
   globalThis.window = fakeWindow;
   globalThis.fetch = async (url, options) => { requests.push({ url, options }); const response = responses.shift(); if (response instanceof Error) throw response; return { ok: response?.ok !== false, json: async () => response?.body ?? initialData }; };
@@ -199,9 +199,9 @@ test("load failure exposes retry and refuses unexpected RETAIL response for Food
     c.responses.push(new Error("Sin conexión"));
     let tree = await c.start(); assert.equal(tree.props["data-food-state"], "error");
     c.responses.push({ body: { ...data, mode: "RETAIL", gateRequired: false } });
-    tree.props.children[2].props.onClick(); await c.settle();
+    tree.props.children[2].props.children[0].props.onClick(); await c.settle();
     tree = c.render(); assert.equal(tree.props["data-food-state"], "error");
-    c.responses.push({ body: data }); tree.props.children[2].props.onClick(); await c.settle();
+    c.responses.push({ body: data }); tree.props.children[2].props.children[0].props.onClick(); await c.settle();
     assert.equal(c.render().props["data-food-state"], "locked");
   } finally { c.close(); }
 });
@@ -212,7 +212,7 @@ test("failed revocation stays covered; retry repeats revoke before loading", asy
     await assert.rejects(tree.props.children.props.action("switch"));
     tree = c.render(); assert.equal(tree.props["data-food-state"], "error");
     c.responses.push({ body: { session: null } }, { body: data });
-    tree.props.children[2].props.onClick(); await c.settle();
+    tree.props.children[2].props.children[0].props.onClick(); await c.settle();
     assert.equal(c.render().props["data-food-state"], "locked");
     assert.equal(JSON.parse(c.requests.at(-2).options.body).action, "switch");
     assert.deepEqual(c.completions, ["switch"]);

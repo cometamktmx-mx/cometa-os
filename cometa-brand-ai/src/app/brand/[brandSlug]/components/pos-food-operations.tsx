@@ -8,10 +8,7 @@ import { FoodItemModifiers, PosFoodModifierDialog } from "./pos-food-modifiers";
 import { FoodReceipt } from "./pos-food-receipt";
 import { foodRoleViews, foodTableState, type FoodAction, type FoodCheck, type FoodItem, type FoodProduct, type FoodSnapshot, type FoodTicket } from "@/lib/pos/food-shared";
 import { staffHasAnyRole, staffRoles } from "@/lib/pos/staff-shared";
-type FoodOfflineRecord<T> = { value: T };
-const foodOfflineKey = (brandSlug: string, locationId: string | null) => `${brandSlug}::${locationId || "default"}`;
-async function foodOfflinePut<T>(brandSlug: string, locationId: string | null, value: T, store: "food_snapshot" | "catalog" = "food_snapshot") { if (typeof indexedDB === "undefined") return; try { const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("cometa-pos-offline", 1); request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("food_snapshot")) request.result.createObjectStore("food_snapshot"); if (!request.result.objectStoreNames.contains("catalog")) request.result.createObjectStore("catalog"); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); await new Promise<void>((resolve, reject) => { const tx = db.transaction(store, "readwrite"); tx.objectStore(store).put({ value, brandSlug, locationId, cachedAt: new Date().toISOString(), schemaVersion: 1 }, foodOfflineKey(brandSlug, locationId)); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); db.close(); } catch { /* online operation must survive storage failure */ } }
-async function foodOfflineGet<T>(brandSlug: string, locationId: string | null): Promise<FoodOfflineRecord<T> | null> { if (typeof indexedDB === "undefined") return null; try { const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("cometa-pos-offline", 1); request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains("food_snapshot")) request.result.createObjectStore("food_snapshot"); }; request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); const value = await new Promise<FoodOfflineRecord<T> | null>((resolve, reject) => { const request = db.transaction("food_snapshot", "readonly").objectStore("food_snapshot").get(foodOfflineKey(brandSlug, locationId)); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error); }); db.close(); return value; } catch { return null; } }
+import { offlineGet, offlinePut, offlineScope, clearPosLocalContext, mayUseOfflineSnapshot } from "@/lib/pos/offline-storage";
 
 const button = "pos-ui-focus min-h-12 rounded-xl border border-[var(--pos-line)] px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-70";
 const primary = `${button} bg-[var(--pos-primary)] text-slate-950`;
@@ -41,7 +38,7 @@ function equalSplitPart(total: number, parts: number, index: number) {
   return (base + (index < remainder ? 1 : 0)) / 100;
 }
 
-export function PosFoodOperations({ operator, brandSlug, branding }: { operator: PosOperator; brandSlug: string; branding?: PosBranding | null }) {
+export function PosFoodOperations({ operator, brandSlug, branding, accountId = "", deviceId }: { accountId?: string; deviceId?: string | null; operator: PosOperator; brandSlug: string; branding?: PosBranding | null }) {
   const views = foodRoleViews(staffRoles(operator));
   const initialCheckId = typeof window !== "undefined" ? window.location.hash.match(/^#check-(.+)$/)?.[1] || null : null;
   const [view, setView] = useState<"salon" | "kitchen" | "cash">(initialCheckId ? "cash" : views[0]);
@@ -81,6 +78,7 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const mutation = useRef(false);
   const generation = useRef(0);
+  const invalidate = useCallback(() => { generation.current++; }, []);
   const [floorFilter, setFloorFilter] = useState<"ALL" | ReturnType<typeof foodTableState>>("ALL");
   const [floorLayout, setFloorLayout] = useState<"grid" | "list">("grid");
   const [customizing, setCustomizing] = useState<FoodProduct | null>(null);
@@ -89,13 +87,14 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
     const current = ++generation.current;
     const response = await fetch(`/api/pos/food?brandSlug=${encodeURIComponent(brandSlug)}${locationId ? `&locationId=${encodeURIComponent(locationId)}` : ""}`, { cache: "no-store", signal });
     const body = await response.json();
+    if (response.status === 401 || response.status === 403) { setSnapshot(null); await clearPosLocalContext(); }
     if (!response.ok || !body.snapshot) throw new Error(body.error || "No se pudo actualizar la operación.");
-    void foodOfflinePut(brandSlug, body.snapshot.location?.id || locationId || null, body.snapshot);
-    void foodOfflinePut(brandSlug, body.snapshot.location?.id || locationId || null, { products: body.snapshot.products, categories: body.snapshot.categories, modifiers: body.snapshot.modifiers }, "catalog");
-    if (!locationId && body.snapshot.location?.id) void foodOfflinePut(brandSlug, null, body.snapshot);
+    if (current !== generation.current || signal?.aborted) return body.snapshot as FoodSnapshot;
+    const scope = offlineScope(brandSlug, body.snapshot.location?.id || locationId || null, { accountId, operatorId: operator.id, deviceId });
+    await offlinePut("food_snapshot", scope, body.snapshot);
     if (current === generation.current && !signal?.aborted) setSnapshot(body.snapshot);
     return body.snapshot as FoodSnapshot;
-  }, [brandSlug, locationId]);
+  }, [brandSlug, locationId, accountId, operator.id, deviceId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -103,13 +102,13 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
     async function refresh() {
       if (mutation.current) return;
       try { await load(controller.signal); if (!stopped) setError(null); }
-      catch (reason) { if (!stopped) { const cached = await foodOfflineGet<FoodSnapshot>(brandSlug, locationId || null); if (cached?.value) { setSnapshot(cached.value); setError("Sin conexión. Mostrando el último snapshot guardado."); } else { setError(reason instanceof Error ? reason.message : "Sin conexión."); setSnapshot(null); } } }
+      catch (reason) { if (!stopped) { const cached = locationId && mayUseOfflineSnapshot(reason, navigator.onLine) ? await offlineGet<FoodSnapshot>("food_snapshot", offlineScope(brandSlug, locationId, { accountId, operatorId: operator.id, deviceId })) : null; if (stopped) return; if (cached?.value) { setSnapshot(cached.value); setError("Sin conexión. Mostrando el último snapshot guardado."); } else { setError(reason instanceof Error ? reason.message : "Sin conexión."); setSnapshot(null); } } }
     }
     void refresh();
     const poll = window.setInterval(() => void refresh(), 5000);
     const clock = window.setInterval(() => setNow(Date.now()), 15000);
-    return () => { stopped = true; controller.abort(); window.clearInterval(poll); window.clearInterval(clock); };
-  }, [load, retry, brandSlug, locationId]);
+    return () => { stopped = true; invalidate(); controller.abort(); window.clearInterval(poll); window.clearInterval(clock); };
+  }, [load, retry, brandSlug, locationId, accountId, operator.id, deviceId, invalidate]);
 
   async function act(action: FoodAction, payload: Record<string, unknown>) {
     if (mutation.current) return false;
@@ -121,6 +120,7 @@ export function PosFoodOperations({ operator, brandSlug, branding }: { operator:
         body: JSON.stringify({ brandSlug, action, ...payload, idempotencyKey: pending.current.key }) });
       const body = await response.json();
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) { setSnapshot(null); await clearPosLocalContext(); }
         if (response.status < 500) pending.current = null;
         throw new Error(body.error || "No se pudo completar la operación.");
       }

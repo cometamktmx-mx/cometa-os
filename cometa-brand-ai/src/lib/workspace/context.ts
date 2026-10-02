@@ -72,12 +72,12 @@ export async function getUserWorkspaceContext(): Promise<UserWorkspaceContext> {
 export function getWorkspaceDestination(context: Pick<UserWorkspaceContext, "profile" | "isCanonicalAdmin" | "isCanonicalTeam" | "hasPendingInvitation" | "brands">): string {
   if (context.isCanonicalTeam) return "/studio";
   if (context.profile?.status === "inactive") return "/workspace";
-  if (context.isCanonicalAdmin || context.brands.length > 1) return "/workspace";
+  if (context.isCanonicalAdmin) return "/workspace";
   if (context.brands.length === 0) return context.hasPendingInvitation ? "/invite" : "/onboarding/business";
-  if (context.brands[0].pos.available && context.brands[0].osStatus !== "active") {
-    return `/brand/${encodeURIComponent(context.brands[0].slug)}/pos`;
-  }
-  return `/brand/${encodeURIComponent(context.brands[0].slug)}`;
+  if (context.brands.some(brand => brand.osStatus === "active")) return "/workspace";
+  const posBrands = context.brands.filter(brand => brand.pos.available);
+  if (posBrands.length === 1) return `/brand/${encodeURIComponent(posBrands[0].slug)}/pos`;
+  return "/pos";
 }
 
 async function mapWithConcurrency<T, R>(values: T[], concurrency: number, mapper: (value: T) => Promise<R>): Promise<R[]> {

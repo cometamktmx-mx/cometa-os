@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   fail,
@@ -32,9 +33,9 @@ type BrandingBody = {
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 
 async function initializePosBranding(
-  brandSlug: string
+  brandSlug: string, mutation = false
 ) {
-  const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.access" });
+  const context = mutation ? await requirePosMutationAccess({ brandSlug, operation: "settings.manage" }) : await requirePosOperationalAccess({ brandSlug, entitlement: "pos.access" });
   const { admin, brand, user } = context;
 
   const { error } = await admin.rpc(
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
     );
 
     const { admin, brand, user } =
-      await initializePosBranding(brandSlug);
+      await initializePosBranding(brandSlug, true);
 
     const displayName = requiredText(
       body.displayName,

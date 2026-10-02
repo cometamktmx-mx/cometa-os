@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   fail,
@@ -336,7 +337,7 @@ export async function POST(request: Request) {
       120
     );
 
-    const access = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const access = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "sale.create", locationId: body.locationId });
     const { admin, brand, user } = access;
     const posMode = (await getPosMode(access));
 

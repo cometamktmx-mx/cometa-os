@@ -33,9 +33,12 @@ import { PosSidebar } from "./pos-sidebar";
 import { PosMobileSidebar } from "./pos-sidebar";
 import { PosTopbar } from "./pos-topbar";
 import { type PosOperator } from "./pos-operator-gate";
+import { PosOperatorGate } from "./pos-operator-gate";
 import { PosFoodAccess } from "./pos-food-access";
 import { getPosSurfaceState, isFoodProfile } from "@/lib/pos/surface-policy";
-import { offlineGet, offlinePut, offlineScope } from "@/lib/pos/offline-storage";
+import { clearPosLocalContext, POS_CONTEXT_CLEARED } from "@/lib/pos/offline-storage";
+import { PosExit } from "@/components/pos-exit";
+import { createClient } from "@/lib/supabase/client";
 import { PosConnectionStatus } from "./pos-connection-status";
 
 export type PosBrand = {
@@ -166,8 +169,7 @@ export default function PosShell({
 
   const updateBranding = useCallback((next: PosBranding | null) => {
     setBranding((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
-    if (next) void offlinePut("branding", offlineScope(brandSlug), next);
-  }, [brandSlug]);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -198,16 +200,9 @@ export default function PosShell({
         );
         const data = await response.json();
 
-        if (response.status === 401) {
-          router.replace(
-            `/login?next=${encodeURIComponent(`/brand/${brandSlug}/pos`)}`
-          );
-          return;
-        }
-
-        if (response.status === 403) {
-          router.replace("/workspace");
-          return;
+        if (response.status === 401 || response.status === 403) {
+          await clearPosLocalContext();
+          throw new Error(data?.error || "Acceso POS no disponible. Inicia sesión o solicita acceso al propietario.");
         }
 
         if (
@@ -230,7 +225,7 @@ export default function PosShell({
 
         if (!isMounted || revision !== bootstrapRevision.current) return;
 
-        void offlinePut("bootstrap", offlineScope(brandSlug), data);
+
 
         setBrand({
           slug: data.brand.slug || brandSlug,
@@ -263,21 +258,6 @@ export default function PosShell({
       } catch (error: unknown) {
         if (!isMounted) return;
 
-        const cached = await offlineGet<Record<string, unknown>>("bootstrap", offlineScope(brandSlug));
-        if (!isMounted || revision !== bootstrapRevision.current) return;
-        if (cached?.value && typeof cached.value === "object") {
-          const data = cached.value as Record<string, unknown>;
-          const cachedBrand = data.brand as { slug?: unknown };
-          if (cachedBrand.slug === brandSlug && data.branding) {
-            setBrand(data.brand as PosBrand);
-            updateBranding(data.branding as PosBranding);
-            setLoadedBrandSlug(brandSlug);
-            setNetworkState("OFFLINE");
-            setIsLoading(false);
-            return;
-          }
-        }
-
         const message =
           error instanceof Error
             ? error.message
@@ -294,7 +274,7 @@ export default function PosShell({
         setEffectiveCapabilities([]);
         setBranding(null);
         setBrand(initialBrand);
-        setNetworkState("OFFLINE");
+        setNetworkState(error instanceof TypeError && !navigator.onLine ? "OFFLINE" : "SYNC_ERROR");
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -317,7 +297,15 @@ export default function PosShell({
       setNetworkState("SYNCING");
       try {
         const response = await fetch(`/api/pos/bootstrap?brandSlug=${encodeURIComponent(brandSlug)}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("BOOTSTRAP_REVALIDATION_FAILED");
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            const denied = await response.json();
+            setEffectiveCommercialAccess(null); setEffectiveEntitlements([]); setCurrentOperator(null); setUser(null);
+            setLoadedBrandSlug(null); setLoadError(denied?.error || "Acceso POS no disponible.");
+            await clearPosLocalContext();
+          }
+          throw new Error("BOOTSTRAP_REVALIDATION_FAILED");
+        }
         const data = await response.json();
         if (!data?.ok || data.brand?.slug !== brandSlug ||
             !isSubscriptionLifecycle(data.lifecycle) ||
@@ -340,9 +328,9 @@ export default function PosShell({
         setLoadedBrandSlug(brandSlug);
         setLoadError(null);
         setIsLoading(false);
-        void offlinePut("bootstrap", offlineScope(brandSlug), data);
+
         setNetworkState("ONLINE");
-      } catch { setNetworkState(navigator.onLine ? "SYNC_ERROR" : "OFFLINE"); }
+      } catch (error) { setNetworkState(error instanceof TypeError && !navigator.onLine ? "OFFLINE" : "SYNC_ERROR"); }
       finally { revalidationInFlight.current = null; }
     })();
     revalidationInFlight.current = promise; await promise;
@@ -400,6 +388,20 @@ export default function PosShell({
     networkState,
   ]);
 
+  useEffect(() => {
+    createClient(); // Register auth/logout and cross-tab cache invalidation.
+    const invalidate = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === "operator") { setCurrentOperator(null); setRetryVersion(value => value + 1); return; }
+      bootstrapRevision.current++;
+      setCurrentOperator(null); setEffectiveEntitlements([]); setEffectiveCommercialAccess(null);
+      setLoadedBrandSlug(null); setUser(null); setLoadError("La sesión operativa cambió. Revalida el acceso para continuar.");
+    };
+    window.addEventListener(POS_CONTEXT_CLEARED, invalidate);
+    return () => window.removeEventListener(POS_CONTEXT_CLEARED, invalidate);
+  }, []);
+
+  if (loadError) return <main className="min-h-screen bg-slate-950 p-8 text-white"><h1>Acceso POS no disponible</h1><p role="alert">{loadError}</p><button className="mt-4 underline" onClick={() => setRetryVersion(value => value + 1)}>Reintentar</button><PosExit /></main>;
+
   const visibleLifecycle = loadedBrandSlug === brandSlug ? lifecycle : null;
   const visibleCommercialAccess = loadedBrandSlug === brandSlug
     ? effectiveCommercialAccess
@@ -441,6 +443,7 @@ export default function PosShell({
                   setLoadError("No se pudo cerrar la sesión operacional.");
                   return;
                 }
+                await clearPosLocalContext(true, "operator");
                 setCurrentOperator(null);
                 router.refresh();
               }}
@@ -485,7 +488,7 @@ export default function PosShell({
                   brandSlug={visibleBrand.slug}
                   lifecycle={visibleLifecycle}
                 />
-              ) : children}
+              ) : <PosOperatorGate key={brandSlug + retryVersion} brandSlug={brandSlug} fallbackName={visibleBrand.name} onOperatorChange={handleOperatorChange}>{(data, action) => <>{data.gateRequired ? <div className="mb-4 flex flex-wrap items-center gap-3"><span>{data.session?.staff.name}</span><button onClick={() => void action("switch").catch(() => undefined)}>Cambiar operador</button><button onClick={() => void action("lock").catch(() => undefined)}>Bloquear</button>{data.session?.staff.role === "ADMIN" ? <button onClick={() => void action(data.adminMode ? "operation" : "admin").catch(() => undefined)}>{data.adminMode ? "Salir de administración" : "Modo administrativo"}</button> : null}<PosExit /></div> : null}{children}</>}</PosOperatorGate>}
             </div>
           </section>
         </div>
@@ -551,7 +554,7 @@ function PosCommercialLockedState({
             Ver suscripción y activación
           </Link>
           <Link
-            href="/workspace"
+            href="/pos?select=1"
             className="pos-ui-focus inline-flex min-h-11 items-center justify-center rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] px-5 text-sm font-semibold text-[var(--pos-text-primary)]"
           >
             Cambiar de marca

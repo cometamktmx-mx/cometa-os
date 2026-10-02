@@ -1,3 +1,4 @@
+import "server-only";
 import { cookies } from "next/headers";
 import { getPosAccountRole } from "@/lib/pos/surface-policy";
 import { NextResponse } from "next/server";
@@ -28,6 +29,7 @@ export type PosUserRole = "admin" | "client";
 
 export type PosUserContext = {
   userId: string;
+  authSessionId?: string;
   email: string | null;
   role: PosUserRole;
   isAdmin: boolean;
@@ -47,6 +49,7 @@ export type PosRequestContext = {
   user: PosUserContext;
   brand: PosBrandContext;
   membership: PosMembershipAccess | null;
+  device?: import("./device-contract").PosDevice | null;
 };
 
 export class PosApiError extends Error {
@@ -118,10 +121,12 @@ async function getAuthenticatedUser(
     }
   );
 
+  const { data: sessionData, error: sessionError } = await authClient.auth.getSession();
+  if (sessionError || !sessionData.session) throw new PosApiError(401, "POS_UNAUTHORIZED", "Inicia sesión para utilizar Cometa POS.");
   const {
     data: { user },
     error: authError,
-  } = await authClient.auth.getUser();
+  } = await authClient.auth.getUser(sessionData.session.access_token);
 
   if (authError || !user) {
     throw new PosApiError(
@@ -130,6 +135,14 @@ async function getAuthenticatedUser(
       "Inicia sesión para utilizar Cometa POS."
     );
   }
+
+  // Read only after getUser has verified this exact JWT with Supabase.
+  let authSessionId: string | undefined;
+  try {
+    const claims: unknown = JSON.parse(Buffer.from(sessionData.session.access_token.split(".")[1], "base64url").toString("utf8"));
+    if (claims && typeof claims === "object" && "session_id" in claims && typeof claims.session_id === "string" &&
+        /^[0-9a-f-]{36}$/i.test(claims.session_id)) authSessionId = claims.session_id;
+  } catch { /* Missing/invalid session binding fails closed in device validation. */ }
 
   const { data: profile, error: profileError } = await admin
     .from("user_profiles")
@@ -151,6 +164,7 @@ async function getAuthenticatedUser(
   if (role === "admin") {
     return {
       userId: user.id,
+      authSessionId,
       email: user.email || profile?.email || null,
       role,
       isAdmin: true,
@@ -184,6 +198,7 @@ async function getAuthenticatedUser(
 
   return {
     userId: user.id,
+    authSessionId,
     email: user.email || profile?.email || null,
     role: "client",
     isAdmin: false,
@@ -193,7 +208,8 @@ async function getAuthenticatedUser(
 
 export async function requirePosContext(
   requestedBrandSlug: string,
-  requestCookies?: { getAll(): { name: string; value: string }[] }
+  requestCookies?: { getAll(): { name: string; value: string }[] },
+  options?: { deviceManagement?: boolean }
 ): Promise<PosRequestContext> {
   const normalizedRequestedSlug = slugifyBrand(requestedBrandSlug || "");
 
@@ -259,7 +275,7 @@ export async function requirePosContext(
     );
   }
 
-  return {
+  const context: PosRequestContext = {
     admin,
     user,
     membership,
@@ -271,6 +287,11 @@ export async function requirePosContext(
       sourceTable: resolvedBrand.sourceTable || null,
     },
   };
+  if (!options?.deviceManagement) {
+    const { resolvePosDevice } = await import("./device-server");
+    context.device = await resolvePosDevice(context, requestCookies);
+  }
+  return context;
 }
 
 export function getBrandSlugFromUrl(request: Request) {

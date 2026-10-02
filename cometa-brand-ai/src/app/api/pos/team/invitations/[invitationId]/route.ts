@@ -1,4 +1,4 @@
-import { requirePosOperationalAccess } from "@/lib/pos/access";
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { requirePosPermission } from "@/lib/pos/rbac";
 import {
   PosApiError,
@@ -38,10 +38,7 @@ export async function DELETE(
       throw new PosApiError(400, "POS_VALIDATION_ERROR", "La invitación no es válida.");
     }
 
-    const access = await requirePosOperationalAccess({
-      brandSlug: getBrandSlugFromUrl(request),
-      entitlement: "pos.access",
-    });
+    const access = await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "team.manage" });
     requirePosPermission(access, "pos.team.manage");
 
     const { data, error } = await access.admin.rpc("pos_revoke_user_invitation_v1", {

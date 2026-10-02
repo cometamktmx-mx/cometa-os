@@ -488,7 +488,7 @@ export async function GET(request: Request) {
       Object.keys(readinessSteps).length;
 
     return ok({
-      user,
+      user: { userId: user.userId, email: user.email, role: user.role, isAdmin: user.isAdmin },
       brand,
 
       membership: membership

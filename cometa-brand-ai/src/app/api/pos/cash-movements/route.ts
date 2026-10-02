@@ -1,3 +1,5 @@
+import { assertDeviceResource } from "@/lib/pos/device-server";
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { createHash } from "node:crypto";
 import { getPosMode, requireStaffSession } from "@/lib/pos/staff-server";
 import {
@@ -178,10 +180,7 @@ export async function POST(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
     const body = await readJsonBody<CashMovementBody>(request);
-    const access = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "pos.cash",
-    });
+    const access = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "cash.operate" });
     requireCashPermission(access, "pos.cash.operate");
     const { admin, brand, user } = access;
 
@@ -189,6 +188,7 @@ export async function POST(request: Request) {
       body.cashSessionId,
       "cashSessionId"
     ) as string;
+    await assertDeviceResource(access, "pos_cash_sessions", cashSessionId);
     const movementType = normalizeMovementType(body.movementType);
 
     if (!movementType) {

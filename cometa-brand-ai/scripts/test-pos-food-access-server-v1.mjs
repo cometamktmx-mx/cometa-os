@@ -13,7 +13,7 @@ function compile(file, dependencies) {
 }
 function fixture() {
   const jar = new Map(), failures = new Map(); let sequence = 0, contextReads = 0;
-  const rows = { pos_business_profiles: [{ profile_code: "restaurant", brand_slug: "a" }], pos_staff: [], pos_staff_sessions: [], pos_staff_audit_events: [], pos_locations: [], pos_branding: [] };
+  const rows = { pos_business_profiles: [{ profile_code: "restaurant", brand_slug: "a" }], pos_staff: [], pos_staff_roles: [], pos_staff_sessions: [], pos_staff_audit_events: [], pos_locations: [], pos_branding: [] };
   const cookies = { get: name => jar.has(name) ? { value: jar.get(name) } : undefined, set: (name, value) => jar.set(name, value), delete: name => jar.delete(name), getAll: () => [...jar].map(([name, value]) => ({ name, value })) };
   const db = { from(table) {
     const filters = []; let operation = "read", values, selected = false;
@@ -47,14 +47,14 @@ function fixture() {
   const access = { requirePosCommercialAccess: async value => value, requirePosOperationalAccess: async ({ brandSlug }) => server.requirePosContext(brandSlug) };
   const staff = compile("src/lib/pos/staff-server.ts", { "server-only": {}, "next/headers": { cookies: async () => cookies }, "@/lib/pos/server": server, "@/lib/pos/staff-shared": shared });
   const policy = compile("src/lib/pos/surface-policy.ts", {});
-  const guard = compile("src/lib/pos/admin-access.ts", { "server-only": {}, "@/lib/pos/server": server, "@/lib/pos/access": access, "@/lib/pos/staff-server": staff, "@/lib/pos/surface-policy": policy });
+  const guard = compile("src/lib/pos/admin-access.ts", { "server-only": {}, "./staff-shared": shared, "@/lib/pos/server": server, "@/lib/pos/access": access, "@/lib/pos/staff-server": staff, "@/lib/pos/surface-policy": policy });
   const endpoint = compile("src/app/api/pos/operator-session/route.ts", { "@/lib/pos/server": server, "@/lib/pos/access": access, "@/lib/pos/staff-server": staff, "@/lib/pos/staff-shared": shared });
   const post = body => endpoint.POST(new Request("http://local/api/pos/operator-session", { method: "POST", body: JSON.stringify({ brandSlug: "a", ...body }) }));
   return { rows, failures, context, jar, cookies, staff, guard, endpoint, post, get contextReads() { return contextReads; } };
 }
 async function addOperator(f, role = "ADMIN", id = "staff-a") {
   const row = { id, brand_slug: "a", active: true, name: id, role, location_id: null, pin_hash: await f.staff.hashStaffPin("1234"), failed_pin_attempts: 0, locked_until: null };
-  f.rows.pos_staff.push(row); return row;
+  f.rows.pos_staff.push(row); f.rows.pos_staff_roles.push({ brand_slug: "a", staff_id: id, role, active: true }); return row;
 }
 test("profile lookup errors and missing rows fail closed; valid Retail remains Retail", async () => {
   const f = fixture(); assert.equal(await f.staff.getPosMode(f.context), "RESTAURANT");

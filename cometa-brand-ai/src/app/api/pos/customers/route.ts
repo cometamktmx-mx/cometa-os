@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   booleanValue,
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
       120
     );
     const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.customers" });
+      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.create" });
 
     const firstName = requiredText(
       body.firstName,
@@ -192,10 +193,7 @@ export async function PATCH(request: Request) {
     const body = await readJsonBody<CustomerBody>(request);
     const brandSlug = requiredText(body.brandSlug, "brandSlug", 120);
     const customerId = uuidValue(body.customerId, "customerId") as string;
-    const { admin, brand } = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "pos.customers",
-    });
+    const { admin, brand } = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.write" });
 
     const { data: existing, error: existingError } = await admin
       .from("pos_customers")

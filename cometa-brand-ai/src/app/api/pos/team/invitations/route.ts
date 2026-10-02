@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   getPosInvitationRoleLabel,
   POS_INVITATION_ROLE_LABELS,
@@ -224,10 +225,7 @@ export async function POST(request: Request) {
 
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const context = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "pos.access",
-    });
+    const context = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "team.manage" });
     requirePosPermission(context, "pos.team.manage");
 
     const body = await readJsonBody<InviteBody>(request);

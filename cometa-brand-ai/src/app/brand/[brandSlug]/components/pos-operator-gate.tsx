@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { posStaffRoleLabel, type PosMode, type PosStaffRole } from "@/lib/pos/staff-shared";
 import { getFoodAccessState, isStaffLocked } from "@/lib/pos/surface-policy";
+import { clearPosLocalContext } from "@/lib/pos/offline-storage";
+import { PosExit } from "@/components/pos-exit";
 import { PosButton, PosCard, PosInput } from "./pos-ui";
 
 export type PosOperator = { id: string; name: string; role: PosStaffRole; roles?: PosStaffRole[]; locationId: string | null };
 export type PosStaffChoice = PosOperator & { lockedUntil?: string | null; roleLabel?: string };
-export type PosOperatorGateData = { mode: PosMode; adminMode?: boolean; gateRequired: boolean; firstRun: boolean; canConfigure: boolean; branding: { display_name?: string; logo_url?: string | null; primary_color?: string; secondary_color?: string; accent_color?: string; text_color?: string } | null; locations: { id: string; name: string }[]; staff: PosStaffChoice[]; session: { staff: PosOperator } | null };
+export type PosOperatorGateData = { deviceId?: string | null; mode: PosMode; adminMode?: boolean; gateRequired: boolean; firstRun: boolean; canConfigure: boolean; branding: { display_name?: string; logo_url?: string | null; primary_color?: string; secondary_color?: string; accent_color?: string; text_color?: string } | null; locations: { id: string; name: string }[]; staff: PosStaffChoice[]; session: { staff: PosOperator } | null };
 
 export type OperatorAction = "switch" | "lock" | "admin" | "operation";
 export function PosOperatorGate({ brandSlug, fallbackName, children, onOperatorChange, onActionComplete, requireFood = false }: {
@@ -31,7 +33,7 @@ export function PosOperatorGate({ brandSlug, fallbackName, children, onOperatorC
     const version = ++generation.current;
     const response = await fetch("/api/pos/operator-session?brandSlug=" + encodeURIComponent(brandSlug), { cache: "no-store" });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "No se pudo preparar la terminal.");
+    if (!response.ok) { if (response.status === 401 || response.status === 403) await clearPosLocalContext(); throw new Error(payload?.error || "No se pudo preparar la terminal."); }
     if (requireFood && (!payload.gateRequired || !["RESTAURANT", "CAFE"].includes(payload.mode))) throw new Error("El perfil de esta terminal no coincide. Vuelve a abrir Cometa POS.");
     if (version !== generation.current) return null;
     const next = payload as PosOperatorGateData;
@@ -60,6 +62,7 @@ export function PosOperatorGate({ brandSlug, fallbackName, children, onOperatorC
       const response = await fetch("/api/pos/operator-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandSlug, action }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "No se pudo actualizar la sesión.");
+      if (action === "switch" || action === "lock") await clearPosLocalContext(true, "operator");
       pendingAction.current = null;
       onActionComplete?.(action);
       await load();
@@ -96,7 +99,7 @@ export function PosOperatorGate({ brandSlug, fallbackName, children, onOperatorC
   const state = getFoodAccessState({ loaded: Boolean(data), error: !data && Boolean(error), firstRun: Boolean(data?.firstRun), authenticated: Boolean(data?.session), adminMode: Boolean(data?.adminMode) });
   if (!data) return <div data-food-state={state} className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center" role="status">
     <h1 className="text-xl font-bold">{fallbackName}</h1><p>{error || "Preparando terminal…"}</p>
-    {error ? <PosButton onClick={() => void retry()} loading={busy}>Reintentar</PosButton> : null}
+    {error ? <><PosButton onClick={() => void retry()} loading={busy}>Reintentar</PosButton><PosExit /></> : null}
   </div>;
   if ((!requireFood && !data.gateRequired) || data.session) return <>{typeof children === "function" ? <GateContent render={children} data={data} action={act} /> : children}</>;
   return <div data-food-state={state}><PosOperatorGateSurface data={data} fallbackName={fallbackName} selected={selected} pin={pin} error={error} busy={busy} firstName={firstName} firstLocation={firstLocation} onSelect={(staff) => { setSelected(staff); setPin(""); setError(null); }} onPinChange={setPin} onFirstNameChange={setFirstName} onFirstLocationChange={setFirstLocation} onCreateFirst={createFirst} onLogin={() => void login()} /></div>;

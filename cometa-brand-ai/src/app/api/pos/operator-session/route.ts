@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const staff = staffResult.data || [];
     const branding = brandingResult.data;
     const locations = locationsResult.data;
-    return ok({ mode, adminMode: await isStaffAdminMode(session), gateRequired: mode !== "RETAIL", firstRun: mode !== "RETAIL" && (staff || []).length === 0, canConfigure: context.user.isAdmin || ["owner", "admin"].includes(context.membership?.effectiveRole || ""), branding: branding || null, locations: locations || [], staff: (staff || []).map((row) => ({ id: row.id, name: row.name, role: row.role, roles: mode === "RETAIL" ? [row.role] : (row.roles || []).filter(r => r.active).map(r => r.role), locationId: row.location_id, lockedUntil: row.locked_until })), session });
+    return ok({ deviceId: context.device?.id || null, mode, adminMode: await isStaffAdminMode(session), gateRequired: Boolean(context.device) || mode !== "RETAIL", firstRun: (Boolean(context.device) || mode !== "RETAIL") && (staff || []).length === 0, canConfigure: context.user.isAdmin || ["owner", "admin"].includes(context.membership?.effectiveRole || ""), branding: branding || null, locations: locations || [], staff: (staff || []).map((row) => ({ id: row.id, name: row.name, role: row.role, roles: mode === "RETAIL" ? [row.role] : (row.roles || []).filter(r => r.active).map(r => r.role), locationId: row.location_id, lockedUntil: row.locked_until })), session });
   } catch (error) { return handlePosError(error); }
 }
 

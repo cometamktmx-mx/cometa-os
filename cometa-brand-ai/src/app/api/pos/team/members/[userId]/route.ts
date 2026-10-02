@@ -1,4 +1,4 @@
-import { requirePosOperationalAccess } from "@/lib/pos/access";
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { POS_CANONICAL_ROLES, requirePosPermission, type PosCanonicalRole } from "@/lib/pos/rbac";
 import {
   PosApiError,
@@ -46,9 +46,9 @@ function teamRpcError(error: unknown) {
 }
 
 async function teamAccess(request: Request) {
-  const access = await requirePosOperationalAccess({
+  const access = await requirePosMutationAccess({
     brandSlug: getBrandSlugFromUrl(request),
-    entitlement: "pos.access",
+    operation: "team.manage",
   });
   requirePosPermission(access, "pos.team.manage");
   return access;

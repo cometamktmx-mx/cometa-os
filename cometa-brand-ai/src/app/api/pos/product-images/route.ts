@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomUUID } from "node:crypto";
 import {
   getBrandSlugFromUrl,
@@ -6,7 +7,6 @@ import {
   PosApiError,
   readJsonBody,
 } from "@/lib/pos/server";
-import { requirePosOperationalAccess } from "@/lib/pos/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ type DeleteImageBody = {
 export async function POST(request: Request) {
   try {
     const requestedBrandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({ brandSlug: requestedBrandSlug, entitlement: "pos.products" });
+    const { admin, brand } = await requirePosMutationAccess({ brandSlug: requestedBrandSlug, operation: "products.write" });
     let formData: FormData;
 
     try {
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const requestedBrandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({ brandSlug: requestedBrandSlug, entitlement: "pos.products" });
+    const { admin, brand } = await requirePosMutationAccess({ brandSlug: requestedBrandSlug, operation: "products.write" });
     const body = await readJsonBody<DeleteImageBody>(request);
     const imageUrl = String(body.imageUrl ?? "").trim();
 

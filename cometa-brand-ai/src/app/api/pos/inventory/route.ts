@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   getBrandSlugFromUrl,
@@ -129,7 +130,7 @@ export async function POST(request: Request) {
       120
     );
     const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.inventory" });
+      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "inventory.write", locationId: body.locationId });
 
     const movementType = requiredText(
       body.movementType,

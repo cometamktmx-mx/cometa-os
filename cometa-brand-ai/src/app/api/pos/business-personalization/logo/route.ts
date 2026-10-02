@@ -1,5 +1,6 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomUUID } from "node:crypto";
-import { getBrandSlugFromUrl, handlePosError, ok, PosApiError, requirePosContext, type PosRequestContext } from "@/lib/pos/server";
+import { getBrandSlugFromUrl, handlePosError, ok, PosApiError, type PosRequestContext } from "@/lib/pos/server";
 import { requirePosPermission } from "@/lib/pos/rbac";
 
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ const TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function POST(request: Request) {
   try {
-    const context = requireSettings(await requirePosContext(getBrandSlugFromUrl(request)));
+    const context = requireSettings(await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "settings.manage" }));
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File) || file.size <= 0) throw new PosApiError(400, "POS_BRAND_LOGO_REQUIRED", "Selecciona un logotipo.");
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const context = requireSettings(await requirePosContext(getBrandSlugFromUrl(request)));
+    const context = requireSettings(await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "settings.manage" }));
     const current = await context.admin.from("pos_branding").select("logo_url").eq("brand_slug", context.brand.slug).maybeSingle();
     if (current.error) throw current.error;
     const result = await context.admin.from("pos_branding").update({ logo_url: null, updated_at: new Date().toISOString() }).eq("brand_slug", context.brand.slug);

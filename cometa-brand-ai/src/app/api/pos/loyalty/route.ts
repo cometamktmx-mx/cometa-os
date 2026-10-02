@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   booleanValue,
@@ -498,7 +499,7 @@ export async function POST(request: Request) {
     );
     const action = requiredText(body.action, "action", 40);
     const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.loyalty" });
+      await requirePosMutationAccess({ brandSlug: brandSlug, operation: action === "register_member" ? "loyalty.use" : "loyalty.manage" });
 
     if (
       action === "create_visit_program" ||

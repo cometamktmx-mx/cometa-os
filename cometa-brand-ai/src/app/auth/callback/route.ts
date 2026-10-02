@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-
-function safeInternalNext(value: string | null) {
-  if (value && value.startsWith("/") && !value.startsWith("//")) {
-    return value;
-  }
-
-  return "/onboarding/business";
-}
+import { posReturnTo } from "@/lib/pos/navigation";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
-  const next = safeInternalNext(request.nextUrl.searchParams.get("next"));
+  const next = posReturnTo(request.nextUrl.searchParams.get("next"), request.nextUrl.searchParams.get("returnTo")) || "/entry";
 
   if (code) {
     const supabase = await createClient();

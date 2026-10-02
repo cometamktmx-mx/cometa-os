@@ -1,3 +1,5 @@
+import { assertDeviceResource } from "@/lib/pos/device-server";
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   getBrandSlugFromUrl,
@@ -169,10 +171,7 @@ export async function POST(request: Request) {
       120
     );
     const action = requiredText(body.action, "action", 20);
-    const access = await requirePosOperationalAccess({
-      brandSlug,
-      entitlement: "pos.cash",
-    });
+    const access = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "cash.operate" });
     requireCashPermission(access, "pos.cash.operate");
     const { admin, brand, user } = access;
     const staffSession = (await getPosMode(access)) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
@@ -182,6 +181,7 @@ export async function POST(request: Request) {
         body.registerId,
         "registerId"
       ) as string;
+      await assertDeviceResource(access, "pos_registers", registerId);
       const openingAmount = numberValue(
         body.openingAmount,
         "openingAmount",
@@ -227,6 +227,7 @@ export async function POST(request: Request) {
         body.sessionId,
         "sessionId"
       ) as string;
+      await assertDeviceResource(access, "pos_cash_sessions", sessionId);
       const countedCash = numberValue(
         body.countedCash,
         "countedCash",

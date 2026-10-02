@@ -1,3 +1,5 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
+import { PosPermissionError } from "@/lib/pos/rbac";
 import { PosApiError, assertDatabaseResult, getBrandSlugFromUrl, handlePosError, ok, uuidValue } from "@/lib/pos/server";
 import { requirePosOperationalAccess } from "@/lib/pos/access";
 
@@ -32,7 +34,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({ brandSlug, entitlement: "intelligence.signals" });
+    const { admin, brand } = await requirePosMutationAccess({ brandSlug, operation: "signals.generate" });
     const url = new URL(request.url);
     const periodStart = parseDate(url.searchParams.get("dateFrom"), "dateFrom");
     const periodEnd = parseDate(url.searchParams.get("dateTo"), "dateTo");
@@ -72,7 +74,7 @@ function parseChoice(value: string | null, allowed: Set<string>, code: string, n
   return value;
 }
 function handleSignalsError(error: unknown, code: string, message: string) {
-  if (error instanceof PosApiError) return handlePosError(error);
+  if (error instanceof PosApiError || error instanceof PosPermissionError) return handlePosError(error);
   console.error("POS reports signals error:", error);
   return handlePosError(new PosApiError(500, code, message));
 }

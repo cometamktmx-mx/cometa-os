@@ -11,7 +11,7 @@ const normalized = value => value.normalize("NFD").replace(/[\\u0300-\\u036f]/g,
 function compile(file, deps = {}) {
   const loaded = { exports: {} };
   const code = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-  new Function("require", "module", "exports", code)(name => Object.hasOwn(deps, name) ? deps[name] : require(name), loaded, loaded.exports);
+  new Function("require", "module", "exports", code)(name => Object.hasOwn(deps, name) ? deps[name] : name === "@/lib/pos/offline-storage" ? compile("src/lib/pos/offline-storage.ts") : require(name), loaded, loaded.exports);
   return loaded.exports;
 }
 const shared = compile("src/lib/pos/food-shared.ts");

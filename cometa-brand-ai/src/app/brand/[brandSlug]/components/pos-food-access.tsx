@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PosExit } from "@/components/pos-exit";
 import { PosFoodOperations } from "./pos-food-operations";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -48,10 +49,10 @@ export function PosFoodAccess({ brand, user, pathname, entitlements, branding, c
               showAdminAction={staffHasRole(operator, "ADMIN") && !admin} adminHref={`${base}/admin`}
               onAdminAction={() => navigate("admin")} onReturnToOperation={tool ? () => navigate("operation") : undefined}
               onOperatorAction={navigate} />
-            <div className="px-4 md:px-8"><PosConnectionStatus brandSlug={brand.slug} /></div>
+            <div className="px-4 md:px-8"><PosConnectionStatus brandSlug={brand.slug} /><PosExit /></div>
             {admin ? <PosMobileSidebar brand={brand} pathname={pathname} isLoading={false} operator={operator} foodMode open={navigationOpen} onClose={() => setNavigationOpen(false)} /> : null}
             <div className="p-4 md:p-8">
-              {tool ? children : <FoodOperationalSurface operator={operator} base={base} entitlements={entitlements} branding={branding} />}
+              {tool ? children : <FoodOperationalSurface deviceId={data.deviceId} accountId={user?.id || ""} operator={operator} base={base} entitlements={entitlements} branding={branding} />}
             </div>
           </section>
         </div>;
@@ -60,7 +61,7 @@ export function PosFoodAccess({ brand, user, pathname, entitlements, branding, c
   </main>;
 }
 
-export function FoodOperationalSurface({ operator, base, entitlements, branding }: { operator: PosOperator; base: string; entitlements: readonly string[]; branding: PosBranding | null }) {
+export function FoodOperationalSurface({ operator, base, entitlements, branding, accountId = "", deviceId }: { accountId?: string; deviceId?: string | null; operator: PosOperator; base: string; entitlements: readonly string[]; branding: PosBranding | null }) {
   const kitchen = staffRoles(operator).length === 1 && staffHasRole(operator, "KITCHEN");
   const cashier = staffHasRole(operator, "CASHIER");
   const title = kitchen ? "Cocina" : cashier ? "Caja" : "Salón";
@@ -75,7 +76,7 @@ export function FoodOperationalSurface({ operator, base, entitlements, branding 
       <Link prefetch={false} href={`${base}/cash#active-sessions`} className="rounded-xl border border-[var(--pos-line)] bg-[var(--pos-panel)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-text-primary)]">Movimientos</Link>
       <Link prefetch={false} href={`${base}/register`} className="rounded-xl bg-[var(--pos-primary)] px-3 py-3 text-center text-sm font-semibold text-[var(--pos-on-primary)]">Venta directa</Link>
     </section> : null}
-    <PosFoodOperations key={operator.id} operator={operator} brandSlug={base.split("/")[2]} branding={branding} />
+    <PosFoodOperations deviceId={deviceId} accountId={accountId} key={operator.id} operator={operator} brandSlug={base.split("/")[2]} branding={branding} />
     {staffHasAnyRole(operator, ["ADMIN", "MANAGER", "CASHIER"]) ? <div className="mt-6 flex flex-wrap gap-3">
       {entitlements.includes("pos.cash") ? <Link prefetch={false} href={`${base}/cash`} className="pos-ui-focus rounded-lg border border-[var(--pos-line)] px-5 py-3 font-semibold">Abrir caja</Link> : null}
       {cashier && entitlements.includes("pos.sales") ? <Link prefetch={false} href={`${base}/register`} className="pos-ui-focus rounded-lg border border-[var(--pos-line)] px-5 py-3 font-semibold">Venta directa</Link> : null}

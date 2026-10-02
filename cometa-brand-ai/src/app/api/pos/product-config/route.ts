@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   fail,
@@ -101,9 +102,9 @@ const INVENTORY_MODES = [
 ] as const;
 
 async function initializeProductConfiguration(
-  brandSlug: string
+  brandSlug: string, mutation = false
 ) {
-  const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+  const context = mutation ? await requirePosMutationAccess({ brandSlug, operation: "products.write" }) : await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
   const { admin, brand, user } = context;
 
   const { error: initializeError } = await admin.rpc(
@@ -325,9 +326,7 @@ export async function POST(request: Request) {
       context,
       profile,
       configurationReady,
-    } = await initializeProductConfiguration(
-      brandSlug
-    );
+    } = await initializeProductConfiguration(brandSlug, true);
 
     if (!configurationReady) {
       return fail(

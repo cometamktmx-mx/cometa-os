@@ -6,7 +6,7 @@ const read = (file) => readFileSync(file, "utf8");
 const storage = read("src/lib/pos/offline-storage.ts");
 const outbox = read("src/lib/pos/offline-outbox.ts");
 const shell = read("src/app/brand/[brandSlug]/components/pos-shell.tsx");
-const status = read("src/app/brand/[brandSlug]/components/pos-connection-status.tsx");
+const connectionStatus = read("src/app/brand/[brandSlug]/components/pos-connection-status.tsx");
 assert.equal(existsSync("public/sw.js"), true);
 assert.equal(existsSync("public/manifest.json"), true);
 assert.match(storage, /cometa-pos-offline/);
@@ -15,11 +15,11 @@ assert.match(storage, /bootstrap/);
 assert.match(storage, /food_snapshot/);
 assert.match(outbox, /requestKey/);
 assert.match(outbox, /PENDING.*SYNCING.*SYNCED.*FAILED/s);
-assert.match(shell, /offlinePut\("bootstrap"/);
-assert.match(shell, /offlineGet<Record<string, unknown>>\("bootstrap"/);
+assert.doesNotMatch(shell, /offlinePut\("bootstrap"/);
+assert.doesNotMatch(shell, /offlineGet<Record<string, unknown>>\("bootstrap"/);
 assert.match(shell, /setInterval\(\(\) => void revalidate\(\), 60000\)/);
-assert.match(status, /Nueva versión disponible/);
-assert.match(read("public/sw.js"), /request\.url\.includes\("\/api\/"\)/);
+assert.match(connectionStatus, /Nueva versión disponible/);
+assert.match(read("public/sw.js"), /PUBLIC_ASSETS\.has\(url\.pathname\)/);
 console.log("PASS offline foundation contracts, cache isolation, outbox and SW policy");
 
 // Execute the production revalidation callback with deterministic network/storage adapters.
@@ -53,18 +53,19 @@ const fresh = { ok: true, brand: { slug: "macca", id: "brand", name: "Macca" },
   profileCode: "coffee_shop", profileFamily: "restaurant", effectiveCapabilities: [], branding: null };
 let cached = { ...fresh, effectiveCommercialAccess: { ...fresh.effectiveCommercialAccess, effective: { ...fresh.effectiveCommercialAccess.effective, accessAllowed: false } }, effectiveEntitlements: { ...fresh.effectiveEntitlements, entitlements: [] } };
 const state = { EffectiveCommercialAccess: cached.effectiveCommercialAccess, EffectiveEntitlements: [] };
-let response = fresh;
+let response = fresh; let status = 200; let cleared = 0;
 assert.ok(lifecyclePolicy.isSubscriptionLifecycle(fresh.lifecycle), "valid lifecycle fixture");
 assert.ok(lifecyclePolicy.isEffectiveCommercialAccess(fresh.effectiveCommercialAccess), "valid commercial fixture");
 assert.ok(entitlementPolicy.isEffectiveEntitlementsResponse(fresh.effectiveEntitlements), "valid entitlement fixture");
 const bindings = { brandSlug: "macca", initialBrand: { name: "Macca" },
   lastRevalidation: { current: 0 }, revalidationInFlight: { current: null }, bootstrapRevision: { current: 0 },
-  navigator: { onLine: true }, fetch: async () => ({ ok: true, json: async () => response }),
+  navigator: { onLine: true }, fetch: async () => ({ ok: status === 200, status, json: async () => response }),
+  clearPosLocalContext: async () => { cleared++; },
   offlineScope: (brandSlug) => ({ brandSlug, locationId: null }),
   offlinePut: async (store, scope, value) => { assert.equal(store, "bootstrap"); assert.equal(scope.brandSlug, "macca"); cached = value; },
   updateBranding: (value) => { state.Branding = value; },
   ...lifecyclePolicy, ...entitlementPolicy, ...capabilityPolicy };
-for (const name of ["NetworkState", "Brand", "User", "Lifecycle", "EffectiveCommercialAccess", "EffectiveEntitlements", "ProfileCode", "ProfileFamily", "EffectiveCapabilities", "LoadedBrandSlug", "LoadError", "IsLoading"]) bindings[`set${name}`] = (value) => { state[name] = value; };
+for (const name of ["NetworkState", "Brand", "User", "Lifecycle", "EffectiveCommercialAccess", "EffectiveEntitlements", "ProfileCode", "ProfileFamily", "EffectiveCapabilities", "LoadedBrandSlug", "LoadError", "IsLoading", "CurrentOperator"]) bindings[`set${name}`] = (value) => { state[name] = value; };
 const code = ts.transpileModule(`const run = ${callback};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const revalidate = new Function(...Object.keys(bindings), `${code}; return run;`)(...Object.values(bindings));
 const surface = () => getPosSurfaceState({ pathname: "/brand/macca/pos", brandSlug: "macca", ready: true,
@@ -72,14 +73,18 @@ const surface = () => getPosSurfaceState({ pathname: "/brand/macca/pos", brandSl
 assert.equal(surface(), "blocked");
 await revalidate();
 assert.equal(surface(), "operation");
-assert.equal(cached, fresh);
+assert.notEqual(cached, fresh, "authorization is never persisted offline");
 assert.equal(state.ProfileCode, "coffee_shop");
 assert.equal(state.User.isAdmin, false);
 assert.equal(state.LoadError, null);
 bindings.lastRevalidation.current = 0;
 response = { ...fresh, brand: { ...fresh.brand, slug: "other-brand" } };
 await revalidate();
-assert.equal(cached, fresh);
+assert.notEqual(cached, fresh, "authorization is never persisted offline");
 assert.equal(state.Brand.slug, "macca");
 assert.equal(state.NetworkState, "SYNC_ERROR");
-console.log("PASS cached denied bootstrap -> fresh authorized React state and cache; cross-brand response rejected");
+console.log("PASS cached denied bootstrap -> fresh authorized React state without persisting authorization; cross-brand response rejected");
+
+for (const denied of [401, 403]) { bindings.lastRevalidation.current = 0; status = denied; response = { error: "Access denied" }; await revalidate(); assert.equal(state.User, null); assert.deepEqual(state.EffectiveEntitlements, []); assert.equal(state.LoadedBrandSlug, null); }
+assert.equal(cleared, 2);
+console.log("PASS revalidation 401/403 removes account, permissions and cached context");

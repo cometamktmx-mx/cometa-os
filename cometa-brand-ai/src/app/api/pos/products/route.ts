@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -362,7 +363,7 @@ export async function POST(request: Request) {
     );
 
     const { admin, brand, user } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "products.write", locationId: body.locationId });
 
     const requestedAction = optionalText(body.action, 40);
     if (requestedAction === "suggest_product_code") {
@@ -956,7 +957,7 @@ export async function PATCH(request: Request) {
     const brandSlug = requiredText(body.brandSlug, "brandSlug", 120);
     const action = requiredText(body.action, "action", 40);
     const productId = uuidValue(body.productId, "productId");
-    const { admin, brand, user } = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+    const { admin, brand, user } = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "products.write", locationId: body.locationId });
 
     if (!productId) {
       return fail(

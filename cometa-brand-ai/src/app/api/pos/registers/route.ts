@@ -1,3 +1,4 @@
+import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
   fail,
@@ -186,7 +187,7 @@ export async function POST(request: Request) {
     );
 
     const access =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.cash" });
+      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "registers.manage", locationId: body.locationId });
     const { admin, brand, user } = access;
     const effectivePlanCode = getEffectivePlanCode(access.effectiveCommercialAccess);
 

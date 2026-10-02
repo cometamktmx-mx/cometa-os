@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { safeInternalNext } from "@/lib/auth/safe-next";
+import { posReturnTo } from "@/lib/pos/navigation";
 
 export function copySupabaseCookies(source: NextResponse, target: NextResponse) {
   const headers = source.headers as Headers & { getSetCookie?: () => string[] };
@@ -63,11 +63,12 @@ export async function updateSession(request: NextRequest) {
   if (user && isLoginPage) {
     const url = request.nextUrl.clone();
     const destination = new URL(
-      safeInternalNext(request.nextUrl.searchParams.get("next")),
+      posReturnTo(request.nextUrl.searchParams.get("next"), request.nextUrl.searchParams.get("returnTo")) || "/entry",
       request.url,
     );
     url.pathname = destination.pathname;
     url.search = destination.search;
+    url.hash = destination.hash;
     return copySupabaseCookies(supabaseResponse, NextResponse.redirect(url));
   }
 
