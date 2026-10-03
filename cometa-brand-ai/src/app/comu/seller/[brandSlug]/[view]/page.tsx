@@ -9,7 +9,7 @@ export default async function SellerPreparationPage({ params }: { params: Promis
   if (view !== "summary" && view !== "store" && view !== "products" && view !== "wholesale" && view !== "settings") notFound();
   const seller = await requireComuBrandSeller(brandSlug);
   const base = `/comu/seller/${encodeURIComponent(seller.brand_slug)}`;
-  return <main className={view === "summary" ? "seller-summary" : "seller-legacy"}>
+  return <main className={view === "summary" ? "seller-summary" : view === "products" ? "seller-products-page" : "seller-legacy"}>
     {view === "summary" ? <SellerOverview brandSlug={seller.brand_slug} /> : <SellerDashboard brandSlug={seller.brand_slug} view={view} basePath={base} />}
   </main>;
 }
