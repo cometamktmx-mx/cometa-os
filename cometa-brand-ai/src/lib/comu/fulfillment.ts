@@ -3,10 +3,12 @@ import { requireComuActor, requireSellerAccess } from "./seller-access";
 import { isOverdue } from "./business-days";
 import { LocalTestShippingProvider } from "./shipping-provider";
 import { requireComuBuyer } from "./buyers";
+import { createClient } from "@/lib/supabase/server";
 
 export async function transitionSuborder(suborderId: string, status: string, actorType: "SELLER" | "HUB" | "ADMIN", note?: string) {
-  const actor = await requireComuActor();
-  const { data, error } = await actor.admin.rpc("comu_transition_suborder_fulfillment_v1", { p_suborder_id: suborderId, p_to_status: status, p_actor_type: actorType, p_note: note || null });
+  await requireComuActor();
+  const auth = await createClient();
+  const { data, error } = await auth.rpc("comu_transition_suborder_fulfillment_v1", { p_suborder_id: suborderId, p_to_status: status, p_actor_type: actorType, p_note: note || null });
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_FULFILLMENT_TRANSITION_FAILED", "No se pudo actualizar el pedido.");
   return data;
 }
