@@ -5,7 +5,7 @@ export async function getEligibleProducts(admin: ComuActor["admin"], brandSlug: 
   let query = admin.from("pos_products").select("id,name,description,category_id,image_url,active,sellable,brand_slug").eq("brand_slug", brandSlug).eq("active", true).eq("sellable", true).order("name");
   if (search?.trim()) query = query.ilike("name", `%${search.trim()}%`);
   const { data, error } = await query.limit(200);
-  if (error) throw new PosApiError(500, "COMU_PRODUCTS_LOOKUP_FAILED", "No se pudieron cargar los productos POS.");
+  if (error) throw new PosApiError(500, "COMU_PRODUCTS_LOOKUP_FAILED", "No se pudo cargar el catálogo compartido.");
   return data || [];
 }
 

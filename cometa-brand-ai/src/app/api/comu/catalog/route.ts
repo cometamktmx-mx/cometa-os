@@ -19,8 +19,13 @@ export async function GET(request: Request) {
       const variants = await getProductVariants(access.admin, products.map((product) => product.id));
       const quantities = await getAvailableQuantities(access.admin, variants.map((variant) => variant.id));
       const inventory = Object.fromEntries(products.map((product) => [product.id, variants.filter((variant) => variant.product_id === product.id).reduce((sum, variant) => sum + Number(quantities.get(variant.id) || 0), 0)]));
-      const { data: existing } = await access.admin.from("comu_product_listings").select("id,product_id,status,public_slug,wholesale_enabled").eq("seller_id", sellerId);
-      return NextResponse.json({ ok: true, products, variants, inventory, existing: existing || [] });
+      const { data: existing, error: listingsError } = await access.admin.from("comu_product_listings").select("id,product_id,status,public_slug,wholesale_enabled").eq("seller_id", sellerId);
+      if (listingsError) throw listingsError;
+      const ids = (existing || []).map(item => item.id);
+      const { data: media, error: mediaError } = ids.length ? await access.admin.from("comu_product_media").select("listing_id,public_url").in("listing_id", ids).order("is_primary", { ascending: false }).order("sort_order") : { data: [], error: null };
+      if (mediaError) throw mediaError;
+      const images = new Map((existing || []).map(listing => [listing.product_id, (media || []).find(image => image.listing_id === listing.id)?.public_url]));
+      return NextResponse.json({ ok: true, products: products.map(product => ({ ...product, image_url: images.get(product.id) || product.image_url })), variants, inventory, existing: existing || [] }, { headers: { "Cache-Control": "private, no-store" } });
     }
     return NextResponse.json({ ok: true, listings: await getPublicCatalog(search) }, { headers: { "Cache-Control": "public, max-age=30, stale-while-revalidate=120" } });
   }
