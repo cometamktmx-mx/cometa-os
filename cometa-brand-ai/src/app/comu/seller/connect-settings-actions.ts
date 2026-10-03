@@ -8,7 +8,7 @@ type PaymentState = { ok: true; status: PaymentStatus; suspended: boolean } | { 
 async function readPaymentState(brandSlug: string): Promise<{ status: PaymentStatus; suspended: boolean }> {
   if (typeof brandSlug !== "string" || !brandSlug) throw new Error("INVALID_BRAND");
   const { admin, seller } = await requireFinanceSeller();
-  if (seller.brand_slug !== brandSlug || seller.status !== "ACTIVE") throw new Error("SELLER_ACCESS_DENIED");
+  if (seller.brand_slug !== brandSlug || !["ACTIVE", "PREPARING"].includes(seller.status)) throw new Error("SELLER_ACCESS_DENIED");
   const { data, error } = await admin.from("comu_seller_payment_accounts")
     .select("onboarding_status,financial_suspended").eq("seller_id", seller.id).maybeSingle();
   if (error) throw new Error("PAYMENT_STATUS_UNAVAILABLE");

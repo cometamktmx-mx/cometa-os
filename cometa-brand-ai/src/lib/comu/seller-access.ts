@@ -21,7 +21,27 @@ export async function requireSellerAccess(sellerId: string, roles?: string[]) {
   const { data, error } = await query;
   if (error) throw new PosApiError(500, "COMU_MEMBERSHIP_LOOKUP_FAILED", "No se pudo resolver el acceso del seller.");
   if (!data || (roles && !roles.includes(data.role))) throw new PosApiError(403, "COMU_SELLER_ACCESS_DENIED", "No tienes acceso a este seller.");
+  const { data: seller, error: sellerError } = await actor.admin.from("comu_sellers")
+    .select("status,verification_status,approval_origin,approval_application_id").eq("id", sellerId).maybeSingle();
+  if (sellerError || !seller) throw new PosApiError(403, "COMU_SELLER_ACCESS_DENIED", "No se pudo validar tu acceso.");
+  if (seller.approval_origin === "C1") {
+    const { data: approval, error: approvalError } = await actor.admin.from("comu_seller_applications")
+      .select("id").eq("id", seller.approval_application_id).eq("seller_id", sellerId).eq("status", "APPROVED").eq("decision", "APPROVED").maybeSingle();
+    if (approvalError || !approval || seller.verification_status !== "VERIFIED" || !["PREPARING", "ACTIVE"].includes(seller.status)) {
+      throw new PosApiError(403, "COMU_SELLER_ACCESS_DENIED", "Tu tienda no tiene acceso operativo habilitado.");
+    }
+  }
   return { ...actor, role: data.role as string };
+}
+
+// COMU-only access: never grants user_brand_access or POS membership.
+export async function requireComuBrandSeller(brandSlug: string) {
+  const actor = await requireComuActor();
+  const { data, error } = await actor.admin.from("comu_sellers")
+    .select("id,brand_slug,status,verification_status,approval_origin,public_name").eq("brand_slug", brandSlug).maybeSingle();
+  if (error || !data) throw new PosApiError(403, "COMU_SELLER_ACCESS_DENIED", "No tienes acceso a esta tienda.");
+  await requireSellerAccess(data.id, ["OWNER", "ADMIN", "CATALOG_MANAGER"]);
+  return data;
 }
 
 export async function resolveBrandForActor(brandSlug: string) {

@@ -127,7 +127,7 @@ const actorAdmin = { from(table) {
 } };
 const runtime = loadModule(finance, {
   "@/lib/pos/server": { PosApiError: FakePosApiError },
-  "./seller-access": { requireComuActor: async () => ({ admin: actorAdmin, userId: "user-a" }) },
+  "./seller-access": { requireComuActor: async () => ({ admin: actorAdmin, userId: "user-a" }), requireSellerAccess: async (id, roles) => { assert.equal(id, "seller-a"); assert.equal(roles.join(","), "OWNER,ADMIN"); } },
   "./stripe": { ...mode, getConnectStripeClient: () => fakeStripe },
   "./outbound-guards.mjs": { assertOutboundEnabled: () => { throw new Error("OUTBOUND_FORBIDDEN"); } },
 });

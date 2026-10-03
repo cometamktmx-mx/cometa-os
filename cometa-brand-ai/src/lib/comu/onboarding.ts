@@ -5,6 +5,7 @@ import { isFoodProfile } from "@/lib/pos/surface-policy";
 import { getEligibleProducts } from "./catalog";
 import { createListing } from "./listings";
 import { slugifyComu } from "./sellers";
+import { requireSellerAccess } from "./seller-access";
 
 const RESERVED_SLUGS = new Set(["admin", "api", "cart", "checkout", "login", "comu", "seller", "store", "www"]);
 const PROFILE_DEFAULTS: Record<string, { weight: number; packageClass: string }> = {
@@ -80,29 +81,14 @@ async function ensureSeller(admin: Admin, access: BrandAccess, input: { publicNa
   const { data: collision } = await admin.from("comu_sellers").select("id,brand_id").eq("slug", slug).maybeSingle();
   if (collision && collision.brand_id !== access.brand.id) throw new PosApiError(409, "COMU_SLUG_TAKEN", "Ese slug ya está en uso.");
   const { data: current } = await admin.from("comu_sellers").select("*").eq("brand_id", access.brand.id).order("created_at", { ascending: true }).limit(1).maybeSingle();
-  let seller = current;
-  if (!seller) {
-    const { data, error } = await admin.from("comu_sellers").insert({ brand_id: access.brand.id, brand_slug: access.brand.slug, public_name: input.publicName, slug, description: input.description || null, city: input.city || null, status: "DRAFT", verification_status: "UNVERIFIED" }).select("*").single();
-    if (error) throw new PosApiError(error.code === "23505" ? 409 : 500, error.code === "23505" ? "COMU_SLUG_TAKEN" : "COMU_SELLER_CREATE_FAILED", "No se pudo preparar la tienda COMU.");
-    seller = data;
-  } else {
-    const { data, error } = await admin.from("comu_sellers").update({ public_name: input.publicName, slug, description: input.description || null, city: input.city || null, brand_slug: access.brand.slug, updated_at: new Date().toISOString() }).eq("id", seller.id).select("*").single();
-    if (error) throw error;
-    seller = data;
-  }
-  const { data: storefrontExisting } = await admin.from("comu_storefronts").select("*").eq("seller_id", seller.id).maybeSingle();
-  let storefront = storefrontExisting;
-  if (!storefront) {
-    const { data, error } = await admin.from("comu_storefronts").insert({ seller_id: seller.id, name: input.publicName, slug, headline: input.headline || null, description: input.description || null, theme_config: { whatsapp: input.whatsapp || null, address: input.address || null, showLocation: input.showLocation !== false }, status: "DRAFT" }).select("*").single();
-    if (error) throw error;
-    storefront = data;
-  } else {
-    const { data, error } = await admin.from("comu_storefronts").update({ name: input.publicName, slug, headline: input.headline || null, description: input.description || null, theme_config: { ...(storefront.theme_config || {}), whatsapp: input.whatsapp || null, address: input.address || null, showLocation: input.showLocation !== false }, updated_at: new Date().toISOString() }).eq("id", storefront.id).select("*").single();
-    if (error) throw error;
-    storefront = data;
-  }
-  const { error: membershipError } = await admin.from("comu_seller_memberships").upsert({ seller_id: seller.id, user_id: access.user.userId, role: "OWNER", active: true, updated_at: new Date().toISOString() }, { onConflict: "seller_id,user_id" });
-  if (membershipError) throw membershipError;
+  if (!current || current.verification_status !== "VERIFIED") throw new PosApiError(403, "COMU_APPROVAL_REQUIRED", "COMETA debe aprobar tu solicitud antes de configurar la tienda.");
+  await requireSellerAccess(current.id, ["OWNER", "ADMIN"]);
+  const { data: seller, error: sellerError } = await admin.from("comu_sellers").update({ public_name: input.publicName, slug, description: input.description || null, city: input.city || null, updated_at: new Date().toISOString() }).eq("id", current.id).select("*").single();
+  if (sellerError || !seller) throw new PosApiError(500, "COMU_SELLER_CREATE_FAILED", "No se pudo guardar la tienda.");
+  const { data: existing, error: lookupError } = await admin.from("comu_storefronts").select("*").eq("seller_id", seller.id).single();
+  if (lookupError || !existing) throw new PosApiError(409, "COMU_STOREFRONT_REQUIRED", "COMETA debe completar el provisionamiento.");
+  const { data: storefront, error: storefrontError } = await admin.from("comu_storefronts").update({ name: input.publicName, slug, headline: input.headline || null, description: input.description || null, theme_config: { ...(existing.theme_config || {}), whatsapp: input.whatsapp || null, address: input.address || null, showLocation: input.showLocation !== false }, updated_at: new Date().toISOString() }).eq("id", existing.id).select("*").single();
+  if (storefrontError || !storefront) throw new PosApiError(500, "COMU_STOREFRONT_UPDATE_FAILED", "No se pudo guardar la tienda.");
   return { seller, storefront };
 }
 
@@ -156,12 +142,7 @@ export async function saveOnboarding(brandSlug: string, body: Record<string, unk
     if (!validIds.length) throw new PosApiError(400, "COMU_PRODUCTS_REQUIRED", "Selecciona al menos un producto para publicar.");
     const { error: listingError } = await admin.from("comu_product_listings").update({ status: "PUBLISHED", published_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("seller_id", seller.id).in("product_id", validIds);
     if (listingError) throw listingError;
-    const now = new Date().toISOString();
-    const { data: activated, error: sellerError } = await admin.from("comu_sellers").update({ status: "ACTIVE", verification_status: "VERIFIED", verified_at: now, activated_at: now, updated_at: now }).eq("id", seller.id).select("*").single();
-    if (sellerError) throw sellerError;
-    const { data: activeStorefront, error: storefrontError } = await admin.from("comu_storefronts").update({ status: "ACTIVE", updated_at: now }).eq("id", storefront.id).select("*").single();
-    if (storefrontError) throw storefrontError;
-    return { seller: activated, storefront: activeStorefront, publishedProductIds: validIds, active: true };
+    return { seller, storefront, publishedProductIds: validIds, active: seller.status === "ACTIVE", preparing: seller.status !== "ACTIVE" };
   }
   return { seller, storefront, publishedProductIds: validIds, active: false };
 }

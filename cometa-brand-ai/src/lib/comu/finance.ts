@@ -17,8 +17,9 @@ export async function requireFinanceSeller() {
     .eq("user_id", actor.userId).eq("active", true).in("role", ["OWNER", "ADMIN"]).limit(2);
   if (error) throw new PosApiError(500, "COMU_MEMBERSHIP_LOOKUP_FAILED", "No pudimos consultar tus permisos.");
   if (!data || data.length !== 1) throw new PosApiError(403, "COMU_FINANCE_SELLER_REQUIRED", "Necesitas una membresía financiera de seller inequívoca para continuar.");
-  const { data: seller, error: sellerError } = await actor.admin.from("comu_sellers").select("id,public_name,brand_slug,country,status").eq("id", data[0].seller_id).single();
+  const { data: seller, error: sellerError } = await actor.admin.from("comu_sellers").select("id,public_name,brand_slug,country,status,approval_origin").eq("id", data[0].seller_id).single();
   if (sellerError || !seller) throw new PosApiError(404, "COMU_SELLER_NOT_FOUND", "Seller no disponible.");
+  await requireSellerAccess(seller.id, ["OWNER", "ADMIN"]);
   return { ...actor, seller };
 }
 
@@ -100,7 +101,7 @@ export async function createSellerOnboardingLink() {
   const stripe = getConnectStripeClient();
   const account = await stripe.accounts.retrieve(data.stripe_account_id);
   assertConnectAccountAssociation(account, seller.id, live);
-  const settingsPath = `/brand/${encodeURIComponent(seller.brand_slug)}/comu/settings`;
+  const settingsPath = seller.approval_origin === "C1" ? `/comu/seller/${encodeURIComponent(seller.brand_slug)}/settings` : `/brand/${encodeURIComponent(seller.brand_slug)}/comu/settings`;
   const link = await stripe.accountLinks.create({ account: data.stripe_account_id, type: "account_onboarding", return_url: `${appOrigin}${settingsPath}?connect=return`, refresh_url: `${appOrigin}${settingsPath}?connect=refresh` });
   return { url: link.url, expires_at: link.expires_at };
 }

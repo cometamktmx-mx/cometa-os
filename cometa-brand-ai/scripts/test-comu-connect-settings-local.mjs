@@ -45,6 +45,10 @@ for (const status of ["NOT_STARTED", "PENDING", "COMPLETE", "REVIEW", "RESTRICTE
   assert.equal(result.ok, allowed);
   assert.deepEqual(calls, allowed ? ["account", "link"] : []);
 }
+sellerStatus = "PREPARING"; account = null; calls = [];
+assert.equal((await actions.startConnectSettingsOnboarding(brand)).ok, true);
+assert.deepEqual(calls, ["account", "link"]);
+sellerStatus = "ACTIVE";
 account = { onboarding_status: "PENDING", financial_suspended: true };
 calls = [];
 assert.equal((await actions.startConnectSettingsOnboarding(brand)).ok, false);
