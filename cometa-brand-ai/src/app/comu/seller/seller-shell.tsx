@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { SellerIcon } from "./seller-ui";
+import NotificationBell from "./notification-bell";
 
 type Store = { id: string; brand_slug: string; public_name: string; status: string; publicSlug: string | null };
 export default function SellerShell({ stores, children }: { stores: Store[]; children: ReactNode }) {
@@ -20,7 +21,7 @@ export default function SellerShell({ stores, children }: { stores: Store[]; chi
       <nav aria-label="Seller principal">{nav(0, 7)}<p className="seller-nav-caption">MI TIENDA</p>{nav(7, 11)}</nav>
       <Link className="seller-back" href="/comu">← Ir a COMU</Link>
     </aside>
-    <div className="seller-workspace"><header className="seller-topbar"><div className="seller-search"><SellerIcon name="search" /><input aria-label="Búsqueda contextual próximamente" placeholder="Buscar pedidos, productos, clientes…" disabled /></div><a className="seller-help-link" href="#seller-help" aria-label="Ayuda"><SellerIcon name="help" /></a><Link className="seller-identity" href="/comu/account"><span className="seller-avatar">{store?.public_name.slice(0, 1) || "C"}</span><span><strong>{store?.public_name || "Mi cuenta"}</strong><small>Vendedor</small></span></Link>{stores.length > 1 && <select aria-label="Elegir tienda" value={store?.brand_slug || ""} onChange={e => router.push(`/comu/seller/${encodeURIComponent(e.target.value)}/${path.endsWith("/orders") ? "orders" : "summary"}`)}>{!store && <option value="" disabled>Selecciona una tienda</option>}{stores.map(s => <option key={s.id} value={s.brand_slug}>{s.public_name}</option>)}</select>}</header>
+    <div className="seller-workspace"><header className="seller-topbar"><div className="seller-search"><SellerIcon name="search" /><input aria-label="Búsqueda contextual próximamente" placeholder="Buscar pedidos, productos, clientes…" disabled /></div><NotificationBell key={store?.id || "all"} sellerId={store?.id} /><a className="seller-help-link" href="#seller-help" aria-label="Ayuda"><SellerIcon name="help" /></a><Link className="seller-identity" href="/comu/account"><span className="seller-avatar">{store?.public_name.slice(0, 1) || "C"}</span><span><strong>{store?.public_name || "Mi cuenta"}</strong><small>Vendedor</small></span></Link>{stores.length > 1 && <select aria-label="Elegir tienda" value={store?.brand_slug || ""} onChange={e => router.push(`/comu/seller/${encodeURIComponent(e.target.value)}/${path.endsWith("/orders") ? "orders" : "summary"}`)}>{!store && <option value="" disabled>Selecciona una tienda</option>}{stores.map(s => <option key={s.id} value={s.brand_slug}>{s.public_name}</option>)}</select>}</header>
       <div className="seller-content">{path === "/comu/seller/orders" || path === "/comu/seller/finance" ? <div className="seller-legacy">{children}</div> : children}</div>
     </div>
     {more && <div className="seller-mobile-menu"><div><h2>Tu tienda</h2><button onClick={() => setMore(false)} aria-label="Cerrar menú">✕</button></div><nav aria-label="Más opciones Seller">{nav(3, 11)}<Link href="/comu/account">Mi cuenta</Link><Link href="/comu">← Ir a COMU</Link></nav></div>}
