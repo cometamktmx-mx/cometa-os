@@ -4,6 +4,7 @@ import { isOverdue } from "./business-days";
 import { LocalTestShippingProvider } from "./shipping-provider";
 import { requireComuBuyer } from "./buyers";
 import { createClient } from "@/lib/supabase/server";
+import { readSellerOrders } from "./seller-orders";
 
 export async function transitionSuborder(suborderId: string, status: string, actorType: "SELLER" | "HUB" | "ADMIN", note?: string) {
   await requireComuActor();
@@ -14,10 +15,15 @@ export async function transitionSuborder(suborderId: string, status: string, act
 }
 
 export async function getSellerFulfillmentOrders(sellerId: string) {
+  await readSellerOrders(sellerId, new URLSearchParams({ pageSize: "1" }));
   const access = await requireSellerAccess(sellerId, ["OWNER", "ADMIN", "ORDER_MANAGER"]);
-  const { data, error } = await access.admin.from("comu_order_suborders").select("*,comu_orders(id,order_number,status,fulfillment_status,grand_total,shipping_mode,created_at,shipping_address_snapshot),comu_order_items(*,comu_order_item_snapshots(*))").eq("seller_id", sellerId).order("created_at", { ascending: false });
+  const { data, error } = await access.admin.from("comu_order_suborders").select("id,grand_total,fulfillment_status,deadline_at,comu_orders(order_number,status,created_at,recipientName:shipping_address_snapshot->>recipient_name),comu_order_items(quantity)").eq("seller_id", sellerId).order("created_at", { ascending: false });
   if (error) throw new PosApiError(500, "COMU_FULFILLMENT_LOOKUP_FAILED", "No se pudieron cargar los pedidos.");
-  return (data || []).map((item) => ({ ...item, overdue: isOverdue(item.deadline_at) }));
+  return (data || []).map((item) => {
+    const parent = Array.isArray(item.comu_orders) ? item.comu_orders[0] : item.comu_orders;
+    // Compatibility for the existing dashboard: name only, never the address.
+    return { ...item, comu_orders: parent ? { ...parent, shipping_address_snapshot: { recipient_name: parent.recipientName } } : null, overdue: isOverdue(item.deadline_at) };
+  });
 }
 
 export async function receiveAtHub(suborderId: string, note?: string) { return transitionSuborder(suborderId, "HUB_RECEIVED", "HUB", note); }
@@ -25,7 +31,7 @@ export async function receiveAtHub(suborderId: string, note?: string) { return t
 export async function consolidateOrder(orderId: string) {
   const actor = await requireComuActor();
   if (!actor.isAdmin) throw new PosApiError(403, "COMU_HUB_ACCESS_DENIED", "No tienes autorización para consolidar.");
-  const { data, error } = await actor.admin.rpc("comu_consolidate_order_v1", { p_order_id: orderId });
+  const { data, error } = await (await createClient()).rpc("comu_consolidate_order_v1", { p_order_id: orderId });
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_CONSOLIDATION_FAILED", "No se pudo consolidar el pedido.");
   return data;
 }
@@ -79,14 +85,11 @@ export async function shipDirectShipment(suborderId: string, sellerId: string) {
   return transitionSuborder(suborderId, "SHIPPED", "SELLER");
 }
 
-export async function recordFulfillmentIncident(suborderId: string, incidentType: "INCOMPLETE_PACKAGE" | "WRONG_PRODUCT" | "DAMAGED_PACKAGE" | "OTHER", note?: string) {
+export async function recordFulfillmentIncident(suborderId: string, incidentType: "INCOMPLETE_PACKAGE" | "WRONG_PRODUCT" | "DAMAGED_PACKAGE" | "OTHER", note?: string, requestId?: string) {
   const actor = await requireComuActor();
   if (!actor.isAdmin) throw new PosApiError(403, "COMU_HUB_ACCESS_DENIED", "No tienes acceso al HUB.");
-  const { data: suborder } = await actor.admin.from("comu_order_suborders").select("id,order_id,seller_id").eq("id", suborderId).maybeSingle();
-  if (!suborder) throw new PosApiError(404, "COMU_SUBORDER_NOT_FOUND", "El subpedido no existe.");
-  const { data, error } = await actor.admin.from("comu_fulfillment_incidents").insert({ suborder_id: suborder.id, order_id: suborder.order_id, seller_id: suborder.seller_id, incident_type: incidentType, note: note || null, actor_id: actor.userId }).select("*").single();
+  const { data, error } = await (await createClient()).rpc("comu_record_fulfillment_incident_v1", { p_suborder: suborderId, p_type: incidentType, p_request: requestId || crypto.randomUUID(), p_note: note || null });
   if (error || !data) throw new PosApiError(409, "COMU_FULFILLMENT_INCIDENT_FAILED", "No se pudo registrar la incidencia.");
-  await actor.admin.from("comu_order_suborders").update({ fulfillment_status: "ISSUE", updated_at: new Date().toISOString() }).eq("id", suborder.id);
   return data;
 }
 

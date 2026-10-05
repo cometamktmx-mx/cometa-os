@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { transitionSuborder } from "@/lib/comu/fulfillment";
 import { requireSellerAccess } from "@/lib/comu/seller-access";
 import { PosApiError } from "@/lib/pos/server";
+import { readSellerOrders, orderHeaders, orderFailure } from "@/lib/comu/seller-orders";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -12,9 +13,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const actor = await import("@/lib/comu/seller-access").then(({ requireComuActor }) => requireComuActor());
     const { data: suborder } = await actor.admin.from("comu_order_suborders").select("id,seller_id").eq("id", id).maybeSingle();
     if (!suborder || suborder.seller_id !== body.sellerId) throw new PosApiError(403, "COMU_SELLER_ACCESS_DENIED", "Este pedido no pertenece a tu tienda.");
-    return NextResponse.json({ ok: true, suborder: await transitionSuborder(id, body.status, "SELLER", body.note) });
+    await transitionSuborder(id, body.status, "SELLER", body.note);
+    const result = await readSellerOrders(body.sellerId, new URLSearchParams({ selected: id, pageSize: "1" }));
+    return NextResponse.json({ ok: true, suborder: result.selected }, { headers: orderHeaders });
   } catch (error) {
-    if (error instanceof PosApiError) return NextResponse.json({ ok: false, code: error.code, message: error.message }, { status: error.status });
-    return NextResponse.json({ ok: false, code: "COMU_FULFILLMENT_FAILED", message: "No se pudo actualizar el pedido." }, { status: 409 });
+    const e = orderFailure(error); return NextResponse.json({ ok: false, code: e.code, message: e.message }, { status: e.status, headers: orderHeaders });
   }
 }

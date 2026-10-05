@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 const files = {
   route: "src/app/brand/[brandSlug]/comu/orders/page.tsx",
-  page: "src/app/comu/seller/orders/page.tsx",
+  page: "src/app/comu/seller/orders-manager.tsx",
   source: "src/lib/comu/fulfillment.ts",
   directQuote: "src/app/comu/seller/direct-quote.tsx",
 };
