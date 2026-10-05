@@ -1,0 +1,100 @@
+[
+  {
+    "seller": "a",
+    "device": "desktop",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-desktop",
+    "width": 1536,
+    "scroll": 1521
+  },
+  {
+    "name": "product-editor-edit-desktop",
+    "width": 1536,
+    "scroll": 1521
+  },
+  {
+    "name": "product-editor-variants-desktop",
+    "width": 1536,
+    "scroll": 1536
+  },
+  {
+    "seller": "a",
+    "device": "tablet",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-tablet",
+    "width": 834,
+    "scroll": 819
+  },
+  {
+    "seller": "a",
+    "device": "phone",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-phone",
+    "width": 390,
+    "scroll": 390
+  },
+  {
+    "name": "product-editor-edit-a-phone",
+    "width": 390,
+    "scroll": 390
+  },
+  {
+    "seller": "b",
+    "device": "desktop",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-preparing-desktop",
+    "width": 1536,
+    "scroll": 1521
+  },
+  {
+    "seller": "b",
+    "device": "tablet",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-preparing-tablet",
+    "width": 834,
+    "scroll": 819
+  },
+  {
+    "seller": "b",
+    "device": "phone",
+    "contract": {
+      "version": null,
+      "definitions": 0
+    }
+  },
+  {
+    "name": "product-editor-create-preparing-phone",
+    "width": 390,
+    "scroll": 390
+  },
+  {
+    "name": "product-editor-edit-b-phone",
+    "width": 390,
+    "scroll": 390
+  }
+]

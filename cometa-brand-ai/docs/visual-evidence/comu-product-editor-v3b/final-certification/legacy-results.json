@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "productId": "e5cb82ab-38b1-4dab-aaf9-cfa38b808171",
+  "fields": [
+    "SKU",
+    "product_code",
+    "attributes",
+    "variant IDs",
+    "barcode",
+    "inventory"
+  ],
+  "restoredOriginalName": true
+}

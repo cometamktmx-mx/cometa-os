@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import crypto from 'node:crypto';
-import * as jsx from 'react/jsx-runtime';
+
 import * as integers from '../src/lib/comu/pricing-integers.mjs';
 
 class PosApiError extends Error { constructor(status,code,message){super(message);Object.assign(this,{status,code});} }
@@ -45,14 +45,8 @@ const pos=load('src/lib/pos/access.ts',{'server-only':{},'@/lib/pos/server':{Pos
 await assert.rejects(pos.requirePosSurfaceAccess('comu-only'),e=>e.status===403);
 await assert.rejects(pos.requirePosOperationalAccess({brandSlug:'comu-only',entitlement:'pos.inventory'}),e=>e.status===403);
 
-// Exercise the real editor submit handler and preserve request identity after a lost response.
-let states=[],refs=[],cursor=0,refCursor=0,effects=[],requests=[],failNetwork=true;
-const react={useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return [states[i],v=>{states[i]=typeof v==='function'?v(states[i]):v;}];},useRef(initial){const i=refCursor++;return refs[i]??=( {current:initial} );},useEffect(effect){effects.push(effect);}};
-const snapshot={products:[],variants:[],inventory:[],locations:[],categories:[],listings:[],progress:{publishedListings:0,minimumListings:10}};
-const editor=load('src/app/comu/seller/product-editor.tsx',{'react':react,'react/jsx-runtime':jsx,'next/image':{default:()=>null}},{fetch:async(url,options)=>{if(!options?.method)return {ok:true,json:async()=>snapshot};requests.push(JSON.parse(options.body));if(failNetwork)throw Error('lost response');return {ok:true,json:async()=>({ok:true})};}}).default;
-const render=()=>{cursor=0;refCursor=0;return editor({sellerId:sid,done:async()=>{},cancel(){}});};
-let tree=render();effects[0]();await new Promise(resolve=>setTimeout(resolve,0));tree=render();await tree.props.onSubmit({preventDefault(){}});tree=render();failNetwork=false;await tree.props.onSubmit({preventDefault(){}});
-assert.equal(requests.length,2);assert.equal(requests[0].requestId,requests[1].requestId);assert.equal(requests[0].product.variants[0].stock.length,0,'Untouched stock must not become an implicit zero');
+// V3B tests the actual staged editor.
+await import('./test-comu-product-editor-v3b.mjs');
 
 // Existing wholesale contract and actual pricing implementation, no new pricing rules.
 const productId=crypto.randomUUID(),storefrontId=crypto.randomUUID();let custom;

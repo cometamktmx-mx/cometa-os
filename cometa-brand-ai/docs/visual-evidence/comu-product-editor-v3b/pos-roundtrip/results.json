@@ -1,0 +1,157 @@
+{
+  "local": {
+    "supabase": "http://127.0.0.1:54321",
+    "postgres": "127.0.0.1:54322"
+  },
+  "fixture": {
+    "tag": "local-test-comu-pos-1791214665390",
+    "brandSlug": "comu-89d4e9c2a45342d3bbdd2b4eb6144001",
+    "sellerId": "e6a1765f-886a-49b7-a1e8-497eb28e7456",
+    "comuProductId": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+    "posProductId": "46f2a3cc-7586-418a-9f05-d7717bfb5a3f",
+    "deviceId": "1fdceade-b8f7-40e5-9035-2dce4592889f",
+    "operatorRole": "ADMIN"
+  },
+  "results": [
+    {
+      "name": "M1 local installation"
+    },
+    {
+      "name": "COMU approval + TEST POS subscription + device + ADMIN operator",
+      "deviceEnrolled": true
+    },
+    {
+      "name": "COMU -> POS API 12 IDs/SKU/attributes/inventory"
+    },
+    {
+      "name": "POS edit -> COMU same identities and stock"
+    },
+    {
+      "name": "POS -> COMU -> POS authenticated HTTP"
+    },
+    {
+      "name": "Seller A unchanged COMU-only; POS DENIED",
+      "http": 403,
+      "code": "POS_BRAND_FORBIDDEN"
+    },
+    {
+      "name": "No duplicated products/variants/SKU"
+    }
+  ],
+  "identities": [
+    {
+      "id": "012e3b6c-63b8-4710-9ae5-3ba4f513d851",
+      "sku": "RTC001-R-G",
+      "attributes": {
+        "size": "G",
+        "color": "Rosa"
+      },
+      "active": true
+    },
+    {
+      "id": "0bef1f1c-41e6-4db2-bd26-1ed2a67f745a",
+      "sku": "RTC001-R-M",
+      "attributes": {
+        "size": "M",
+        "color": "Rosa"
+      },
+      "active": true
+    },
+    {
+      "id": "0dc78e36-62cd-44be-a39c-1ca18c3cd1fd",
+      "sku": "RTC001-B-M",
+      "attributes": {
+        "size": "M",
+        "color": "Beige"
+      },
+      "active": true
+    },
+    {
+      "id": "4de53008-6c80-4f96-92ec-40f2ad884e6d",
+      "sku": "RTC001-R-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Rosa"
+      },
+      "active": true
+    },
+    {
+      "id": "67f581fa-e342-40d2-98d4-10074ed5fd61",
+      "sku": "RTC001-N-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Negro"
+      },
+      "active": true
+    },
+    {
+      "id": "8dbb9322-c467-4d04-b419-e90ebcbdaeb6",
+      "sku": "RTC001-N-M",
+      "attributes": {
+        "size": "M",
+        "color": "Negro"
+      },
+      "active": true
+    },
+    {
+      "id": "8e97f7f8-4a30-4822-b8ac-7da486b08661",
+      "sku": "RTC001-B-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Beige"
+      },
+      "active": true
+    },
+    {
+      "id": "906335d4-58bc-41b6-be53-e8d27ff8d23b",
+      "sku": "RTC001-B-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Beige"
+      },
+      "active": true
+    },
+    {
+      "id": "c2f294af-11c0-40ac-bd9a-7f25f1d713df",
+      "sku": "RTC001-B-G",
+      "attributes": {
+        "size": "G",
+        "color": "Beige"
+      },
+      "active": true
+    },
+    {
+      "id": "c5db8b36-e709-47e9-8d15-3ea9700e2ac6",
+      "sku": "RTC001-N-G",
+      "attributes": {
+        "size": "G",
+        "color": "Negro"
+      },
+      "active": true
+    },
+    {
+      "id": "d246d953-e75b-43d8-8daf-1e2a251ed028",
+      "sku": "RTC001-N-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Negro"
+      },
+      "active": true
+    },
+    {
+      "id": "e6ffc6c7-2382-40c3-8e07-aa04ef4a82e0",
+      "sku": "RTC001-R-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Rosa"
+      },
+      "active": true
+    }
+  ],
+  "products": 2,
+  "variants": 13,
+  "sellerAPreserved": true,
+  "duplicates": false,
+  "runtime": "Authenticated HTTP COMU/POS; no direct product writes",
+  "certified": true
+}
