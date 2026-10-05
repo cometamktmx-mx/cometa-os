@@ -15,7 +15,7 @@ const sid=crypto.randomUUID(),foreign=crypto.randomUUID(); let allowed=true,call
 let admin;
 const access={requireSellerAccess:async id=>{if(!allowed||id!==sid)throw new PosApiError(403,'COMU_CATALOG_DENIED','Denied');return {admin};}};
 const auth={rpc:async(name,args)=>{calls++;lastRpc={name,args};return {data:rpcError?null:{ok:true,productId:'canonical-id'},error:rpcError?{message:rpcError}:null};}};
-const catalog=load('src/lib/comu/seller-catalog.ts',{'@/lib/supabase/server':{createClient:async()=>auth},'@/lib/pos/server':{PosApiError},'./seller-access':access});
+const catalog=load('src/lib/comu/seller-catalog.ts',{'@/lib/pos/product-variants':load('src/lib/pos/product-variants.ts',{}),'@/lib/supabase/server':{createClient:async()=>auth},'@/lib/pos/server':{PosApiError},'./seller-access':access});
 const command={sellerId:sid,requestId:crypto.randomUUID(),product:{name:'New product',variants:[{name:'M',price:100,attributes:{size:'M'}}]}};
 assert.equal((await catalog.saveSellerCatalog(command)).productId,'canonical-id');assert.equal(lastRpc.name,'comu_catalog_save_v1');assert.equal(lastRpc.args.p_request,command.requestId);
 assert.equal(Object.hasOwn(lastRpc.args,'actorId'),false);

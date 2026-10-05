@@ -1,5 +1,8 @@
 "use client";
 
+import { legacyVariantSignature as variantSignature, generateMissingSkus as generateVariantSkus, generateCombinations, reconcileVariants, POS_VARIANT_LIMIT } from "@/lib/pos/product-variants";
+
+
 import Link from "next/link";
 import {
   type DragEvent,
@@ -696,51 +699,11 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       return;
     }
 
-    const combinations = dimensions.reduce<Record<string, string>[]>(
-      (result, dimension) =>
-        result.flatMap((partial) =>
-          dimension.values.map((value) => ({
-            ...partial,
-            [dimension.attribute.code]: value,
-          }))
-        ),
-      [{}]
-    );
+    let combinations: Record<string, string>[];
+    try { combinations = generateCombinations(dimensions.map(d => ({code: d.attribute.code, values: d.values})), POS_VARIANT_LIMIT); }
+    catch { setError("La combinación supera el límite de 250 variantes por producto."); return; }
 
-    if (combinations.length > 250) {
-      setError("La combinación supera el límite de 250 variantes por producto.");
-      return;
-    }
-
-    setVariants((current) => {
-      const bySignature = new Map(
-        current.map((variant) => [variantSignature(variant.attributes), variant])
-      );
-      const technicalVariant = current.find(
-        (variant) => Object.values(variant.attributes).every((value) => !String(value || "").trim())
-      );
-      const used = new Set<string>();
-      const generated = combinations.map((combination, index) => {
-        const signature = variantSignature(combination);
-        const existing = bySignature.get(signature) ||
-          (index === 0 ? technicalVariant : undefined);
-        if (existing) used.add(existing.localId);
-        const next = existing || createVariant(index, productForm.defaultUnitCode, attributes);
-        return {
-          ...next,
-          name: buildVariantName({ ...next, attributes: combination }, attributes, index),
-          attributes: combination,
-          active: existing ? existing.active : true,
-        };
-      });
-
-      return [
-        ...generated,
-        ...current
-          .filter((variant) => variant.id && !used.has(variant.localId))
-          .map((variant) => ({ ...variant, active: false })),
-      ];
-    });
+    setVariants(current => reconcileVariants(current, combinations, index => createVariant(index, productForm.defaultUnitCode, attributes), (variant, index) => buildVariantName(variant, attributes, index), variantSignature));
     setNotice(`${combinations.length} combinaciones listas para revisar.`);
   }
 
@@ -1036,35 +999,9 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       setError("Sugiere o escribe una clave del producto antes de generar SKU.");
       return;
     }
-    const orderedAttributes = [...attributes].sort((left, right) => left.sort_order - right.sort_order);
-    const tokenMaps = new Map<string, Map<string, string>>();
-    for (const attribute of orderedAttributes) {
-      const values = Array.from(
-        new Set(
-          variants
-            .map((variant) => variant.attributes[attribute.code] || "")
-            .map((value) => value.trim())
-            .filter(Boolean)
-        )
-      );
-      tokenMaps.set(attribute.code, createAttributeTokenMap(values));
-    }
-    const occupied = new Set(
-      variants.map((variant) => variant.sku.trim().toUpperCase()).filter(Boolean)
-    );
-    let generated = 0;
-    setVariants((current) => current.map((variant) => {
-      if (variant.sku.trim()) return variant;
-      const tokens = orderedAttributes
-        .map((attribute) => tokenMaps.get(attribute.code)?.get((variant.attributes[attribute.code] || "").trim()) || "")
-        .filter(Boolean);
-      let candidate = tokens.length === 0 ? productCode : `${productCode}-${tokens.join("-")}`;
-      let suffix = 2;
-      while (occupied.has(candidate)) candidate = `${productCode}-${tokens.join("-")}-${suffix++}`;
-      occupied.add(candidate);
-      generated += 1;
-      return { ...variant, sku: candidate };
-    }));
+    const result = generateVariantSkus(variants, productCode, attributes);
+    const generated = result.generated;
+    setVariants(result.variants);
     setNotice(generated ? `${generated} SKU faltantes generados.` : "No hay variantes sin SKU.");
   }
 
@@ -3941,19 +3878,7 @@ function defaultAttributeValues(
   );
 }
 
-function variantSignature(attributes: Record<string, unknown>) {
-  return JSON.stringify(
-    Object.fromEntries(
-      Object.entries(attributes || {})
-        .map(([key, value]) => [
-          key.trim().toLowerCase(),
-          String(value ?? "").trim().toLowerCase(),
-        ])
-        .filter(([, value]) => Boolean(value))
-        .sort(([left], [right]) => left.localeCompare(right))
-    )
-  );
-}
+
 
 function formatAttributes(
   attributes: Record<string, unknown>
@@ -3969,47 +3894,11 @@ function formatAttributes(
     : "Presentación única";
 }
 
-function createAttributeTokenMap(values: string[]) {
-  const result = new Map<string, string>();
-  const groups = new Map<string, string[]>();
-  for (const value of values) {
-    const base = attributeToken(value);
-    groups.set(base, [...(groups.get(base) || []), value]);
-  }
-  for (const [base, group] of groups) {
-    if (group.length === 1) {
-      result.set(group[0], base);
-      continue;
-    }
-    [...group].sort((left, right) => left.localeCompare(right, "es")).forEach((value, index) => {
-      const compact = normalizeTokenSource(value);
-      const expanded = compact.slice(0, Math.max(3, base.length + 1)) || base;
-      result.set(value, `${expanded}${index ? index + 1 : ""}`);
-    });
-  }
-  return result;
-}
 
-function normalizeTokenSource(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-}
 
-function attributeToken(value: string) {
-  const source = normalizeTokenSource(value);
-  if (/^\d+$/.test(source)) return source;
-  const words = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .split(/[^A-Z0-9]+/)
-    .filter(Boolean);
-  if (words.length > 1) return words.map((word) => word[0]).join("");
-  return source.slice(0, 1) || "X";
-}
+
+
+
 
 function formatQuantity(value: number) {
   return new Intl.NumberFormat("es-MX", {
