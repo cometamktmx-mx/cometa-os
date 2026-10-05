@@ -15,7 +15,7 @@ export default async function SellerPreparationPage({ params }: { params: Promis
       if (error instanceof PosApiError && error.status === 403) notFound();
       throw error;
     });
-    return <main className="seller-legacy"><SellerOrdersManager brandSlug={seller.brand_slug} sellerId={seller.id} /></main>;
+    return <SellerOrdersManager brandSlug={seller.brand_slug} sellerId={seller.id} />;
   }
   if (view !== "summary" && view !== "store" && view !== "products" && view !== "wholesale" && view !== "settings") notFound();
   const seller = await requireComuBrandSeller(brandSlug);

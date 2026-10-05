@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "database": "disposable",
+  "emails": "none",
+  "tested": [
+    "search",
+    "filters",
+    "pagination",
+    "selected",
+    "open-close",
+    "hub",
+    "direct",
+    "mutation-retry",
+    "issue",
+    "multi-store",
+    "notification-deep-link",
+    "V1",
+    "V2"
+  ],
+  "viewport": [
+    1536,
+    834,
+    390
+  ]
+}

@@ -1,23 +1,16 @@
 import fs from "node:fs";
-
-const files = {
-  route: "src/app/brand/[brandSlug]/comu/orders/page.tsx",
-  page: "src/app/comu/seller/orders-manager.tsx",
-  source: "src/lib/comu/fulfillment.ts",
-  directQuote: "src/app/comu/seller/direct-quote.tsx",
-};
-const text = Object.fromEntries(Object.entries(files).map(([key, file]) => [key, fs.readFileSync(file, "utf8")]));
-const checks = [
-  ["real route delegates brand context", text.route.includes("<SellerOrders brandSlug={brandSlug} />")],
-  ["canonical seller orders source", text.source.includes("getSellerFulfillmentOrders")],
-  ["seller orders page", text.page.includes("Gestión de pedidos")],
-  ["required hero and KPI copy", ["Pedidos nuevos", "Por preparar", "En tránsito", "Entregados"].every((value) => text.page.includes(value))],
-  ["priority and detail panels", text.page.includes("Prioridad de hoy") && text.page.includes("Detalle rápido")],
-  ["premium empty state", text.page.includes("Aún no tienes pedidos")],
-  ["status presentation", text.page.includes("statusMeta") && text.page.includes("Preparando")],
-  ["search and filters", text.page.includes("Buscar por folio") && text.page.includes("filterLabel")],
-  ["no mojibake in touched orders surfaces", !Object.values(text).some((value) => /Ã|Â|�/.test(value))],
-];
-const failed = checks.filter(([, pass]) => !pass);
-for (const [label, pass] of checks) console.log(`${pass ? "PASS" : "FAIL"} ${label}`);
-if (failed.length) process.exit(1);
+import assert from "node:assert/strict";
+const read=file=>fs.readFileSync(file,"utf8");
+const route=read("src/app/brand/[brandSlug]/comu/orders/page.tsx");
+const page=read("src/app/comu/seller/orders-manager.tsx"),detail=read("src/app/comu/seller/orders-detail.tsx");
+assert.ok(route.includes("<SellerOrders brandSlug={brandSlug} />"));
+assert.ok(page.includes('request.set("contract", "o1")'));
+assert.ok(page.includes("Gestiona cada venta desde que se confirma hasta que llega al cliente."));
+assert.ok(page.includes("Aún no tienes pedidos."));
+assert.ok(page.includes("Conteos de los pedidos de esta página"));
+assert.ok(page.includes("Buscar por folio, producto o SKU"));
+assert.ok(detail.includes("Destinatario"));
+assert.ok(!/\b(?:supabase|admin|client)\.from\(/.test(page+detail),"O1 DTO only; no ad hoc data source");
+assert.ok(!/Ã|Â|�/.test(page+detail));
+await import("./test-comu-orders-v4-node.mjs");
+console.log("PASS Seller Orders: canonical brand context, O1 contract, V4 copy, no additional data source");

@@ -1,71 +1,89 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import DirectQuote from "./direct-quote";
-import { paymentLabels, type SellerOrder } from "@/lib/comu/order-presentation";
+import type { SellerOrder } from "@/lib/comu/order-presentation";
+import OrdersDetail, { OrderBadge, OrderThumbnail } from "./orders-detail";
+import { orderDate, orderDelivery, orderFilters, orderMetrics, orderMoney, orderPrimaryAction } from "./orders-view";
+import "./orders-v4.css";
 
-type Snapshot = { snapshot?: { listingTitle?: string; productTitle?: string; image?: string; quantity?: number; variant?: string } };
-type Order = SellerOrder & {
-  id: string;
-  fulfillment_status?: string;
-  fulfillment_route?: "HUB" | "DIRECT";
-  overdue?: boolean;
-  grand_total?: number;
-  deadline_at?: string;
-  comu_orders?: { order_number?: string | number; status?: string; grand_total?: number; shipping_mode?: string; created_at?: string; recipientName?: string | null } | null;
-  comu_order_items?: Array<{ quantity?: number; comu_order_item_snapshots?: Snapshot[] }>;
-};
-type Filter = "ALL" | "NEW" | "PAID" | "PREPARING" | "READY" | "SHIPPED" | "DELIVERED";
+type OrdersPage = { orders: SellerOrder[]; selected: SellerOrder | null; pagination: { page: number; pageSize: number; total: number; totalPages: number } };
+const emptyPage: OrdersPage = { orders: [], selected: null, pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } };
+type Props = { sellerId: string; brandSlug?: string };
+export default function SellerOrdersManager(props: Props) { return <OrdersWorkspace key={props.sellerId} {...props} />; }
 
-const statusMeta: Record<string, { label: string; tone: string; group: Filter }> = {
-  PAID: { label: "Pagado", tone: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100", group: "PAID" },
-  PREPARING: { label: "Preparando", tone: "border-amber-300/20 bg-amber-300/10 text-amber-100", group: "PREPARING" },
-  READY_FOR_HUB: { label: "Listo", tone: "border-violet-300/20 bg-violet-300/10 text-violet-100", group: "READY" },
-  HANDED_TO_HUB: { label: "En proceso logístico", tone: "border-cyan-300/20 bg-cyan-300/10 text-cyan-100", group: "READY" },
-  HUB_RECEIVED: { label: "En proceso logístico", tone: "border-cyan-300/20 bg-cyan-300/10 text-cyan-100", group: "READY" },
-  CONSOLIDATED: { label: "Listo para envío", tone: "border-violet-300/20 bg-violet-300/10 text-violet-100", group: "READY" },
-  READY_TO_SHIP: { label: "Listo para envío", tone: "border-violet-300/20 bg-violet-300/10 text-violet-100", group: "READY" },
-  SHIPPED: { label: "En tránsito", tone: "border-sky-300/20 bg-sky-300/10 text-sky-100", group: "SHIPPED" },
-  DELIVERED: { label: "Entregado", tone: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100", group: "DELIVERED" },
-  ISSUE: { label: "Incidencia", tone: "border-red-300/20 bg-red-300/10 text-red-100", group: "ALL" },
-  CANCELLED: { label: "Cancelado", tone: "border-white/10 bg-white/[.06] text-slate-400", group: "ALL" },
-};
-const money = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 2 });
-
-export default function SellerOrders({ brandSlug, sellerId: authorizedSellerId }: { brandSlug: string; sellerId: string }) {
-  const initialQuery = useSearchParams();
-  const requestedSelected = initialQuery.get("selected");
-  const requestSequence = useRef(0);
-  const sellerId = authorizedSellerId, sellerName = brandSlug;
-  const [days, setDays] = useState(initialQuery.get("days") === "90" ? "90" : "30"), [page, setPage] = useState(Math.max(1, Number(initialQuery.get("page")) || 1)), [totalPages, setTotalPages] = useState(0), [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]); const [query, setQuery] = useState(initialQuery.get("search") || ""); const [filter, setFilter] = useState<Filter>((["ALL","NEW","PAID","PREPARING","READY","SHIPPED","DELIVERED"].includes(initialQuery.get("status") || "") ? initialQuery.get("status") : "ALL") as Filter); const [selectedId, setSelectedId] = useState<string | null>(null); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(true);
-  const load = useCallback(async (id: string) => { const sequence = ++requestSequence.current; await Promise.resolve(); if(sequence !== requestSequence.current) return; setLoading(true); try {
-    const selected = requestedSelected;
-    const params = new URLSearchParams({sellerId:id, contract:"o1", days, page:String(page), search:query, status:filter === "NEW" ? "PAID" : filter});
-    if (selected) params.set("selected", selected);
-    const response = await fetch("/api/comu/seller/orders?"+params, {cache:"no-store"});
-    const data = await response.json(); if(sequence !== requestSequence.current) return; if(!response.ok) throw new Error(data.message || "No se pudieron cargar los pedidos.");
-    const view = (o: SellerOrder): Order => ({...o,id:o.suborderId,fulfillment_status:o.fulfillmentState,fulfillment_route:o.route as "HUB" | "DIRECT",grand_total:o.total,deadline_at:o.deadlineAt || undefined,comu_orders:{order_number:o.orderNumber,status:o.commercialState,created_at:o.createdAt,shipping_mode:o.shippingMode,recipientName:o.recipientName},comu_order_items:o.items.map(i=>({quantity:i.quantity,comu_order_item_snapshots:[{snapshot:{listingTitle:i.title || "",image:i.image || "",variant:i.variant || ""}}]}))});
-    setOrders(data.orders.map(view)); setSelectedOrder(data.selected ? view(data.selected) : null);setTotalPages(data.pagination.totalPages);setMessage("");
-  } catch(error) {if(sequence !== requestSequence.current) return;setOrders([]);setSelectedOrder(null);setMessage(error instanceof Error ? error.message : "No se pudieron cargar los pedidos.");} finally {if(sequence === requestSequence.current) setLoading(false);} }, [days, page, query, filter, requestedSelected]);
-  useEffect(() => { const timer = setTimeout(() => {void load(authorizedSellerId);}, 150); return () => {clearTimeout(timer);};}, [authorizedSellerId, load]);
-  async function advance(order: Order, status: string) { const response = await fetch(`/api/comu/seller/orders/${order.id}/fulfillment`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId, status }) }); const data = await response.json() as { message?: string }; setMessage(response.ok ? "Pedido actualizado." : data.message || "No se pudo actualizar el pedido."); if (sellerId) void load(sellerId); }
-  const visibleOrders = orders;
-  const selected = selectedOrder || visibleOrders.find(order => order.id === selectedId) || visibleOrders[0] || null;
-  const counts = useMemo(() => ({ new: orders.filter((order) => order.fulfillment_status === "PAID" && order.paymentConfirmed).length, preparing: orders.filter((order) => (order.fulfillment_status || "PAID") === "PREPARING").length, shipped: orders.filter((order) => (order.fulfillment_status || "PAID") === "SHIPPED").length, delivered: orders.filter((order) => (order.fulfillment_status || "PAID") === "DELIVERED").length, issues: orders.filter((order) => (order.fulfillment_status || "PAID") === "ISSUE").length }), [orders]);
-  return <main className="w-full"><header className="flex flex-col gap-3 border-b border-white/[.08] pb-8 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.2em] text-emerald-300">COMU SELLER</p><h1 className="mt-3 text-4xl font-black tracking-[-.055em] text-white sm:text-5xl">Pedidos</h1><p className="mt-3 max-w-2xl text-base leading-7 text-slate-400">Resumen de esta página. Controla tus ventas, preparación, envíos y seguimiento desde un solo lugar.</p></div><p className="text-sm font-semibold text-slate-500">{sellerName}</p></header>{message ? <p className="mt-6 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm font-semibold text-emerald-100">{message}</p> : null}<section aria-label="Resumen de pedidos" className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Kpi icon="▤" label="Pedidos nuevos" value={counts.new} tone="mint" /><Kpi icon="□" label="Por preparar" value={counts.preparing} tone="amber" /><Kpi icon="↗" label="En tránsito" value={counts.shipped} tone="sky" /><Kpi icon="✓" label="Entregados" value={counts.delivered} tone="mint" /><Kpi icon="!" label="Incidencias" value={counts.issues} tone="red" /></section><div className="mt-8 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]"><section className="min-w-0 rounded-[1.5rem] border border-white/10 bg-white/[.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.03)] sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Operación</p><h2 className="mt-2 text-2xl font-black tracking-[-.04em] text-white">Gestión de pedidos</h2><p className="mt-1 text-sm text-slate-400">Visualiza, filtra y da seguimiento a todos tus pedidos en COMU.</p></div><div className="flex flex-wrap gap-2"><input value={query} onChange={(event) => {setPage(1);setQuery(event.target.value);}} placeholder="Buscar por folio o producto..." className="min-w-[220px] rounded-xl border border-white/10 bg-[#0b1712] px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-emerald-300/40" /><select aria-label="Filtrar por fecha" className="rounded-xl border border-white/10 bg-[#0b1712] px-3.5 py-2.5 text-sm text-slate-300 outline-none focus:border-emerald-300/40" value={days} onChange={event => {setPage(1);setDays(event.target.value);}}><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select></div></div><div className="mt-6 flex gap-2 overflow-x-auto pb-1">{(["ALL", "NEW", "PAID", "PREPARING", "READY", "SHIPPED", "DELIVERED"] as Filter[]).map((item) => <button key={item} type="button" onClick={() => {setPage(1);setFilter(item);}} className={`shrink-0 rounded-full border px-3.5 py-2 text-xs font-bold transition ${filter === item ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100" : "border-white/10 text-slate-400 hover:border-white/20 hover:text-white"}`}>{filterLabel(item)}</button>)}</div><div className="mt-5 overflow-hidden rounded-2xl border border-white/[.07]"><div className="hidden grid-cols-[1.15fr_1.2fr_1.1fr_.85fr_1fr_1fr_auto] gap-3 bg-[#0a1510] px-4 py-3 text-[11px] font-black uppercase tracking-[.12em] text-slate-500 lg:grid"><span>Folio</span><span>Destinatario</span><span>Productos</span><span>Total</span><span>Entrega</span><span>Estado</span><span /></div>{loading ? <div className="p-8 text-sm text-slate-400">Cargando pedidos...</div> : visibleOrders.length ? <div className="divide-y divide-white/[.07]">{visibleOrders.map((order) => <OrderRow key={order.id} order={order} selected={selected?.id === order.id} onSelect={() => {setSelectedOrder(null);setSelectedId(order.id);const url=new URL(window.location.href);url.searchParams.set("selected",order.id);window.history.replaceState(null,"",url);}} onAdvance={advance} />)}</div> : <EmptyOrders />}</div><nav aria-label="Paginación" className="mt-4 flex items-center gap-3"><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Anterior</button><span>Página {page} de {Math.max(1,totalPages)}</span><button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)}>Siguiente</button></nav></section><aside className="space-y-5"><Priority counts={counts} /><QuickDetail order={selected} brandSlug={brandSlug} sellerId={sellerId} onAdvance={advance} /></aside></div></main>;
+function OrdersWorkspace({ sellerId }: Props) {
+  const params = useSearchParams();
+  const query = params.toString();
+  const search = params.get("search") || "";
+  const status = params.get("status") || "ALL";
+  const days = params.get("days") === "90" ? "90" : "30";
+  const selectedId = params.get("selected");
+  const [data, setData] = useState<OrdersPage>(emptyPage);
+  const [fetching, setLoading] = useState(true);
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  const loading = fetching || loadedQuery !== query;
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<{ orderId: string; kind: "success" | "error"; text: string } | null>(null);
+  const [revision, setRevision] = useState(0);
+  const mutationLock = useRef(false);
+  const sequence = useRef(0);
+  const changeQuery = useCallback((values: Record<string, string | null>) => {
+    const url = new URL(window.location.href);
+    for (const [key, value] of Object.entries(values)) { if (value) url.searchParams.set(key, value); else url.searchParams.delete(key); }
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }, []);
+  const closeDetail = useCallback(() => changeQuery({ selected: null }), [changeQuery]);
+  const refresh = useCallback(() => { setLoading(true); setRevision(value => value + 1); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestId = ++sequence.current;
+    const timer = setTimeout(async () => {
+      setLoading(true); setError(null);
+      const request = new URLSearchParams(query);
+      request.set("contract", "o1"); request.set("sellerId", sellerId); request.set("pageSize", "20");
+      if (!request.has("days")) request.set("days", "30");
+      try {
+        const response = await fetch("/api/comu/seller/orders?" + request, { cache: "no-store", signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || "No se pudieron cargar los pedidos.");
+        if (requestId === sequence.current) setData(result);
+      } catch (failure) {
+        if (!controller.signal.aborted && requestId === sequence.current) { setData(emptyPage); setError(failure instanceof Error ? failure.message : "No se pudieron cargar los pedidos."); }
+      } finally { if (!controller.signal.aborted && requestId === sequence.current) { setLoadedQuery(query); setLoading(false); } }
+    }, 180);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, sellerId, revision]);
+  const openDetail = (id: string) => { setNotice(null); changeQuery({ selected: id }); };
+  const selected = selectedId ? data.selected?.suborderId === selectedId ? data.selected : data.orders.find(order => order.suborderId === selectedId) || null : null;
+  async function advance(order: SellerOrder) {
+    const action = orderPrimaryAction(order);
+    if (!action || mutationLock.current || loading) return;
+    mutationLock.current = true; setPending(true); setNotice(null);
+    try {
+      const response = await fetch(`/api/comu/seller/orders/${encodeURIComponent(order.suborderId)}/fulfillment`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId, status: action.target }) });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.message || "No se pudo confirmar la acción. Puedes reintentar.");
+      if (result.suborder) setData(current => ({ ...current, selected: current.selected?.suborderId === order.suborderId ? result.suborder : current.selected, orders: current.orders.map(row => row.suborderId === order.suborderId ? result.suborder : row) }));
+      setNotice({ orderId: order.suborderId, kind: "success", text: "Pedido actualizado correctamente." });
+    } catch (failure) { setNotice({ orderId: order.suborderId, kind: "error", text: failure instanceof Error ? failure.message : "No se pudo confirmar la acción. Puedes reintentar." }); }
+    finally { setPending(false); mutationLock.current = false; refresh(); }
+  }
+  const filtered = Boolean(search.trim()) || status !== "ALL";
+  return <main className="orders-v4" aria-label="Pedidos Seller">
+    <header className="orders-header"><div><span className="orders-eyebrow">Tu operación, al día</span><h1>Pedidos</h1><p>Gestiona cada venta desde que se confirma hasta que llega al cliente.</p></div><label className="orders-search"><span aria-hidden="true">⌕</span><input aria-label="Buscar por folio, producto o SKU" placeholder="Buscar por folio, producto o SKU" value={search} onChange={event => changeQuery({ search: event.target.value || null, page: null })} /></label></header>
+    <section className="orders-metrics" aria-label="Estados de los pedidos de esta página">{orderMetrics(data.orders).map(metric => <button key={metric.key} className={`orders-metric orders-metric--${metric.key.toLowerCase()}`} aria-pressed={status === metric.key} onClick={() => changeQuery({ status: status === metric.key ? null : metric.key, page: null })}><span>{metric.label}</span><strong>{loading ? "—" : metric.count}</strong><span className="orders-metric-arrow" aria-hidden="true">↗</span></button>)}</section>
+    <p className="orders-count-note">Conteos de los pedidos de esta página{!loading && ` · ${data.orders.length} de ${data.pagination.total} resultados`}</p>
+    <section className="orders-list-panel" aria-busy={loading}>
+      <div className="orders-toolbar"><div className="orders-filters" aria-label="Filtrar por estado">{orderFilters.map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => changeQuery({ status: key === "ALL" ? null : key, page: null })}>{label}</button>)}</div><label className="orders-period"><span>Periodo</span><select aria-label="Periodo" value={days} onChange={event => changeQuery({ days: event.target.value, page: null })}><option value="30">30 días</option><option value="90">90 días</option></select></label></div>
+      <div className="orders-list-caption"><strong>Tus pedidos</strong><span>Más recientes primero</span></div>
+      {error ? <div className="orders-feedback orders-feedback--error" role="alert"><p>{error}</p><button onClick={refresh}>Reintentar</button></div> : loading && !data.orders.length ? <p className="orders-feedback" role="status">Cargando pedidos…</p> : data.orders.length === 0 ? <div className="orders-empty"><span aria-hidden="true">◇</span><h2>{filtered ? "No encontramos pedidos con estos filtros." : "Aún no tienes pedidos."}</h2><p>{filtered ? "Prueba otra búsqueda o cambia el estado." : "Cuando recibas una venta, podrás acompañarla en cada paso desde aquí."}</p>{filtered && <button onClick={() => changeQuery({ search: null, status: null, page: null })}>Limpiar filtros</button>}</div> : <>
+        <div className="orders-table-wrap"><table className="orders-table"><thead><tr>{["Pedido", "Destinatario", "Productos", "Total", "Entrega", "Estado", "Fecha", "Acción"].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{data.orders.map(order => <tr key={order.suborderId} data-order-id={order.suborderId}><td><button className="orders-folio" onClick={() => openDetail(order.suborderId)}>#COMU-{order.orderNumber}</button></td><td>{order.recipientName || "No disponible"}</td><td><div className="orders-product-summary"><OrderThumbnail item={order.items[0]} /><div><strong>{order.items[0]?.title || "Productos del pedido"}</strong><small>{order.items.reduce((count, item) => count + item.quantity, 0)} productos</small></div></div></td><td className="orders-total">{orderMoney(order.total, order.currency)}</td><td>{orderDelivery(order)}</td><td><OrderBadge order={order} /></td><td><time dateTime={order.createdAt}>{orderDate(order.createdAt)}</time></td><td><button className="orders-open" aria-label={`Ver pedido #COMU-${order.orderNumber}`} onClick={() => openDetail(order.suborderId)}>Ver pedido <span aria-hidden="true">›</span></button></td></tr>)}</tbody></table></div>
+        <div className="orders-cards">{data.orders.map(order => <article className="orders-card" key={order.suborderId} data-order-id={order.suborderId}><header><button className="orders-folio" onClick={() => openDetail(order.suborderId)}>#COMU-{order.orderNumber}</button><OrderBadge order={order} /></header><div className="orders-product-summary"><OrderThumbnail item={order.items[0]} /><div><strong>{order.items[0]?.title || "Productos del pedido"}</strong><small>{order.items.reduce((count, item) => count + item.quantity, 0)} productos · {order.recipientName || "Destinatario no disponible"}</small></div></div><div className="orders-card-meta"><span>{orderDelivery(order)}</span><strong>{orderMoney(order.total, order.currency)}</strong></div><footer><time dateTime={order.createdAt}>{orderDate(order.createdAt)}</time><button className="orders-open" onClick={() => openDetail(order.suborderId)}>Ver pedido <span aria-hidden="true">›</span></button></footer></article>)}</div>
+      </>}
+      {data.pagination.total > 0 && <footer className="orders-pagination"><span>Página {data.pagination.page} de {Math.max(1, data.pagination.totalPages)} · {data.pagination.total} pedidos</span><div><button disabled={loading || data.pagination.page <= 1} onClick={() => changeQuery({ page: String(data.pagination.page - 1) })}>Anterior</button><button disabled={loading || data.pagination.page >= data.pagination.totalPages} onClick={() => changeQuery({ page: String(data.pagination.page + 1) })}>Siguiente</button></div></footer>}
+    </section>
+    {selectedId && <OrdersDetail selectedId={selectedId} order={selected} loading={loading} error={error} pending={pending} notice={notice?.orderId === selectedId ? notice : null} onClose={closeDetail} onRetry={refresh} onAdvance={advance} />}
+  </main>;
 }
-
-function Kpi({ icon, label, value, tone }: { icon: string; label: string; value: number; tone: "mint" | "amber" | "sky" | "red" }) { const colors = { mint: "text-emerald-200 bg-emerald-300/10", amber: "text-amber-200 bg-amber-300/10", sky: "text-sky-200 bg-sky-300/10", red: "text-red-200 bg-red-300/10" }; return <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4"><span className={`grid h-9 w-9 place-items-center rounded-xl ${colors[tone]}`}>{icon}</span><p className="mt-4 text-xs font-semibold text-slate-400">{label}</p><div className="mt-1 flex items-center justify-between"><p className="text-2xl font-black text-white">{value}</p><span className="text-slate-600">↗</span></div></div>; }
-function OrderRow({ order, selected, onSelect, onAdvance }: { order: Order; selected: boolean; onSelect: () => void; onAdvance: (order: Order, status: string) => Promise<void> }) { const status = order.fulfillment_status || "PAID"; const meta = statusMeta[status] || { label: status, tone: "border-white/10 bg-white/[.06] text-slate-300", group: "ALL" as Filter }; const action = order.allowedActions[0] ? {status:order.allowedActions[0].target,label:order.allowedActions[0].label} : null; const quantity = (order.comu_order_items || []).reduce((total, item) => total + Number(item.quantity || 0), 0); const total = Number(order.grand_total ?? order.comu_orders?.grand_total ?? 0); return <button type="button" onClick={onSelect} className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[1.15fr_1.2fr_1.1fr_.85fr_1fr_1fr_auto] lg:items-center ${selected ? "bg-emerald-300/[.07] ring-1 ring-inset ring-emerald-300/25" : "bg-transparent hover:bg-white/[.03]"}`}><span className="min-w-0"><span className="block text-sm font-black text-white">#{order.comu_orders?.order_number || order.id.slice(0, 8)}</span><span className="mt-1 block text-xs text-slate-500">{dateLabel(order.comu_orders?.created_at)}</span></span><span className="text-sm text-slate-300">{customerName(order)}</span><span className="text-sm text-slate-400">{quantity || 0} piezas</span><span className="text-sm font-bold text-white">{money.format(total)}</span><span className="text-sm text-slate-400">{deliveryLabel(order)}</span><span><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${meta.tone}`}>{status === "PAID" ? paymentLabels[order.paymentPresentation] : meta.label}</span></span><span className="flex justify-end gap-2 lg:block">{action ? <span onClick={(event) => { event.stopPropagation(); void onAdvance(order, action.status); }} className="inline-flex rounded-lg bg-emerald-300 px-2.5 py-1.5 text-[11px] font-black text-[#06100b]">{action.label}</span> : <span className="text-xs font-bold text-emerald-200">Ver detalle</span>}</span></button>; }
-function Priority({ counts }: { counts: { new: number; preparing: number; shipped: number; delivered: number; issues: number } }) { return <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Enfoque operativo</p><h2 className="mt-2 text-xl font-black text-white">Prioridad de hoy</h2><p className="mt-1 text-sm leading-6 text-slate-400">Enfócate en lo más importante para mantener tu operación al día.</p><div className="mt-5 space-y-3"><PriorityItem label="Pedidos por preparar" value={counts.preparing} tone="amber" /><PriorityItem label="Pedidos nuevos" value={counts.new} tone="mint" /><PriorityItem label="Incidencias por revisar" value={counts.issues} tone="red" /></div></section>; }
-function PriorityItem({ label, value, tone }: { label: string; value: number; tone: "mint" | "amber" | "red" }) { const style = { mint: "bg-emerald-300/10 text-emerald-200", amber: "bg-amber-300/10 text-amber-200", red: "bg-red-300/10 text-red-200" }[tone]; return <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[.07] bg-[#0a1510] px-3 py-3"><span className="text-sm text-slate-300">{label}</span><span className={`grid h-8 min-w-8 place-items-center rounded-lg px-2 text-xs font-black ${style}`}>{value}</span></div>; }
-function QuickDetail({ order, brandSlug, sellerId, onAdvance }: { order: Order | null; brandSlug?: string; sellerId: string; onAdvance: (order: Order, status: string) => Promise<void> }) { if (!order) return <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Selección</p><h2 className="mt-2 text-xl font-black text-white">Detalle rápido</h2><p className="mt-1 text-sm leading-6 text-slate-400">Selecciona un pedido para consultar su información clave.</p></section>; const status = order.fulfillment_status || "PAID"; const meta = statusMeta[status] || { label: status, tone: "border-white/10 bg-white/[.06] text-slate-300" }; const action = order.allowedActions[0] ? {status:order.allowedActions[0].target,label:order.allowedActions[0].label} : null; return <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Pedido seleccionado</p><h2 className="mt-2 text-xl font-black text-white">Detalle rápido</h2><p className="mt-1 text-sm leading-6 text-slate-400">Información clave del pedido seleccionado.</p><div className="mt-5 space-y-4"><Detail label="Folio" value={`#${order.comu_orders?.order_number || order.id.slice(0, 8)}`} /><Detail label="Destinatario" value={customerName(order)} /><Detail label="Canal" value="COMU" /><Detail label="Pago" value={paymentLabels[order.paymentPresentation]} /><Detail label="Envío" value={deliveryLabel(order)} /><div><p className="text-xs text-slate-500">Estado</p><span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${meta.tone}`}>{status === "PAID" ? paymentLabels[order.paymentPresentation] : meta.label}</span></div></div>{action ? <button type="button" onClick={() => void onAdvance(order, action.status)} className="mt-6 w-full rounded-xl bg-emerald-300 px-4 py-3 text-sm font-black text-[#06100b]">{action.label}</button> : null}<Link href={brandSlug ? `/comu/seller/${encodeURIComponent(brandSlug)}/orders?selected=${encodeURIComponent(order.id)}` : `/comu/seller/orders?selected=${encodeURIComponent(order.id)}`} className="mt-3 block text-center text-sm font-bold text-emerald-200">Ver pedido completo →</Link>{order.fulfillment_route === "DIRECT" ? <DirectQuote orderId={order.id} sellerId={sellerId} /> : null}</section>; }
-function Detail({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-white">{value}</p></div>; }
-function EmptyOrders() { return <div className="px-5 py-14 text-center sm:px-10"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-xl text-emerald-200">□</div><h3 className="mt-4 text-lg font-black text-white">Aún no tienes pedidos</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-400">Cuando recibas tu primera venta en COMU aparecerá aquí y podrás darle seguimiento desde este panel.</p><Link href="/comu" className="mt-5 inline-flex rounded-xl bg-emerald-300 px-4 py-2.5 text-sm font-black text-[#06100b]">Ver tienda pública</Link></div>; }
-function filterLabel(filter: Filter) { return { ALL: "Todos", NEW: "Nuevos", PAID: "Pagados", PREPARING: "Preparando", READY: "Listos para envío", SHIPPED: "En tránsito", DELIVERED: "Entregados" }[filter]; }
-function customerName(order: Order) { return order.recipientName || "Destinatario no disponible"; }
-function deliveryLabel(order: Order) { if (order.fulfillment_route === "DIRECT") return "Envío directo"; if (order.comu_orders?.shipping_mode === "FAST") return "Envío rápido"; return "HUB / consolidado"; }
-function dateLabel(value?: string) { if (!value) return ""; return new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short" }).format(new Date(value)); }
