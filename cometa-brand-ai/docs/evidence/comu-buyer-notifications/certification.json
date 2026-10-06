@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "viewports": [
+    1440,
+    390
+  ],
+  "source": "real N1 + B1 APIs, disposable PostgreSQL, synthetic Auth",
+  "realEmails": 0,
+  "automaticReadOnNavigate": false,
+  "dualIdentity": "BUYER inbox only; SELLER unread preserved",
+  "combinedRegression": "PASS",
+  "database": "comu_o1_1791256868971",
+  "disposableDatabaseRemoved": true,
+  "processExitCode": 0
+}
