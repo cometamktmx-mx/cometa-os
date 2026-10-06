@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "source": "B1 API backed by disposable local PostgreSQL and synthetic Auth",
+  "viewports": [
+    1440,
+    820,
+    390
+  ],
+  "realEmails": 0,
+  "eta": null,
+  "publicTrackingUrl": null,
+  "snapshotImage": "test-only SVG persisted in order snapshot; missing image fixture also covered"
+}
