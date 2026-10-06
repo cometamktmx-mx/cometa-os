@@ -14,7 +14,7 @@ export async function GET() {
       if (saved.error || rewards.error) throw new Error("Buyer foundation unavailable");
       favorites = (saved.data || []).map(row => row.listing_id); points = rewards.data || [];
     }
-    return NextResponse.json({ ok: true, profile: { displayName: profile.display_name || "", email: user.email || "" }, favorites, points, foundationReady: ready(), paymentsReady: false }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ ok: true, profile: { displayName: profile.display_name || "", email: user.email || "", phone: profile.phone || "" }, favorites, points, foundationReady: ready(), paymentsReady: false }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return fail(error); }
 }
 export async function POST(request: Request) {
@@ -26,7 +26,9 @@ export async function POST(request: Request) {
     if (input.action === "profile") {
       const name = typeof input.displayName === "string" ? input.displayName.trim() : "";
       if (!name || name.length > 100) throw new PosApiError(400, "COMU_PROFILE_INVALID", "Escribe un nombre de hasta 100 caracteres.");
-      const { error } = await admin.from("comu_buyers").update({ display_name: name, updated_at: new Date().toISOString() }).eq("id", buyer.id);
+      const phone = typeof input.phone === "string" ? input.phone.trim() : "";
+      if (Object.hasOwn(input, "phone") && (typeof input.phone !== "string" || (phone && !/^[+\d\s()-]{7,25}$/.test(phone)))) throw new PosApiError(400, "COMU_PROFILE_INVALID", "Revisa tu teléfono.");
+      const { error } = await admin.from("comu_buyers").update({ display_name: name, ...(Object.hasOwn(input, "phone") ? { phone: phone || null } : {}), updated_at: new Date().toISOString() }).eq("id", buyer.id);
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }

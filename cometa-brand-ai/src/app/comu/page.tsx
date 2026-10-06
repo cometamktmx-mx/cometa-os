@@ -1,23 +1,70 @@
-import Image from "next/image";
-import Link from "next/link";
+﻿import Link from "next/link";
 import { getPublicCatalog } from "@/lib/comu/public-catalog";
 import { isComuFeatureEnabled } from "@/lib/comu/features";
-import { EmptyState, ModeSwitch, ProductCard, SectionHeading, SellerCard, type PublicListing } from "./components/public-ui";
+import { ProductCard, type PublicListing } from "./components/public-ui";
+import { HomeImage } from "./components/home-image";
+import "./home.css";
+
+const categories = [
+  ["Moda", "moda", "ropa"], ["Accesorios", "accesorios", "accesorios"],
+  ["Calzado", "calzado", "calzado"], ["Hogar", "hogar", "hogar"],
+  ["Belleza", "belleza", "belleza"], ["Deportes", "deportes", "deportes"],
+  ["Mascotas", "mascotas", "mascotas"], ["Lifestyle", "lifestyle", "lifestyle"],
+];
+const benefits = ["Envíos a todo México", "Pagos seguros", "Marcas verificadas", "Compra menudeo o mayoreo"];
+const trust = [
+  ["M3 6h11v12H3z M14 10h4l3 4v4h-7 M7 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M17 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4", "Envíos a todo México", "Rápidos y confiables."],
+  ["M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3 M12 14v3", "Pagos seguros", "Tu información protegida."],
+  ["M4 7h16v14H4z M8 7V5a4 4 0 0 1 8 0v2", "Compra menudeo o mayoreo", "Tú eliges cómo comprar."],
+  ["M4 13v-1a8 8 0 0 1 16 0v1 M4 12H2v7h4v-7z M20 12h2v7h-4v-7z M20 19v2h-6", "Soporte personalizado", "Estamos para ayudarte."],
+];
+function Heading({ title, description, href }: { title: string; description: string; href?: string }) {
+  return <div className="home-heading"><div><h2>{title}</h2><p>{description}</p></div>{href && <Link className="home-text-link" href={href}>Ver todo <span aria-hidden="true">↗</span></Link>}</div>;
+}
 
 export default async function ComuHome({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode } = await searchParams;
   const enabled = isComuFeatureEnabled("enabled") && isComuFeatureEnabled("catalog");
-  const listings = ((enabled ? await getPublicCatalog() : []) as PublicListing[]).filter(row => mode !== "wholesale" || row.wholesale_enabled);
-  const sellers = [...new Map(listings.filter((item) => item.seller).map((item) => [item.seller?.slug, item.seller])).values()].filter(Boolean) as NonNullable<PublicListing["seller"]>[];
-  const hero = listings[0];
-  const heroImage = hero?.media?.find((item) => item.is_primary)?.public_url || hero?.product?.image_url;
-  return <main>
-    <section className="mx-auto max-w-7xl px-5 pb-16 pt-8 md:pb-24 md:pt-12"><div className="grid overflow-hidden rounded-[2.5rem] bg-[#d8c5b1] md:grid-cols-[.9fr_1.1fr]"><div className="flex flex-col justify-between p-7 md:p-12 lg:p-16"><div><p className="text-[11px] font-black uppercase tracking-[.25em] text-[#735b49]">El marketplace textil de Mexico</p><h1 className="mt-6 max-w-xl text-5xl font-black leading-[.88] tracking-[-.08em] text-[#252d28] md:text-7xl">Moda real<br />para un mundo<br />mas tuyo.</h1><p className="mt-6 max-w-lg text-lg leading-7 text-[#5d5045]">Descubre marcas independientes, fabricantes y piezas unicas. Compra directo, para ti o para hacer crecer tu negocio.</p></div><div className="mt-10"><ModeSwitch mode={mode} /><div className="mt-5 flex flex-wrap gap-3"><Link href="/comu/search" className="rounded-full bg-[#252d28] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[#252d28]/15">Explorar productos</Link><Link href="/comu/sell" className="rounded-full border border-[#8f7863]/40 bg-white/25 px-6 py-3 text-sm font-bold text-[#40342c]">Conoce COMU</Link></div></div></div><div className="relative min-h-[25rem] overflow-hidden bg-[#2d3731] md:min-h-[36rem]">{heroImage ? <Image unoptimized src={heroImage} alt={hero?.title_override || hero?.product?.name || "Selección COMU"} fill priority sizes="(max-width: 768px) 100vw, 55vw" className="object-cover opacity-90" /> : <div className="absolute inset-0 bg-[linear-gradient(145deg,#303a34_5%,#ab886c_48%,#dfcbb5_100%)]"><div className="absolute right-8 top-8 h-40 w-28 rotate-12 rounded-[5rem] border border-white/30" /><div className="absolute bottom-10 left-10 h-52 w-36 -rotate-12 rounded-[6rem] border border-white/25" /><div className="absolute left-1/2 top-1/3 h-56 w-40 -translate-x-1/2 rounded-[8rem] border border-white/20" /></div>}<div className="absolute left-6 top-6 rounded-full border border-white/25 bg-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-[.15em] text-white/75">Piezas que conectan</div><div className="absolute inset-x-6 bottom-6 flex items-end justify-between gap-5 text-white"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-white/70">{hero?.seller?.public_name || "Selección editorial"}</p><p className="mt-2 max-w-xs text-2xl font-black leading-none tracking-[-.04em]">Moda que conecta.</p></div><span className="hidden rounded-full border border-white/30 bg-black/15 px-3 py-2 text-xs font-bold sm:block">Personas · Negocios · Historias</span></div></div></div></section>
-    <section className="mx-auto grid max-w-7xl gap-3 px-5 pb-20 sm:grid-cols-3"><div className="rounded-2xl bg-[#fffdf9] p-5"><p className="text-lg">✦</p><p className="mt-5 font-black">Marcas verificadas</p><p className="mt-1 text-sm text-[#8b8178]">Compra con confianza.</p></div><div className="rounded-2xl bg-[#fffdf9] p-5"><p className="text-lg">↗</p><p className="mt-5 font-black">Opciones de entrega</p><p className="mt-1 text-sm text-[#8b8178]">Consulta disponibilidad para tu dirección.</p></div><div className="rounded-2xl bg-[#fffdf9] p-5"><p className="text-lg">♡</p><p className="mt-5 font-black">Apoya lo real</p><p className="mt-1 text-sm text-[#8b8178]">Negocios que impulsan Mexico.</p></div></section>
-    <section className="mx-auto max-w-7xl px-5 pb-24"><SectionHeading eyebrow="Nuevos lanzamientos" title="Lo nuevo, lo que vale la pena mirar" href="/comu/search" link="Ver todo" />{listings.length ? <div className="mt-9 grid gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">{listings.slice(0, 5).map((listing, index) => <ProductCard key={listing.id} listing={listing} featured={index === 0} />)}</div> : <div className="mt-9"><EmptyState title="Nuevas piezas por descubrir" body="Las piezas publicadas por nuestras tiendas aparecerán aquí." /></div>}</section>
-    <section className="bg-[#eee7de] py-20"><div className="mx-auto max-w-7xl px-5"><SectionHeading eyebrow="Tiendas verificadas" title="Marcas que tienen algo que decir" href="/comu/search" link="Ver todas las tiendas" />{sellers.length ? <div className="mt-9 grid gap-5 md:grid-cols-3">{sellers.slice(0, 3).map((seller) => <SellerCard key={seller.slug} seller={seller} />)}</div> : <div className="mt-8"><EmptyState title="Muy pronto: tiendas verificadas." body="Estamos curando una comunidad de fabricantes, talleres y marcas con capacidad real de surtido." /></div>}</div></section>
-    <section className="mx-auto max-w-7xl px-5 py-24"><div className="grid gap-8 overflow-hidden rounded-[2rem] bg-[#252d28] p-8 text-[#f5f0e9] md:grid-cols-[1fr_.8fr] md:p-14"><div><p className="text-[11px] font-black uppercase tracking-[.24em] text-[#d5b99b]">Compra para tu negocio</p><h2 className="mt-5 max-w-xl text-4xl font-black leading-none tracking-[-.07em] md:text-6xl">Para vestirte. Para surtir. Para crecer.</h2><p className="mt-6 max-w-lg leading-7 text-white/65">Accede a precios de mayoreo, conecta con fabricantes verificados y haz crecer tu marca.</p><Link href="/comu?mode=wholesale" className="mt-8 inline-flex rounded-full bg-[#d6b796] px-6 py-3 text-sm font-black text-[#252d28]">Explorar proveedores</Link></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-3xl border border-white/10 bg-white/5 p-5"><p className="text-3xl font-black">01</p><p className="mt-14 text-white/65">Fabricantes mexicanos</p></div><div className="mt-10 rounded-3xl border border-white/10 bg-[#d6b796] p-5 text-[#252d28]"><p className="text-3xl font-black">02</p><p className="mt-14 text-[#544435]">Precios de mayoreo</p></div></div></div></section>
-    <section className="mx-auto max-w-7xl px-5 pb-24"><div className="grid gap-8 md:grid-cols-3"><div className="md:col-span-2"><p className="text-[11px] font-black uppercase tracking-[.24em] text-[#8b7564]">Una nueva forma de descubrir</p><h2 className="mt-4 max-w-2xl text-4xl font-black leading-none tracking-[-.07em] md:text-6xl">Del taller a tu closet. Del fabricante a tu negocio.</h2></div><p className="self-end text-lg leading-7 text-[#776b61]">COMU conecta talento textil, piezas con identidad y personas que quieren comprar mejor.</p></div><div className="mt-12 grid gap-4 sm:grid-cols-3"><Link href="/comu/search?q=ropa" className="rounded-[1.5rem] bg-[#d9c4ae] p-7 text-2xl font-black tracking-[-.04em] text-[#3e332a]">Ropa <span className="float-right">↗</span></Link><Link href="/comu/search?q=accesorios" className="rounded-[1.5rem] bg-[#dfe4d9] p-7 text-2xl font-black tracking-[-.04em] text-[#344139]">Accesorios <span className="float-right">↗</span></Link><Link href="/comu/search?mode=wholesale" className="rounded-[1.5rem] bg-[#252d28] p-7 text-2xl font-black tracking-[-.04em] text-white">Mayoreo <span className="float-right">↗</span></Link></div></section>
-    <section className="mx-auto max-w-7xl px-5 pb-28"><div className="rounded-[2rem] border border-[#d9cfc4] bg-[#fffdf9] px-7 py-12 md:flex md:items-center md:justify-between md:gap-12 md:px-14"><div><p className="text-[11px] font-black uppercase tracking-[.24em] text-[#8b7564]">Vende en COMU</p><h2 className="mt-4 max-w-2xl text-4xl font-black leading-none tracking-[-.07em]">Tu catálogo merece llegar más lejos.</h2><p className="mt-5 max-w-xl leading-7 text-[#776b61]">Conecta tu negocio, publica tus piezas y llega a personas que valoran lo que haces.</p></div><Link href="/comu/sell" className="mt-8 inline-flex shrink-0 rounded-full bg-[#252d28] px-6 py-3 text-sm font-bold text-white md:mt-0">Conoce COMU para sellers</Link></div></section>
+  const publicRows = enabled ? await getPublicCatalog() : [];
+  const catalog: PublicListing[] = publicRows;
+  const listings = catalog.filter(row => mode !== "wholesale" || row.wholesale_enabled);
+  const sellers = [...new Map(catalog.flatMap(row => row.seller ? [[row.seller.slug, row.seller] as const] : [])).values()];
+  const fashion = "/comu/auth/buyer-login.jpg";
+  const textile = "/comu/auth/buyer-register.jpg";
+  return <main className="comu-home">
+    <section className="home-hero" aria-labelledby="home-title">
+      <HomeImage name="hero" fallback={fashion} priority />
+      <div className="home-hero-shade" />
+      <div className="home-hero-copy"><p className="home-kicker">MODA MEXICANA, TALENTO REAL</p>
+        <h1 id="home-title">Lo nuevo,<br />lo que te hace <em>tú.</em></h1>
+        <p className="home-lead">Descubre marcas independientes, piezas únicas<br className="home-desktop-break" /> y moda hecha en México.</p>
+        <div className="home-actions"><Link className="home-button home-button-light" href="/comu/search">Explorar productos <span aria-hidden="true">→</span></Link><Link className="home-button home-button-outline" href="/comu/search?mode=wholesale">Para tu negocio</Link></div>
+        <ul className="home-benefits">{benefits.map(text => <li key={text}><span aria-hidden="true">✓</span>{text}</li>)}</ul>
+      </div>
+      <span className="home-hero-caption" aria-hidden="true">COMU / UNA FORMA MÁS TUYA</span>
+    </section>
+
+    <nav className="home-categories home-container" aria-label="Explorar categorías">{categories.map(([label, slug, query], i) => <Link href={`/comu/search?q=${encodeURIComponent(query)}`} key={slug} className="home-category"><div className="home-category-image"><span aria-hidden="true">{String(i + 1).padStart(2, "0")}</span><HomeImage name={`category-${slug}`} /></div><span>{label}<span aria-hidden="true">↗</span></span></Link>)}</nav>
+
+    <section className="home-container home-section" aria-label="Nuevos lanzamientos"><Heading title="Nuevos lanzamientos" description="Descubre lo más reciente de nuestras marcas." href="/comu/search" />
+      {listings.length ? <div className="home-products">{listings.slice(0, 8).map(listing => <ProductCard key={listing.id} listing={listing} />)}</div> : <div className="home-empty"><span className="home-kicker">EL PRÓXIMO DESCUBRIMIENTO</span><h3>Nuevas piezas están por llegar.</h3><Link className="home-text-link" href="/comu/search">Explorar COMU <span aria-hidden="true">→</span></Link></div>}
+    </section>
+
+    <section className="home-container home-duo home-section" aria-label="Descubre COMU">
+      <article className="home-banner home-wholesale"><HomeImage name="mayoreo" fallback={textile} /><div className="home-banner-shade" /><div className="home-banner-copy"><p className="home-kicker">PARA TU NEGOCIO</p><h2>Mayoreo<br />en COMU</h2><p>Mejores precios, más oportunidades.<br />Conecta directo con fabricantes locales.</p><Link className="home-button home-button-light" href="/comu/search?mode=wholesale">Explorar mayoreo →</Link></div></article>
+      <article className="home-banner home-verified"><HomeImage name="verified" fallback={fashion} /><div className="home-banner-shade" /><div className="home-banner-copy"><p className="home-kicker">TALENTO CON IDENTIDAD</p><h2>Marcas<br />verificadas</h2><p>Compra con confianza. Todas nuestras marcas pasan por un proceso de verificación.</p><Link className="home-button home-button-light" href="#comu-brands">Conoce más →</Link></div></article>
+    </section>
+
+    <section className="home-container home-bestsellers home-section" aria-label="Favoritos y oportunidades"><div><Heading title="Lo más vendido" description="Las piezas favoritas de nuestra comunidad." /><div className="home-empty home-empty-best"><span className="home-kicker">LO QUE VAS A QUERER DESCUBRIR</span><h3>Los próximos favoritos<br />se encuentran aquí.</h3><p>Pronto conocerás las piezas más elegidas.</p><Link className="home-text-link" href="/comu/search">Descubre el catálogo →</Link></div></div>
+      <aside className="home-offers" id="comu-offers"><HomeImage name="offers" /><div className="home-banner-shade" /><div className="home-banner-copy"><p className="home-kicker">ALGO BUENO POR DESCUBRIR</p><h2>Ofertas<br /><em>COMU</em></h2><p>Descubre promociones y oportunidades especiales.</p><details><summary className="home-text-link">Ver ofertas →</summary><p>Las próximas promociones aparecerán aquí. Por ahora, no hay ofertas anunciadas.</p><Link className="home-text-link" href="/comu/search">Explorar productos →</Link></details></div></aside>
+    </section>
+
+    <section className="home-trust" aria-label="Compra con confianza"><div className="home-container">{trust.map(([path, title, detail]) => <div key={title}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg><div><h3>{title}</h3><p>{detail}</p></div></div>)}</div></section>
+
+    <section className="home-container home-section"><Heading title="Historias que inspiran" description="Conoce a las personas detrás de las marcas mexicanas." /><div className="home-stories"><article className="home-story"><div className="home-story-image"><HomeImage name="story-marcas" fallback={textile} /></div><div><p className="home-kicker">DETRÁS DE CADA PIEZA</p><h3>Ideas que toman forma.</h3><p>Pronto, historias de las marcas que dan vida a COMU.</p><span className="home-coming">Historias próximamente</span></div></article><article className="home-story"><div className="home-story-image"><HomeImage name="story-personas" fallback={fashion} /></div><div><p className="home-kicker">UNA MIRADA MÁS CERCANA</p><h3>El talento tiene muchas formas.</h3><p>Un espacio para descubrir a las personas detrás de lo que eliges.</p><span className="home-coming">Historias próximamente</span></div></article></div></section>
+
+    <section className="home-container home-section"><div className="home-seller"><HomeImage name="seller-cta" fallback={textile} /><div className="home-banner-shade" /><div className="home-banner-copy"><p className="home-kicker">CREZCAMOS JUNTOS</p><h2>¿Tienes una marca?</h2><p>Únete a COMU y lleva tu negocio más lejos.<br />Publica tus productos, conecta con nuevos clientes y forma parte de una comunidad que impulsa el talento mexicano.</p><Link className="home-button home-button-light" href="/comu/sell">Comienza a vender →</Link></div></div></section>
+
+    <section id="comu-brands" className="home-container home-brands"><h2>Marcas que ya son parte de COMU</h2>{sellers.length ? <div>{sellers.map(seller => <Link href={`/comu/sellers/${seller.slug}`} key={seller.slug}>{seller.public_name}</Link>)}</div> : <p>Un espacio para marcas independientes y nuevos descubrimientos.</p>}</section>
   </main>;
 }

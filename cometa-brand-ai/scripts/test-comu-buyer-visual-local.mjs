@@ -16,11 +16,18 @@ function load(path, imports = {}, globals = {}) {
 class PosApiError extends Error { constructor(status, code, message) { super(message); Object.assign(this, { status, code }); } }
 const response = { json(body, options) { return { body, status: options?.status || 200 }; } };
 const domain = load("src/lib/comu/buyer-experience.ts");
+const authNavigation = load("src/lib/comu/auth-navigation.ts");
 const publicRoutes = load("src/lib/comu/public-routes.ts");
 for (const route of ["/comu", "/comu/account", "/comu/sell", "/comu/cart", "/comu/products/real", "/comu/sellers/store", "/comu/legal/returns"]) assert.equal(publicRoutes.isPublicComuRoute(route), true);
 for (const route of ["/comu/seller", "/comu/seller/finance", "/comu/account/buyer", "/comu/account/orders", "/comu/legal/unknown"]) assert.equal(publicRoutes.isPublicComuRoute(route), false);
 assert.equal(domain.buyerOrderStatus("PAYMENT_PENDING"), "Pago pendiente");
 assert.equal(domain.buyerOrderStatus("UNRECOGNIZED_ENUM"), "En seguimiento");
+assert.equal(domain.buyerSection("Pedidos"), "Mis pedidos");
+assert.equal(domain.buyerSection("Perfil"), "Mis datos");
+assert.equal(domain.buyerSection("invalid"), "Resumen");
+assert.equal(domain.buyerOrderPresentation({ status: "PAID", fulfillment_status: "SHIPPED" }).label, "En camino");
+assert.equal(domain.buyerOrderPresentation({ status: "CANCELLED", fulfillment_status: "DELIVERED" }).group, "Cancelados");
+assert.equal(domain.buyerOrderPresentation({ status: "PAID", fulfillment_status: "DELIVERED" }).group, "Entregados");
 const product = { id: "a", seller_id: "one", public_category: "ropa" };
 const groups = domain.recommendationGroups(product, [product, { id: "b", seller_id: "two", public_category: "ropa" }, { id: "c", seller_id: "one", public_category: "ropa" }]);
 assert.equal(groups.length, 2); assert.equal(new Set(groups.flatMap(group => group.items.map(row => row.id))).size, 2);
@@ -47,7 +54,9 @@ const admin = { from(table) {
   return q;
 } };
 const buyer = { requireComuBuyer: async () => { if (!authenticated) throw new PosApiError(401, "COMU_UNAUTHORIZED", "Login"); return { buyer: { id: buyerId, display_name: "" }, admin, user: { id: "user-authenticated", email: "fixture@example.test" } }; } };
-const env = {}; const experience = load("src/app/api/comu/buyer/experience/route.ts", { "next/server": { NextResponse: response }, "@/lib/comu/buyers": buyer, "@/lib/pos/server": { PosApiError } }, { process: { env } });
+buyer.readComuBuyerAccount = buyer.requireComuBuyer;
+buyer.getBuyerAddresses = async () => ({ ...(await buyer.requireComuBuyer()), addresses: [] });
+const env = {}; const experience = load("src/app/api/comu/buyer/experience/route.ts", { "next/server": { NextResponse: response }, "@/lib/comu/buyers": buyer, "@/lib/comu/auth-navigation": authNavigation, "@/lib/pos/server": { PosApiError } }, { process: { env } });
 const post = body => ({ json: async () => body });
 authenticated = false;
 assert.equal((await experience.GET()).status, 401); assert.equal(calls.length, 0);
@@ -62,6 +71,12 @@ await experience.POST(post({ action: "favorite", listingId: "11111111-1111-1111-
 assert.ok(calls.at(-1).filters.some(([key, value]) => key === "buyer_id" && value === buyerId));
 await experience.POST(post({ action: "profile", displayName: "Nombre", stripe_customer_id: "forbidden" }));
 assert.equal(calls.at(-1).value.stripe_customer_id, undefined);
+await experience.POST(post({ action: "profile", displayName: "Nombre", phone: "+52 5551234567", buyer_id: "victim" }));
+assert.equal(calls.at(-1).value.phone, "+52 5551234567");
+assert.ok(calls.at(-1).filters.some(([key, value]) => key === "id" && value === buyerId));
+assert.equal((await experience.POST(post({ action: "profile", displayName: "Nombre", phone: "invalid" }))).status, 400);
+await experience.POST(post({ action: "profile", displayName: "Nombre" }));
+assert.equal(calls.at(-1).value.phone, undefined, "Existing name-only profile requests preserve phone");
 assert.equal((await experience.POST(post({ action: "favorite", listingId: "bad", saved: true }))).status, 400);
 const addressEnv = {}; const rpcCalls = []; let rpcError = null;
 const addresses = load("src/app/api/comu/buyer/addresses/route.ts", { "next/server": { NextResponse: response }, "@/lib/comu/buyers": buyer, "@/lib/pos/server": { PosApiError }, "@/lib/supabase/server": { createClient: async () => ({ rpc: async (name, args) => { rpcCalls.push({ name, args }); return { data: {}, error: rpcError ? { message: rpcError } : null }; } }) } }, { process: { env: addressEnv } });
@@ -113,19 +128,27 @@ assert.equal(applicationData.user_id, "user-authenticated"); assert.equal(applic
 let accountUser = null;
 const accountPage = load("src/app/comu/account/page.tsx", {
   "react/jsx-runtime": jsx,
+  "next/image": { default: () => null },
+  "./buyer/account-icon": { AccountIcon: () => null },
+  "@/lib/comu/account-access": { resolveComuAccountAccess: async () => accountUser ? { userId: accountUser.id, hasBuyerAccount: true, isAdmin: false, stores: [{ id: "owned", brand_slug: "owned-store", public_name: "Owned", status: "ACTIVE" }] } : null },
   "next/link": { default: props => React.createElement("a", { href: props.href }, props.children) },
   "next/navigation": { redirect(path) { throw new Error(`REDIRECT:${path}`); } },
   "@/lib/supabase/server": { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: accountUser } }) } }) },
   "@/lib/pos/server": { getAdminClient: () => ({ from(table) { const q = { select() { return q; }, eq() { return q; }, then(resolve) { return Promise.resolve({ error: null, data: table === "comu_seller_memberships" ? [{ comu_sellers: { brand_slug: "owned-store", public_name: "Owned" } }] : [] }).then(resolve); } }; return q; } }) },
 });
-assert.match(renderToStaticMarkup(await accountPage.default({ searchParams: Promise.resolve({}) })), /Comprar en COMU/);
+assert.match(renderToStaticMarkup(await accountPage.default({ searchParams: Promise.resolve({}) })), /Explorar como comprador/);
 accountUser = { id: "user-authenticated" };
 await assert.rejects(() => accountPage.default({ searchParams: Promise.resolve({ context: "buyer" }) }), /REDIRECT:\/comu\/account\/buyer/);
-await assert.rejects(() => accountPage.default({ searchParams: Promise.resolve({ context: "seller" }) }), /REDIRECT:\/brand\/owned-store\/comu/);
+await assert.rejects(() => accountPage.default({ searchParams: Promise.resolve({ context: "seller" }) }), /REDIRECT:\/comu\/seller\/owned-store\/summary/);
+const orderPresentation = load("src/lib/comu/buyer-order-presentation.ts");
 const shell = load("src/app/comu/account/buyer/buyer-account.tsx", {
-  "react/jsx-runtime": jsx, react: { useState: initial => [initial === true ? false : initial, () => {}], useRef: value => ({ current: value }), useEffect() {}, useCallback: fn => fn },
+  "react/jsx-runtime": jsx, react: { useState: initial => [typeof initial === "function" ? initial() : initial === true ? false : initial, () => {}], useRef: value => ({ current: value }), useEffect() {}, useCallback: fn => fn },
+  "next/image": { default: () => null },
+  "@/lib/supabase/client": { createClient() { assert.fail("No auth mutations during render"); } },
+  "./account-icon": { AccountIcon: () => null },
   "next/link": { default: props => React.createElement("a", { href: props.href }, props.children) },
   "@/lib/comu/buyer-experience": domain,
+  "@/lib/comu/buyer-order-presentation": orderPresentation,
   "../../components/commerce": { useCommerce: () => ({ favorites: [] }) },
   "../../components/public-ui": { EmptyState: props => React.createElement("p", null, props.title), ProductCard: () => null },
 });
@@ -133,9 +156,15 @@ for (const section of domain.buyerSections) {
   const markup = renderToStaticMarkup(React.createElement(shell.default, { initialSection: section }));
   assert.ok(markup.includes(section)); assert.doesNotMatch(markup, /sk_live_|PaymentIntent|SUPABASE_SERVICE/);
 }
+const emptyOrders = renderToStaticMarkup(React.createElement(shell.OrderList, { orders: [] }));
+assert.match(emptyOrders, /Aún no tienes pedidos/);
+assert.match(emptyOrders, /href="\/comu\/search"/);
+const realOrder = renderToStaticMarkup(React.createElement(shell.OrderList, { orders: [{ id: "fixture-order", order_number: "42", status: "PAID", fulfillment_status: "SHIPPED", created_at: "2026-09-01", grand_total: 800, currency: "MXN", comu_order_items: [{ id: "fixture-item", quantity: 2, comu_order_item_snapshots: [{ snapshot: { listingTitle: "Fixture" } }] }] }] }));
+assert.match(realOrder, /En camino/); assert.match(realOrder, /2 productos/); assert.match(realOrder, /\/comu\/account\/orders\/fixture-order/);
+assert.doesNotMatch(readFileSync("src/app/comu/account/buyer/buyer-account.tsx", "utf8"), /window\.(confirm|prompt)\(/);
 const payments = load("src/lib/comu/saved-payments.ts", { "server-only": {} });
 let deliveryOwned = false, shipmentReads = 0;
-const delivery = load("src/app/api/comu/buyer/order-delivery/route.ts", { "next/server": { NextResponse: response }, "@/lib/pos/server": { PosApiError }, "@/lib/comu/buyers": { requireComuBuyer: async () => ({ buyer: { id: buyerId }, admin: { from(table) { if (table === "comu_shipments") shipmentReads++; const q = { select() { return q; }, eq(key, value) { if (key === "buyer_id") assert.equal(value, buyerId); return q; }, maybeSingle() { return q; }, then(resolve) { return Promise.resolve({ error: null, data: table === "comu_orders" ? deliveryOwned ? { id: "owned-order", subtotal: 800, shipping_total: 123.45 } : null : [{ tracking_number: "fixture", carrier: "Fixture" }] }).then(resolve); } }; return q; } } }) } });
+const delivery = load("src/app/api/comu/buyer/order-delivery/route.ts", { "next/server": { NextResponse: response }, "@/lib/pos/server": { PosApiError }, "@/lib/comu/buyers": { requireComuBuyerRead: async () => ({ buyer: { id: buyerId }, admin: { from(table) { if (table === "comu_shipments") shipmentReads++; const q = { select() { return q; }, eq(key, value) { if (key === "buyer_id") assert.equal(value, buyerId); return q; }, maybeSingle() { return q; }, then(resolve) { return Promise.resolve({ error: null, data: table === "comu_orders" ? deliveryOwned ? { id: "owned-order", subtotal: 800, shipping_total: 123.45 } : null : [{ tracking_number: "fixture", carrier: "Fixture" }] }).then(resolve); } }; return q; } } }) } });
 const requestDelivery = { url: "https://fixture.invalid/api?orderId=11111111-1111-1111-1111-111111111111" };
 assert.equal((await delivery.GET(requestDelivery)).status, 404); assert.equal(shipmentReads, 0);
 deliveryOwned = true; assert.equal((await delivery.GET(requestDelivery)).body.shipping, 123.45); assert.equal(shipmentReads, 1);
