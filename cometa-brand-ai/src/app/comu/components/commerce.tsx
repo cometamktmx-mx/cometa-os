@@ -30,7 +30,7 @@ export function CommerceProvider({ children }: { children: ReactNode }) {
     favoriteBusy.current.add(id);
     try {
       const response = await fetch("/api/comu/buyer/experience", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "favorite", listingId: id, saved: !favorites.includes(id) }) });
-      if (response.status === 401) { window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`); return; }
+      if (response.status === 401) { window.location.assign(`/comu/login?next=${encodeURIComponent(window.location.pathname)}`); return; }
       const data = await response.json(); if (!response.ok) { notify(data.error || "No pudimos guardar esta pieza."); return; }
       setFavorites(previous => data.saved ? [...new Set([...previous, id])] : previous.filter(value => value !== id));
       notify(data.saved ? "Guardado en favoritos" : "Eliminado de favoritos");

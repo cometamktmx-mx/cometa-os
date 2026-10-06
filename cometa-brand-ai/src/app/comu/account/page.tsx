@@ -29,7 +29,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
     </main>;
   }
   return <main className="mx-auto max-w-5xl px-5 py-16 md:py-24"><p className="comu-eyebrow">Tu espacio en COMU</p><h1 className="comu-title mt-5 max-w-xl">¿Qué quieres hacer en COMU?</h1><p className="mt-6 max-w-lg leading-7 text-[#72675e]">Una misma cuenta, dos formas de ser parte de nuestra comunidad.</p><div className="mt-14 grid gap-8 md:grid-cols-2">{[
-    ["Comprar en COMU", "Consulta tus pedidos, favoritos, direcciones, pagos y recompensas.", user ? "/comu/account/buyer" : "/login?next=%2Fcomu%2Faccount%3Fcontext%3Dbuyer"],
-    ["Vender en COMU", "Administra tu tienda, productos, pedidos y pagos.", user ? "/comu/account?context=seller" : "/login?next=%2Fcomu%2Faccount%3Fcontext%3Dseller"],
+    ["Comprar en COMU", "Consulta tus pedidos, favoritos, direcciones, pagos y recompensas.", user ? "/comu/account/buyer" : "/comu/login?next=%2Fcomu%2Faccount%3Fcontext%3Dbuyer"],
+    ["Vender en COMU", "Administra tu tienda, productos, pedidos y pagos.", user ? "/comu/account?context=seller" : "/comu/login?next=%2Fcomu%2Faccount%3Fcontext%3Dseller"],
   ].map(([title, copy, href]) => <section key={title} className="border-t border-[#d9cfc4] pt-7"><h2 className="text-3xl font-semibold tracking-tight">{title}</h2><p className="mt-4 max-w-sm leading-7 text-[#72675e]">{copy}</p><Link href={href} className="comu-button mt-7">{title} →</Link></section>)}</div></main>;
 }

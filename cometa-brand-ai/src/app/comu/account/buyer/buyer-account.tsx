@@ -21,7 +21,7 @@ export default function BuyerAccount({ initialSection }: { initialSection?: stri
     const version = ++readVersion.current; setLoading(true);
     try {
       const responses = await Promise.all([fetch("/api/comu/buyer/experience"), fetch(`/api/comu/orders?days=90&page=${page}&status=${filter}`, { cache: "no-store" }), fetch("/api/comu/buyer/addresses"), fetch("/api/comu/catalog")]);
-      if (responses.some(response => response.status === 401)) { window.location.assign("/login?next=%2Fcomu%2Faccount%2Fbuyer"); return; }
+      if (responses.some(response => response.status === 401)) { window.location.assign("/comu/login?next=%2Fcomu%2Faccount%2Fbuyer"); return; }
       if (responses.some(response => !response.ok)) throw new Error();
       const [profile, history, delivery, products] = await Promise.all(responses.map(response => response.json()));
       if (version !== readVersion.current) return;

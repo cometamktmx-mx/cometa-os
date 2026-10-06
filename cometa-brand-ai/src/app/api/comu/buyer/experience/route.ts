@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireComuBuyer, readComuBuyerAccount } from "@/lib/comu/buyers";
+import { comuRegistrationProfile } from "@/lib/comu/auth-navigation";
 import { PosApiError } from "@/lib/pos/server";
 const ready = () => process.env.COMU_BUYER_FOUNDATION_ENABLED === "true";
 function fail(error: unknown) { return NextResponse.json({ ok: false, error: error instanceof PosApiError ? error.message : "No pudimos consultar tu cuenta." }, { status: error instanceof PosApiError ? error.status : 500, headers: { "Cache-Control": "private, no-store" } }); }
 export async function GET() {
   try {
     const { buyer, admin, user } = await readComuBuyerAccount();
-    const profile = buyer ?? { display_name: "", phone: "" };
+    const profile = buyer ?? comuRegistrationProfile(user.user_metadata);
     let favorites: string[] = [], points: Array<{ points: number; created_at: string; expires_at: string }> = [];
     if (ready() && buyer) {
       const [saved, rewards] = await Promise.all([admin.from("comu_buyer_favorites").select("listing_id").eq("buyer_id", buyer.id), admin.from("comu_buyer_points").select("points,created_at,expires_at").eq("buyer_id", buyer.id).order("created_at", { ascending: false })]);

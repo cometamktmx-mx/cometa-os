@@ -5,6 +5,7 @@ import { posReturnTo } from "./lib/pos/navigation";
 import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
 import { isPublicComuRoute } from "./lib/comu/public-routes";
+import { comuLoginHref, isComuBuyerPrivatePath } from "./lib/comu/auth-navigation";
 
 const publicRoutes = [
   "/manifest.json",
@@ -170,6 +171,12 @@ function forbiddenJson(authResponse: NextResponse) {
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  if (isComuBuyerPrivatePath(pathname)) {
+    const { user, response } = await getProxyUser(request);
+    if (!user) return copySupabaseCookies(response, NextResponse.redirect(new URL(comuLoginHref(pathname + request.nextUrl.search), request.url)));
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  }
 
   console.log("PROXY ACTIVO:", pathname);
 

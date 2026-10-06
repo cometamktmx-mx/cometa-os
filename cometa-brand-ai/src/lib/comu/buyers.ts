@@ -1,7 +1,8 @@
 import { createClient as createServerAuthClient } from "@/lib/supabase/server";
 import { getAdminClient, PosApiError } from "@/lib/pos/server";
-
+import { comuRegistrationProfile } from "./auth-navigation";
 import { requireComuActor } from "./seller-access";
+
 // Reads must not provision identity. Existing onboarding/write helper below is preserved.
 export async function readComuBuyerAccount() {
   const actor = await requireComuActor();
@@ -22,7 +23,11 @@ export async function requireComuBuyer() {
   const { data: { user }, error } = await auth.auth.getUser();
   if (error || !user) throw new PosApiError(401, "COMU_UNAUTHORIZED", "Inicia sesión para continuar.");
   const admin = getAdminClient();
-  const { data: buyer, error: buyerError } = await admin.from("comu_buyers").upsert({ user_id: user.id }, { onConflict: "user_id" }).select("*").single();
+  // Identity comes only from verified Auth. Metadata seeds a new profile, never
+  // overwrites an existing buyer or grants a seller/administrative role.
+  const { error: createError } = await admin.from("comu_buyers").upsert({ user_id: user.id, ...comuRegistrationProfile(user.user_metadata) }, { onConflict: "user_id", ignoreDuplicates: true });
+  if (createError) throw new PosApiError(500, "COMU_BUYER_LOOKUP_FAILED", "No se pudo preparar tu cuenta COMU.");
+  const { data: buyer, error: buyerError } = await admin.from("comu_buyers").select("*").eq("user_id", user.id).single();
   if (buyerError || !buyer) throw new PosApiError(500, "COMU_BUYER_LOOKUP_FAILED", "No se pudo preparar tu cuenta COMU.");
   return { user, buyer, admin };
 }
