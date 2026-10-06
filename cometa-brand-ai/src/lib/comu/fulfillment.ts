@@ -2,7 +2,7 @@ import { PosApiError } from "@/lib/pos/server";
 import { requireComuActor, requireSellerAccess } from "./seller-access";
 import { isOverdue } from "./business-days";
 import { LocalTestShippingProvider } from "./shipping-provider";
-import { requireComuBuyer } from "./buyers";
+import { readBuyerOrder } from "./buyer-orders";
 import { createClient } from "@/lib/supabase/server";
 import { readSellerOrders } from "./seller-orders";
 
@@ -94,8 +94,7 @@ export async function recordFulfillmentIncident(suborderId: string, incidentType
 }
 
 export async function getBuyerFulfillment(orderId: string) {
-  const { buyer, admin } = await requireComuBuyer();
-  const { data, error } = await admin.from("comu_orders").select("id,order_number,fulfillment_status,comu_order_suborders(fulfillment_status)").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
-  if (error || !data) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "El pedido no existe.");
-  return { id: data.id, orderNumber: data.order_number, status: data.fulfillment_status === "WAITING_FOR_SELLERS" ? "PREPARING" : data.fulfillment_status === "CONSOLIDATED" ? "READY_TO_SHIP" : data.fulfillment_status };
+  const order = await readBuyerOrder(orderId);
+  const status = ["IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(order.presentationStatus) ? "SHIPPED" : order.presentationStatus;
+  return { id: order.orderId, orderNumber: order.orderNumber, status };
 }

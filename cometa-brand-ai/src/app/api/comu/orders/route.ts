@@ -1,4 +1,14 @@
 import { NextResponse } from "next/server";
 import { getBuyerOrders, getSellerOrders } from "@/lib/comu/orders";
 import { requireComuFeature } from "@/lib/comu/features";
-export async function GET(request: Request) { try { requireComuFeature("catalog"); const sellerId = new URL(request.url).searchParams.get("sellerId"); const orders = sellerId ? await getSellerOrders(sellerId) : (await getBuyerOrders()).orders; return NextResponse.json({ ok: true, orders }); } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) || 500 : 500; return NextResponse.json({ ok: false, code: typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "COMU_ORDERS_FAILED", error: error instanceof Error ? error.message : "No se pudieron cargar las órdenes." }, { status }); } }
+import { buyerOrderFailure, buyerOrderHeaders, readBuyerOrders } from "@/lib/comu/buyer-orders";
+export async function GET(request: Request) {
+  try {
+    requireComuFeature("catalog");
+    const params = new URL(request.url).searchParams, sellerId = params.get("sellerId");
+    if (sellerId && params.get("contract") === "b1") return NextResponse.json({ ok: false, code: "COMU_BUYER_INPUT_INVALID", error: "Contexto Buyer no válido." }, { status: 400, headers: buyerOrderHeaders });
+    if (sellerId) return NextResponse.json({ ok: true, orders: await getSellerOrders(sellerId) }, { headers: buyerOrderHeaders });
+    const result = params.get("contract") === "b1" ? await readBuyerOrders(params) : await getBuyerOrders(params);
+    return NextResponse.json({ ok: true, ...result }, { headers: buyerOrderHeaders });
+  } catch (error) { const result = buyerOrderFailure(error); return NextResponse.json(result.body, { status: result.status, headers: buyerOrderHeaders }); }
+}

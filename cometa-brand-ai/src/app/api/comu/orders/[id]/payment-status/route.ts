@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireComuBuyer } from "@/lib/comu/buyers";
+import { requireComuBuyerRead } from "@/lib/comu/buyers";
 import { PosApiError } from "@/lib/pos/server";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export type PaymentStatus = {
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const headers = { "Cache-Control": "private, no-store" };
   try {
-    const { buyer, admin } = await requireComuBuyer();
+    const { buyer, admin } = await requireComuBuyerRead();
     const { id } = await params;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "Pedido no disponible.");
     const { data: order, error } = await admin.from("comu_orders")

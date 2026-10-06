@@ -1,5 +1,6 @@
 import { PosApiError } from "@/lib/pos/server";
-import { requireComuBuyer } from "./buyers";
+import { requireComuBuyer, requireComuBuyerRead } from "./buyers";
+import { readBuyerOrder, readBuyerOrderPage, legacyBuyerOrder } from "./buyer-orders";
 import { getStripeClient } from "./stripe";
 import { LocalTestShippingProvider } from "./shipping-provider";
 import { allocateShipping, chooseServices, estimateTextilePackage } from "./shipping-pricing";
@@ -53,39 +54,30 @@ export async function createOrderFromReservation(reservationId: string, idempote
   return { ...data, shipping_total: allocation.buyerShippingCharge, grand_total: grandTotal, shipping_snapshot: snapshot, shipping_mode: shippingMode };
 }
 
-export async function getBuyerOrders() {
-  const { buyer, admin } = await requireComuBuyer();
-  const { data, error } = await admin.from("comu_orders").select("*,comu_order_suborders(*,comu_sellers(public_name,slug)),comu_order_items(*,comu_order_item_snapshots(*))").eq("buyer_id", buyer.id).order("created_at", { ascending: false });
-  if (error) throw new PosApiError(500, "COMU_ORDERS_LOOKUP_FAILED", "No se pudieron cargar tus órdenes.");
-  return { buyer, admin, orders: data || [] };
+export async function getBuyerOrders(params = new URLSearchParams()) {
+  const { details, pagination } = await readBuyerOrderPage(params);
+  return { orders: details.map(legacyBuyerOrder), pagination };
 }
-
-export async function getBuyerOrder(orderId: string) {
-  const { buyer, admin } = await requireComuBuyer();
-  const { data, error } = await admin.from("comu_orders").select("*,comu_order_suborders(*,comu_sellers(public_name,slug)),comu_order_items(*,comu_order_item_snapshots(*))").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
-  if (error) throw new PosApiError(500, "COMU_ORDER_LOOKUP_FAILED", "No se pudo cargar la orden.");
-  if (!data) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "La orden no existe.");
-  return data;
-}
+export async function getBuyerOrder(orderId: string) { return readBuyerOrder(orderId); }
 
 export async function cancelBuyerOrder(orderId: string, restock = false) {
-  const { buyer, admin } = await requireComuBuyer();
-  const { data: existing } = await admin.from("comu_orders").select("id,status,comu_order_suborders(fulfillment_status)").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
+  const { buyer, admin } = await requireComuBuyerRead();
+  const { data: existing, error: lookupError } = await admin.from("comu_orders").select("id,status,comu_order_suborders(fulfillment_status)").eq("id", orderId).eq("buyer_id", buyer.id).maybeSingle();
+  if (lookupError) throw new PosApiError(503, "COMU_ORDER_LOOKUP_FAILED", "No se pudo consultar el pedido.");
   if (!existing) throw new PosApiError(404, "COMU_ORDER_NOT_FOUND", "La orden no existe.");
+  if (restock || existing.status !== "PAYMENT_PENDING") throw new PosApiError(409, "COMU_ORDER_NOT_CANCELLABLE", "Esta orden no se puede cancelar desde tu cuenta.");
   const fulfillment = (existing.comu_order_suborders || []) as Array<{ fulfillment_status?: string }>;
   if (fulfillment.some((suborder) => suborder.fulfillment_status && !["PAID", "PREPARING"].includes(suborder.fulfillment_status))) throw new PosApiError(409, "COMU_ORDER_FULFILLMENT_LOCKED", "Esta orden ya está lista para entrega y no se puede cancelar desde tu cuenta.");
-  const { data: payment } = await admin.from("comu_payment_intents").select("stripe_payment_intent_id,status").eq("order_id", orderId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const { data: payment, error: paymentError } = await admin.from("comu_payment_intents").select("stripe_payment_intent_id,status").eq("order_id", orderId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (paymentError) throw new PosApiError(503, "COMU_PAYMENT_LOOKUP_FAILED", "No se pudo validar el pago.");
+  if (payment && !["REQUIRES_PAYMENT", "CANCELLED", "FAILED"].includes(payment.status)) throw new PosApiError(409, "COMU_ORDER_NOT_CANCELLABLE", "Esta orden no se puede cancelar desde tu cuenta.");
   if (payment?.stripe_payment_intent_id && !["SUCCEEDED", "CANCELLED", "REFUNDED", "PARTIALLY_REFUNDED"].includes(payment.status)) {
-    await getStripeClient().paymentIntents.cancel(payment.stripe_payment_intent_id);
-  }
-  if (restock && existing.status !== "PAYMENT_PENDING") {
-    const { data: restocked, error: restockError } = await admin.rpc("comu_restock_paid_order_v1", { p_order_id: orderId });
-    if (restockError) throw new PosApiError(409, restockError.message || "COMU_ORDER_RESTOCK_FAILED", "No se pudo reintegrar el inventario.");
-    return { order_id: orderId, restocked_items: restocked, status: "CANCELLED" };
+    try { await getStripeClient().paymentIntents.cancel(payment.stripe_payment_intent_id); }
+    catch { throw new PosApiError(503, "COMU_ORDER_CANCEL_UNAVAILABLE", "No se pudo cancelar el pago. Consulta el estado del pedido antes de reintentar."); }
   }
   const { data, error } = await admin.rpc("comu_cancel_order", { p_order_id: orderId });
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_ORDER_CANCEL_FAILED", error?.message === "COMU_ORDER_NOT_CANCELLABLE" ? "Esta orden ya no se puede cancelar." : "No se pudo cancelar la orden.");
-  return data;
+  return { id: orderId, status: data.status };
 }
 
 export async function getSellerOrders(sellerId: string) {

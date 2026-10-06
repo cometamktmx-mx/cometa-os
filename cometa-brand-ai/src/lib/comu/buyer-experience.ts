@@ -15,3 +15,7 @@ export function sizeGuideFromTheme(theme: unknown, listingId: string): string | 
   const guide = config.sizeGuides?.[listingId] ?? config.sizeGuide;
   return typeof guide === "string" && guide.trim() ? guide.slice(0, 8000) : null;
 }
+
+export function buyerOrderPresentation(order: { status: string; presentationStatus?: string; presentationLabel?: string }) {
+  return { label: order.presentationLabel || buyerOrderStatus(order.status), group: order.presentationStatus === "DELIVERED" ? "Entregados" : "En proceso", tone: order.presentationStatus === "DELIVERED" ? "green" : "neutral" };
+}

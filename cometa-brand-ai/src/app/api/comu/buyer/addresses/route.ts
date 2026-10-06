@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 function failure(error: unknown) {
   const status = error instanceof PosApiError ? error.status : 500;
-  return NextResponse.json({ ok: false, code: status === 401 ? "COMU_UNAUTHORIZED" : "COMU_ADDRESS_FAILED", error: status === 401 ? "Inicia sesión para continuar." : status === 404 ? "Dirección no disponible." : status === 400 ? "Revisa los campos de tu dirección." : "No pudimos actualizar tus direcciones. Inténtalo nuevamente." }, { status });
+  return NextResponse.json({ ok: false, code: status === 401 ? "COMU_UNAUTHORIZED" : "COMU_ADDRESS_FAILED", error: status === 401 ? "Inicia sesión para continuar." : status === 404 ? "Dirección no disponible." : status === 400 ? "Revisa los campos de tu dirección." : "No pudimos actualizar tus direcciones. Inténtalo nuevamente." }, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 export async function GET() {
   try { const { buyer, addresses } = await getBuyerAddresses(); return NextResponse.json({ ok: true, buyer, addresses }, { headers: { "Cache-Control": "private, no-store" } }); }
