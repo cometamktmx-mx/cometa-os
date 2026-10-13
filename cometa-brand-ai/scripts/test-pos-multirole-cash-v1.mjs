@@ -14,6 +14,7 @@ function loader(overrides = {}) {
     if (cache.has(absolute)) return cache.get(absolute).exports;
     const loaded = { exports: {} }; cache.set(absolute, loaded);
     const localRequire = (name) => {
+      if (name === "@/lib/pos/client-transport") return { usePosFetch: () => globalThis.fetch };
       if (Object.hasOwn(overrides, name)) return overrides[name];
       if (name === "server-only") return {};
       if (name === "next/link") return { default: ({ children, ...props }) => { const linkProps = { ...props }; delete linkProps.prefetch; return React.createElement("a", linkProps, children); }, __esModule: true };

@@ -6,6 +6,8 @@ import { requirePosPageAccess } from "./lib/pos/admin-access";
 import { PosApiError } from "./lib/pos/server";
 import { isPublicComuRoute } from "./lib/comu/public-routes";
 import { comuLoginHref, isComuBuyerPrivatePath } from "./lib/comu/auth-navigation";
+import { assertBetaBackend, betaPublicPath } from "./lib/pos/beta-policy";
+import { isClosedComuPurchaseRequest } from "./lib/comu/purchase-access";
 
 const publicRoutes = [
   "/manifest.json",
@@ -170,7 +172,18 @@ function forbiddenJson(authResponse: NextResponse) {
 }
 
 export async function proxy(request: NextRequest) {
+  if (isClosedComuPurchaseRequest(request.nextUrl.pathname, request.method)) {
+    if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ ok: false, code: "COMU_PURCHASES_CLOSED", error: "Las compras públicas todavía no están habilitadas. El acceso para vendedores sigue disponible." }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    return new NextResponse('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><title>COMU · Compras próximamente</title><body style="background:#f8f5f0;color:#173e35;font-family:system-ui;padding:8vw"><h1>Estamos preparando las compras en COMU.</h1><p>El ingreso y la operación de vendedores siguen disponibles.</p><a href="/comu/sell">Vende en COMU</a> · <a href="/comu">Volver a COMU</a></body></html>', { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store" } });
+  }
   const pathname = request.nextUrl.pathname;
+  if (process.env.COMETA_RUNTIME_ENV === "beta" || process.env.POS_MOBILE_ENV === "beta") {
+    try { assertBetaBackend(process.env); }
+    catch { return NextResponse.json({ error: "Beta no configurada" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
+    if (!betaPublicPath(pathname, request.method)) return new NextResponse(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+    // Dedicated Beta exposes only the mobile API and public distribution/link pages.
+    return NextResponse.next();
+  }
   if (isComuBuyerPrivatePath(pathname)) {
     const { user, response } = await getProxyUser(request);
     if (!user) return copySupabaseCookies(response, NextResponse.redirect(new URL(comuLoginHref(pathname + request.nextUrl.search), request.url)));
@@ -301,6 +314,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     "/((?!_next/static|_next/image|favicon.ico|logo.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

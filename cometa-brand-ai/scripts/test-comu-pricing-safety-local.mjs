@@ -27,6 +27,7 @@ const admin = {
   from(table) {
     const rows = {
       comu_carts: { id: "cart" },
+      comu_inventory_reservations: null,
       comu_cart_items: [{ id: "item", listing_id: "listing", seller_id: "seller", variant_listing_id: "vl", quantity, comu_product_listings: listing, comu_variant_listings: variantListing }],
       pos_products: [{ id: "product", active: true, sellable: true }],
       pos_product_variants: [{ id: "variant", product_id: "product", price: retail, active: true }],
@@ -35,7 +36,7 @@ const admin = {
       comu_product_wholesale_overrides: override ? [override] : [], comu_wholesale_tiers: tiers,
     };
     assert.ok(Object.hasOwn(rows, table), `Unexpected table ${table}`);
-    const q = { select() { return q; }, upsert() { assert.equal(table, "comu_carts"); return q; }, eq() { return q; }, in() { return q; }, order() { return q; }, single() { return q; }, then(resolve) { return Promise.resolve({ data: rows[table], error: null }).then(resolve); } };
+    const q = { select() { return q; }, upsert() { assert.equal(table, "comu_carts"); return q; }, eq() { return q; }, in() { return q; }, order() { return q; }, single() { return q; }, maybeSingle() { return q; }, then(resolve) { return Promise.resolve({ data: rows[table], error: null }).then(resolve); } };
     return q;
   },
   async rpc(name, args) {
@@ -45,8 +46,9 @@ const admin = {
   },
 };
 const buyer = { requireComuBuyer: async () => ({ buyer: { id: "buyer" }, admin }) };
+buyer.requireComuBuyerRead = buyer.requireComuBuyer;
 const cart = load("src/lib/comu/cart.ts", { "@/lib/pos/server": errors, "./buyers": buyer, "./pricing-money": money });
-const reservations = load("src/lib/comu/reservations.ts", { "@/lib/pos/server": errors, "./cart": cart, "node:crypto": { randomUUID: () => "fixture-only" } });
+const reservations = load("src/lib/comu/reservations.ts", { "@/lib/pos/server": errors, "./cart": cart, "./buyers": buyer, "node:crypto": { randomUUID: () => "fixture-only" } });
 const price = async () => (await cart.getOrCreateCart()).items[0];
 let item = await price();
 assert.equal(item.effective_price, 400);
@@ -101,8 +103,8 @@ assert.equal(money.moneyCents(fractionalAllocation.buyerShippingCharge) + money.
 let authCalls = 0, orderWrites = 0, merchandise = 0, savedOrder = null;
 const orderAdmin = {
   from(table) {
-    let update;
-    const q = { select() { return q; }, eq() { return q; }, maybeSingle() { return q; }, single() { return q; },
+    let update, byKey = false;
+    const q = { select() { return q; }, eq(key) { if (key === "idempotency_key") byKey = true; return q; }, is() { return q; }, maybeSingle() { return q; }, single() { return q; },
       insert() { assert.equal(table, "comu_shipping_quotes"); orderWrites++; return q; },
       update(value) { assert.equal(table, "comu_orders"); update = value; orderWrites++; return q; },
       then(resolve) {
@@ -110,7 +112,7 @@ const orderAdmin = {
           : table === "comu_inventory_reservation_items" ? capturedReservation
           : table === "comu_order_items" ? [{ quantity: 2, subtotal: money.mxn(merchandise) }]
           : table === "comu_shipping_quotes" ? { id: "quote" }
-          : table === "comu_orders" ? (update ? (savedOrder = update) : savedOrder || { shipping_snapshot: {} })
+          : table === "comu_orders" ? (byKey ? null : update ? (savedOrder = { id: "order", ...update }) : savedOrder || { shipping_snapshot: {} })
           : assert.fail(`Unexpected table ${table}`);
         return Promise.resolve({ data, error: null }).then(resolve);
       } };
@@ -121,12 +123,13 @@ const orderAdmin = {
     // Mock the existing SQL contract: frozen MXN snapshot wins, not a new price.
     merchandise = capturedReservation.reduce((sum, row) => sum + money.lineCents(money.moneyCents(row.pricing_snapshot.finalUnitPrice), row.quantity), 0);
     orderWrites++;
-    return { data: { id: "order", subtotal: money.mxn(merchandise), grand_total: money.mxn(merchandise) }, error: null };
+    return { data: { id: "order", status: "PAYMENT_PENDING", subtotal: money.mxn(merchandise), grand_total: money.mxn(merchandise) }, error: null };
   },
 };
 function ordersFor(providerModule) {
   return load("src/lib/comu/orders.ts", {
-    "@/lib/pos/server": errors, "./buyers": { requireComuBuyer: async () => { authCalls++; return { buyer: { id: "buyer" }, admin: orderAdmin }; } },
+    "@/lib/pos/server": errors, "./buyers": { requireComuBuyerRead: async () => { authCalls++; return { buyer: { id: "buyer" }, admin: orderAdmin }; } },
+    "./buyer-orders": { readBuyerOrder() { assert.fail("Unexpected Buyer read"); }, readBuyerOrderPage() { assert.fail("Unexpected Buyer read"); }, legacyBuyerOrder() { assert.fail("Unexpected Buyer projection"); } },
     "./stripe": { getStripeClient() { assert.fail("Stripe must never be called"); } },
     "./shipping-provider": providerModule, "./shipping-pricing": shipping, "./pricing-money": money,
   });
@@ -154,18 +157,18 @@ assert.equal(orderWrites, 0, "Legacy zero snapshot rejected before order RPC");
 const productionOrders = ordersFor(load("src/lib/comu/shipping-provider.ts", {}, { NODE_ENV: "production" }));
 authCalls = 0; orderWrites = 0;
 await assert.rejects(() => productionOrders.createOrderFromReservation("reservation", "blocked", {}), error => error.code === "COMU_SHIPPING_PRODUCTION_QUOTE_REQUIRED");
-assert.equal(authCalls, 0);
+assert.equal(authCalls, 1, "Identity read precedes replay; no Buyer provisioning");
 assert.equal(orderWrites, 0);
 const response = { json(body, options) { return { body, status: options?.status || 200 }; } };
 for (const path of ["src/app/api/comu/checkout/route.ts", "src/app/api/comu/shipping/quote/route.ts"]) {
   const api = load(path, { "next/server": { NextResponse: response }, "node:crypto": {},
     "@/lib/pos/server": errors, "@/lib/comu/orders": productionOrders,
     "@/lib/comu/features": { requireComuFeature() {} },
-    "@/lib/comu/buyers": { requireComuBuyer() { assert.fail("Must block before any buyer write"); } },
+    "@/lib/comu/buyers": { requireComuBuyer() { assert.fail("Must block before any buyer write"); }, requireComuBuyerRead: async () => ({ buyer: { id: "buyer" }, admin: orderAdmin }) },
     "@/lib/comu/reservations": { createReservation() { assert.fail("Must block before reservation"); } },
     "@/lib/comu/shipping-pricing": shipping,
   });
-  const result = await api.POST({ json: async () => ({ provider: "LOCAL_TEST", subtotal: 0 }) });
+  const result = await api.POST({ json: async () => ({ provider: "LOCAL_TEST", subtotal: 0, idempotencyKey: "production-test", addressId: "00000000-0000-4000-8000-000000000001" }) });
   assert.equal(result.status, 409);
   assert.equal(result.body.code, "COMU_SHIPPING_PRODUCTION_QUOTE_REQUIRED");
 }

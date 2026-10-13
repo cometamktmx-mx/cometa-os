@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+const module={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('packages/own-storefront/catalog-contract.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,URL,URLSearchParams});
+const {catalogQuery,catalogHref,parseCatalogConfig,defaultCatalog}=module.exports;
+const q=catalogQuery(new URLSearchParams('q=algodón&color=Rosa&size=M&min=10&max=100&available=1&sort=price_desc&page=3'));
+assert.deepEqual(catalogQuery(new URL(catalogHref(q),'https://example.test').searchParams),q);
+assert.equal(catalogQuery(new URLSearchParams('page=-5&min=NaN&max=Infinity&sort=invalid')).page,1);
+assert.equal(catalogQuery(new URLSearchParams('page=-5&min=NaN&max=Infinity&sort=invalid')).min,'');
+assert.equal(catalogQuery(new URLSearchParams(),'name').sort,'name');
+assert.deepEqual(parseCatalogConfig(undefined,'brand'),defaultCatalog());
+assert.throws(()=>parseCatalogConfig({...defaultCatalog(),banner:'other/web/asset.jpg'},'brand'));
+assert.throws(()=>parseCatalogConfig({...defaultCatalog(),columns:100},'brand'));
+assert.throws(()=>parseCatalogConfig({...defaultCatalog(),filters:['secret']},'brand'));
+assert.equal(new URL(catalogHref(q,{color:'',page:1}),'https://example.test').searchParams.has('color'),false);
+console.log('PASS M4 contract: URL round-trip, individual reset, invalid pagination/prices/order, defaults, brand media and config bounds');

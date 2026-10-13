@@ -11,14 +11,49 @@ import { createServerClient } from "@supabase/ssr";
 const fileEnv = parseEnv(await readFile(new URL("../.env.local", import.meta.url), "utf8"));
 const env = { ...fileEnv, ...process.env };
 const supabaseUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL || "");
-if (env.NODE_ENV === "production" || env.VERCEL || supabaseUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(supabaseUrl.hostname) || supabaseUrl.port !== "54321") throw new Error("LOCAL_DB_GUARD_FAILED");
+if (env.NODE_ENV === "production" || env.VERCEL || supabaseUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(supabaseUrl.hostname) || supabaseUrl.port !== "54321" || supabaseUrl.username || supabaseUrl.password) throw new Error("LOCAL_DB_GUARD_FAILED");
+const admin = createClient(supabaseUrl.origin, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: (input, options) => {
+    const target = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (target.origin !== supabaseUrl.origin) throw new Error("LOCAL_DB_REQUEST_GUARD_FAILED");
+    return fetch(input, { ...options, redirect: "error", signal: AbortSignal.timeout(15000) });
+  } },
+});
+
+// Explicit recovery: first confirm that the specified run is no longer active.
+async function hideFixtureListings(ids, fixtureRun) {
+  if (!/^stripe-e2e-\d{13}-[a-f0-9]{8}$/.test(fixtureRun)) throw new Error("INVALID_FIXTURE_RUN");
+  const slug = fixtureRun + "-listing-b";
+  const rows = ok(await admin.from("comu_product_listings").select("id,public_slug,seller_id,product_id,status").eq("public_slug", slug), "cleanup listings");
+  for (const row of rows.filter(row => !ids || ids.includes(row.id))) {
+    const seller = ok(await admin.from("comu_sellers").select("brand_id,brand_slug,slug").eq("id", row.seller_id).maybeSingle(), "cleanup seller");
+    const product = ok(await admin.from("pos_products").select("brand_id,brand_slug,name").eq("id", row.product_id).maybeSingle(), "cleanup product");
+    if (!seller || !product || seller.brand_slug !== "comu-stripe-smoke-local" || product.brand_slug !== seller.brand_slug || product.brand_id !== seller.brand_id || seller.slug !== fixtureRun + "-seller-b" || product.name !== fixtureRun + " Product B") throw new Error("FIXTURE_OWNERSHIP_MISMATCH");
+    if (row.status === "HIDDEN") continue;
+    ok(await admin.from("comu_product_listings").update({ status: "HIDDEN" }).eq("id", row.id).eq("public_slug", slug).eq("seller_id", row.seller_id).eq("product_id", row.product_id), "hide fixture listing");
+  }
+  const remaining = ok(await admin.from("comu_product_listings").select("id").eq("public_slug", slug).eq("status", "PUBLISHED"), "verify cleanup");
+  if (remaining.some(row => !ids || ids.includes(row.id))) throw new Error("FIXTURE_STILL_PUBLISHED");
+}
+function ok(result, label) { if (result.error) throw new Error(label + ": " + result.error.message); return result.data; }
+
+async function main() {
+if (process.argv.length > 2) {
+  if (process.argv.length !== 4 || process.argv[2] !== "--cleanup-run") throw new Error("USAGE: --cleanup-run <inactive-run-prefix>");
+  await hideFixtureListings(null, process.argv[3]);
+  console.log("Local recovery complete; matching listings hidden or already absent/hidden.");
+  return;
+}
 const stripeSecret = String(env.COMU_STRIPE_SECRET_KEY || "");
 if (!stripeSecret.startsWith("sk_test_")) throw new Error("STRIPE_TEST_SECRET_REQUIRED");
 const stripe = new Stripe(stripeSecret, { maxNetworkRetries: 1, timeout: 20000 });
 const platform = await stripe.accounts.retrieve();
 if (platform.livemode === true) throw new Error("STRIPE_LIVEMODE_REJECTED");
-const admin = createClient(supabaseUrl.origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
 const run = `stripe-e2e-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+console.log(`Fixture run: ${run}`);
+const createdListingIds = [];
 const email = `${run}@example.test`;
 const password = `Cert-${crypto.randomUUID()}-Aa1!`;
 const user = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -34,7 +69,6 @@ const createdReservations = [];
 const inventoryBefore = new Map();
 const failedMode = process.env.COMU_FAILED_PAYMENT === "1";
 
-function ok(result, label) { if (result.error) throw new Error(`${label}: ${result.error.message}`); return result.data; }
 async function waitForServer() {
   let output = "";
   child?.stdout?.on("data", (chunk) => { output += String(chunk); });
@@ -98,6 +132,7 @@ try {
   ok(await admin.from("comu_storefronts").insert({ id: storefrontB, seller_id: sellerB, name: `${run} Store B`, slug: `${run}-store-b`, status: "ACTIVE" }), "storefront B");
   ok(await admin.from("pos_products").insert({ id: productB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", name: `${run} Product B`, product_type: "physical", track_inventory: true, inventory_mode: "direct", default_unit_code: "piece", tax_rate: 0, active: true, sellable: true, has_variants: true }), "product B");
   ok(await admin.from("pos_product_variants").insert({ id: variantB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", product_id: productB, name: "Variant B", sku: `${run}-B`, price: 199, cost: 0, unit_code: "piece", attributes: {}, active: true, is_default: true, variant_signature: {} }), "variant B");
+  createdListingIds.push(listingB); // Register before insert: also covers an ambiguous network response.
   ok(await admin.from("comu_product_listings").insert({ id: listingB, seller_id: sellerB, storefront_id: storefrontB, product_id: productB, public_slug: `${run}-listing-b`, status: "PUBLISHED", title_override: `${run} Product B`, retail_price_override: 199 }), "listing B");
   ok(await admin.from("comu_variant_listings").insert({ id: variantListingB, listing_id: listingB, variant_id: variantB, enabled: true, price_override: 199 }), "variant listing B");
   ok(await admin.from("pos_inventory").insert({ id: inventoryB, brand_id: brand.brand_id, brand_slug: "comu-stripe-smoke-local", location_id: location.id, variant_id: variantB, quantity: 20, reserved_quantity: 0, minimum_quantity: 0 }), "inventory B");
@@ -147,7 +182,7 @@ try {
     const failedMovements = ok(await admin.from("pos_inventory_movements").select("id").in("variant_id", [variantListing.variant_id, variantB]).eq("reference_type", "comu_order_item").in("reference_id", failedOrderItems.map((row) => row.id)), "failed movements");
     assert.equal(failedPayment.status, "FAILED"); assert.equal(failedPayment.stripe_charge_id, null); assert.equal(failedPayment.stripe_fee_finalized_at, null); assert.equal(failedOrder.status, "PAYMENT_PENDING"); assert.ok(failedSuborders.every((row) => row.status !== "PAID" && !row.delivered_at && !row.guarantee_expires_at)); assert.ok(failedFinance.every((row) => row.finance_ready === false)); assert.equal(Number(failedInventoryA.quantity), Number(stock.quantity)); assert.equal(Number(failedInventoryB.quantity), Number(stockB.quantity)); assert.equal(failedMovements.length, 0);
     console.log(JSON.stringify({ localDb: true, stripeTest: true, failedPaymentIntentId: intent.id, failedChargeId: failedCharge?.id || null, failedChargePaid: failedCharge?.paid ?? null, successfulCharge: null, paymentStatus: intent.status, canonicalPaymentStatus: failedPayment.status, orderStatus: failedOrder.status, suborders: failedSuborders, financeReady: failedFinance, physicalInventoryConsumed: false, reservationStatus: reservation.status, duplicateFailureNoOp: Boolean(failedSecond.body.duplicate), failedWebhookDelivery: "PARTIAL" }, null, 2));
-    child.kill("SIGTERM"); await admin.auth.admin.deleteUser(userId).catch(() => {}); process.exit(0);
+    return; // Always execute finally, including the declined-payment scenario.
   }
   if (intent.livemode !== false || intent.status !== "succeeded") throw new Error(`PAYMENT_CONFIRMATION_FAILED:${intent.status}`);
   const expanded = await stripe.paymentIntents.retrieve(intent.id, { expand: ["latest_charge.balance_transaction"] });
@@ -179,7 +214,14 @@ try {
   assert.equal(allocation.length, 2); assert.equal(allocation.reduce((sum, row) => sum + Number(row.gross_amount_cents), 0) + Number(order.shipping_total) * 100, payment.amount_cents);
   console.log(JSON.stringify({ localDb: true, stripeTest: true, platformAccountId: platform.id, paymentIntentId: intent.id, chargeId: charge.id, balanceTransactionId: balance.id, actualFeeCents: balance.fee, paymentIntentAmountCents: expanded.amount, orderId, paymentId: payment.id, financeReadyPerAllocation: finance.map((row) => row.finance_ready), allocationGrossCents: allocation.map((row) => row.gross_amount_cents), feeSharesCents: finance.map((row) => row.stripe_processing_fee_share_cents), transferGroup: reconciled.transfer_group, sourceTransaction: charge.id, transferCount: 0, actualStripeWebhookDelivery: "PARTIAL", duplicateWebhookNoOp: Boolean(second.body.duplicate), inventoryMovementCount: movements.length, economics: economics.result }, null, 2));
 } finally {
-  if (child) child.kill("SIGTERM");
-  await delay(500);
-  await admin.auth.admin.deleteUser(userId).catch(() => {});
+  try {
+    await hideFixtureListings(createdListingIds, run);
+  } finally {
+    if (child) child.kill("SIGTERM");
+    await delay(500);
+    await admin.auth.admin.deleteUser(userId).catch(() => {});
+  }
 }
+}
+
+await main();

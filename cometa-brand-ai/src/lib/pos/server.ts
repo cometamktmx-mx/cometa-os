@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { mobileTransport } from "./transport-server";
 import { getPosAccountRole } from "@/lib/pos/surface-policy";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -121,7 +122,10 @@ async function getAuthenticatedUser(
     }
   );
 
-  const { data: sessionData, error: sessionError } = await authClient.auth.getSession();
+  const bearer = mobileTransport()?.bearer;
+  const { data: sessionData, error: sessionError } = bearer
+    ? { data: { session: { access_token: bearer } }, error: null }
+    : await authClient.auth.getSession();
   if (sessionError || !sessionData.session) throw new PosApiError(401, "POS_UNAUTHORIZED", "Inicia sesión para utilizar Cometa POS.");
   const {
     data: { user },
@@ -192,7 +196,7 @@ async function getAuthenticatedUser(
     )
   );
 
-  if (!role && allowedBrandSlugs.length === 0) {
+  if (!role && allowedBrandSlugs.length === 0 && !mobileTransport()?.discovery) {
     throw new PosApiError(403, "POS_ACCOUNT_ACCESS_DENIED", "Tu cuenta no tiene acceso a esta superficie POS.");
   }
 
@@ -205,6 +209,8 @@ async function getAuthenticatedUser(
     allowedBrandSlugs,
   };
 }
+
+export async function requirePosUser() { return getAuthenticatedUser(getAdminClient()); }
 
 export async function requirePosContext(
   requestedBrandSlug: string,
@@ -237,6 +243,7 @@ export async function requirePosContext(
   }
 
   const resolvedSlug = slugifyBrand(resolvedBrand.slug);
+  mobileTransport()?.authorizeContext?.(user.userId, resolvedSlug);
 
   if (
     !user.isAdmin &&
@@ -290,7 +297,11 @@ export async function requirePosContext(
   if (!options?.deviceManagement) {
     const { resolvePosDevice } = await import("./device-server");
     context.device = await resolvePosDevice(context, requestCookies);
+    if (mobileTransport() && !mobileTransport()?.discovery && !context.device) {
+      throw new PosApiError(401, "POS_DEVICE_REQUIRED", "Enrola esta terminal para operar.");
+    }
   }
+  mobileTransport()?.authorizeContext?.(user.userId, resolvedSlug, context.device?.locationId);
   return context;
 }
 

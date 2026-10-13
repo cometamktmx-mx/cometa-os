@@ -1,3 +1,5 @@
+import { physicalRequestedForProduct } from "@/lib/pos/product-channels";
+import { getPosMode } from "@/lib/pos/staff-server";
 import {
   assertDatabaseResult,
   fail,
@@ -70,8 +72,8 @@ export async function GET(request: Request) {
       160
     );
 
-    const { admin, brand } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+    const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+    const { admin, brand } = context;
 
     const normalizedCode = code.trim();
 
@@ -152,6 +154,11 @@ export async function GET(request: Request) {
         409,
         "POS_SCANNED_PRODUCT_NOT_SELLABLE"
       );
+    }
+
+    if (url.searchParams.get("surface") !== "administration" && await getPosMode(context) === "RETAIL" &&
+        !(await physicalRequestedForProduct(admin, String(variant.product.id)))) {
+      return fail("Este producto no est? seleccionado para tienda f?sica.", 409, "POS_SCANNED_PRODUCT_NOT_SELLABLE");
     }
 
     const inventory = (

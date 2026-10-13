@@ -1,9 +1,11 @@
 ﻿import { NextResponse } from "next/server";
 import { PosApiError } from "@/lib/pos/server";
+import { closedComuPurchaseResponse } from "@/lib/comu/purchase-access";
 import { requireComuBuyer } from "@/lib/comu/buyers";
 import { requireCheckoutShippingProvider } from "@/lib/comu/orders";
 import { allocateShipping, chooseServices, estimateTextilePackage } from "@/lib/comu/shipping-pricing";
 export async function POST(request: Request) {
+  const closed = closedComuPurchaseResponse(); if (closed) return closed;
   try {
     const provider = requireCheckoutShippingProvider();
     const { buyer, admin } = await requireComuBuyer();

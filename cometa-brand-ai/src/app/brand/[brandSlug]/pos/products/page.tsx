@@ -1,4 +1,6 @@
 "use client";
+import { ProductSalesChannels } from "./product-channels";
+import { ProductWebEditor } from "./product-web-editor";
 
 import { legacyVariantSignature as variantSignature, generateMissingSkus as generateVariantSkus, generateCombinations, reconcileVariants, POS_VARIANT_LIMIT } from "@/lib/pos/product-variants";
 
@@ -374,6 +376,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
   const [pendingProductId, setPendingProductId] =
     useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorTab, setEditorTab] = useState<"catalog" | "web">("catalog");
+  const [webDirty, setWebDirty] = useState(false);
   const [editingProduct, setEditingProduct] =
     useState<Product | null>(null);
   const [activeChangeProduct, setActiveChangeProduct] =
@@ -1530,7 +1534,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         await apiRequest<ProductScanResponse>(
           `/api/pos/product-scan?brandSlug=${encodeURIComponent(
             brand.slug
-          )}&code=${encodeURIComponent(
+          )}&surface=administration&code=${encodeURIComponent(
             normalizedCode
           )}`
         );
@@ -1748,10 +1752,13 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         <PosDrawer
           open={isEditorOpen}
           onClose={() => {
+            if (webDirty && !window.confirm("Hay cambios sin guardar en Ficha web. ¿Cerrar y descartarlos?")) return;
+            setWebDirty(false);
             setIsEditorOpen(false);
             setEditingProduct(null);
           }}
           width="large"
+          className={!foodDirect && editorTab === "web" ? "sm:!max-w-[1440px]" : ""}
           title={isEditing ? "Editar producto" : foodDirect ? "Nuevo listo para vender" : "Nuevo producto"}
           description={
             isEditing
@@ -1760,9 +1767,13 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           }
           dismissible={!isSavingProduct}
         >
+        {!foodDirect ? <nav className="mb-4 flex gap-3" aria-label="Editor del producto"><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "catalog"} onClick={() => { if (webDirty && !window.confirm("Hay cambios sin guardar. Continuar descarta el borrador local.")) return; setWebDirty(false); setEditorTab("catalog"); }}>Producto y variantes</button><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "web"} onClick={() => setEditorTab("web")}>Ficha web</button></nav> : null}
+        {!foodDirect && editorTab === "web" ? <ProductWebEditor key={`${editingProduct?.id ?? "new"}-${selectedLocation?.id ?? "all"}`} brandSlug={brand.slug} productId={editingProduct?.id ?? null} locationId={selectedLocation?.id} onDirtyChange={setWebDirty} /> : null}
+        {editorTab !== "web" && (!foodDirect ? <ProductSalesChannels key={editingProduct?.id ?? "new"} brandSlug={brand.slug} productId={editingProduct?.id ?? null} /> : null)}
         <article
           ref={createFormRef}
           id="new-product-form"
+          hidden={!foodDirect && editorTab === "web"}
           className="scroll-mt-5"
         >
           <SectionTitle
@@ -2046,7 +2057,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
             <div className="grid gap-3 md:grid-cols-2">
               <ToggleRow
                 title="Disponible para venta"
-                description="Aparecer? en la terminal."
+                description="Elegibilidad general de venta, compartida con COMU. Los canales se eligen por separado."
                 checked={productForm.sellable}
                 onChange={(checked) =>
                   setProductForm((current) => ({

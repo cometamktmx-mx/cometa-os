@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import {randomUUID} from 'node:crypto';
+const scope={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/pos/product-web-contract.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,scope);
+const {emptyWebContent,parseWebContent,webPhotos,webMediaPaths}=scope.exports;
+const doc=JSON.parse(JSON.stringify(emptyWebContent())),id=randomUUID(),v1=randomUUID(),v2=randomUUID(),v3=randomUUID();
+const photo=`brand/web/${randomUUID()}/${randomUUID()}.jpg`;
+doc.colors=[{id,name:'Color',variantIds:[v1,v2],hex:'',swatchPath:'',photos:[{path:photo,alt:'Explicit'}]},{id:randomUUID(),name:'Other',variantIds:[v3],hex:'#ffffff',swatchPath:'',photos:[]}];
+const parsed=parseWebContent(doc,'brand');assert.equal(parsed.colors[0].variantIds.length,2);
+assert.equal(webPhotos(parsed,id)[0].path,photo);assert.equal(webPhotos(parsed,doc.colors[1].id).length,0,'no fallback to another color');
+assert.equal(webMediaPaths(parsed).length,1);
+doc.colors[1].photos=[{path:photo,alt:'Explicit shared assignment'}];assert.equal(webPhotos(parseWebContent(doc,'brand'),doc.colors[1].id).length,1);
+for(const bad of [null,{...doc,price:1},{...doc,relatedIds:[v1,v1]},{...doc,colors:[doc.colors[0],{...doc.colors[1],variantIds:[v1]}]},{...doc,guide:{...doc.guide,imagePath:photo.replace('brand/','other/')}},{...doc,guide:{...doc.guide,columns:['A'],rows:[['a','b']]}},{...doc,colors:[{...doc.colors[0],photos:[{path:'javascript:alert(1)',alt:''}]}]},{...doc,benefits:[{id,icon:'<svg onload=alert(1)>',title:'x',description:'',enabled:true}]}])assert.throws(()=>parseWebContent(bad,'brand'));
+console.log('PASS M2 contract: explicit shared photos across sizes, no color fallback, bounds/shape/duplicate/media validation, no price payload');

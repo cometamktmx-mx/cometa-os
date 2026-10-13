@@ -1,3 +1,5 @@
+import { physicalExclusions } from "@/lib/pos/product-channels";
+import { getPosMode } from "@/lib/pos/staff-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -73,8 +75,8 @@ const LIVE_INVENTORY_MODES = new Set([
 export async function GET(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+    const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.products" });
+    const { admin, brand } = context;
 
     const { page, pageSize, from, to } =
       getPagination(request);
@@ -131,6 +133,11 @@ export async function GET(request: Request) {
         ascending: false,
       })
       .range(from, to);
+
+    if (url.searchParams.get("channel") === "physical" && await getPosMode(context) === "RETAIL") {
+      const excluded = await physicalExclusions(admin, brand.slug);
+      if (excluded.length) query = query.not("id", "in", `(${excluded.join(",")})`);
+    }
 
     if (search) {
       query = query.ilike(

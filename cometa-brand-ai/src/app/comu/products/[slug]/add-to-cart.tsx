@@ -11,6 +11,7 @@ export default function AddToCart({ variants, listingId, image, run, allowPieces
   const lock = useRef(false), button = useRef<HTMLButtonElement>(null); const { items, accepted } = useCommerce(); const router = useRouter();
   const selected = variants.find(row => row.id === selectedId && row.available);
   const available = Boolean(selected && (mode === "PIECES" ? allowPieces : run && run.availableRuns >= quantity));
+  if (process.env.NEXT_PUBLIC_COMU_PURCHASES_ENABLED !== "true") return <p role="status" className="mt-7 rounded-2xl bg-[#e2eadf] p-5 text-[#173e35]">Las compras públicas todavía no están habilitadas.</p>;
   async function add(buyNow = false) {
     if (lock.current || !available) return;
     if (!Number.isSafeInteger(quantity) || quantity < 1) { setMessage("Elige una cantidad válida."); return; }

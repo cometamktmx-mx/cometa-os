@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="240dp" android:height="240dp" android:gravity="center">
+        <bitmap android:src="@drawable/splash" android:gravity="fill" android:tint="#F7F9FA" />
+    </item>
+    <item android:width="42dp" android:height="14dp" android:gravity="center" android:top="92dp">
+        <vector android:width="42dp" android:height="14dp" android:viewportWidth="42" android:viewportHeight="14">
+            <path android:strokeColor="#62DDCE" android:strokeWidth="1.4" android:fillColor="@android:color/transparent" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M2,12 L2,2 L7,2 Q11,2 11,5 Q11,8 7,8 L2,8 M18,2 L23,2 Q25,2 25,4 L25,10 Q25,12 23,12 L18,12 Q16,12 16,10 L16,4 Q16,2 18,2 M39,2 L34,2 Q31,2 31,5 Q31,7 35,7 Q39,7 39,10 Q39,12 36,12 L31,12" />
+        </vector>
+    </item>
+</layer-list>

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireComuFeature } from "@/lib/comu/features";
 import { createReservation } from "@/lib/comu/reservations";
+import { closedComuPurchaseResponse } from "@/lib/comu/purchase-access";
 import { PosApiError } from "@/lib/pos/server";
 
 export async function POST(request: Request) {
+  const closed = closedComuPurchaseResponse(); if (closed) return closed;
   try {
     requireComuFeature("catalog");
     const body = await request.json() as { idempotencyKey?: unknown };

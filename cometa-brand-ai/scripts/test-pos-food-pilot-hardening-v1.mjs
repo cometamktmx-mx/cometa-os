@@ -10,9 +10,10 @@ const require = createRequire(import.meta.url);
 const base = 'src/app/brand/[brandSlug]/';
 const read = file => readFileSync(file, 'utf8');
 function compile(source, deps = {}) {
+  deps['@/lib/pos/client-transport'] ??= { usePosFetch: () => globalThis.fetch };
   const loaded = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
-  new Function('require', 'module', 'exports', code)(name => Object.hasOwn(deps, name) ? deps[name] : require(name), loaded, loaded.exports);
+  new Function('require', 'module', 'exports', code)(name => Object.hasOwn(deps, name) ? deps[name] : name === '@/lib/pos/offline-storage' ? compile(read('src/lib/pos/offline-storage.ts')) : require(name), loaded, loaded.exports);
   return loaded.exports;
 }
 function componentFunction(file, name, prelude = '') {

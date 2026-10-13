@@ -1,5 +1,7 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomUUID } from "node:crypto";
+import { assertWebAdministrator } from "@/lib/pos/product-web";
+import { getPosMode } from "@/lib/pos/staff-server";
 import {
   getBrandSlugFromUrl,
   handlePosError,
@@ -31,7 +33,13 @@ type DeleteImageBody = {
 export async function POST(request: Request) {
   try {
     const requestedBrandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosMutationAccess({ brandSlug: requestedBrandSlug, operation: "products.write" });
+    const context = await requirePosMutationAccess({ brandSlug: requestedBrandSlug, operation: "products.write" });
+    const { admin, brand } = context;
+    const web = new URL(request.url).searchParams.get("purpose") === "web";
+    if (web) {
+      assertWebAdministrator(context);
+      if (await getPosMode(context) !== "RETAIL") throw new PosApiError(409, "POS_WEB_RETAIL_ONLY", "Ficha web disponible para Retail.");
+    }
     let formData: FormData;
 
     try {
@@ -89,7 +97,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const storagePath = `${brand.slug}/${randomUUID()}/${randomUUID()}.${detectedImage.extension}`;
+    // Immutable web namespace: legacy DELETE accepts only three segments and
+    // cannot remove photos still referenced by a draft/published web version.
+    const storagePath = `${brand.slug}/${web ? "web/" : ""}${randomUUID()}/${randomUUID()}.${detectedImage.extension}`;
     const { error: uploadError } = await admin.storage
       .from(BUCKET_NAME)
       .upload(storagePath, bytes, {

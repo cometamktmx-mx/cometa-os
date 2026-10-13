@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const base = 'src/app/brand/[brandSlug]/';
 const read = path => readFileSync(path, 'utf8');
 function compile(source, deps = {}) {
+  deps['@/lib/pos/client-transport'] ??= { usePosFetch: () => globalThis.fetch };
   const loaded = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   new Function('require', 'module', 'exports', code)(name => Object.hasOwn(deps, name) ? deps[name] : require(name), loaded, loaded.exports);

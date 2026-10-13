@@ -44,7 +44,7 @@ export async function GET(request: Request) {
         planCode: access.effective.planCode,
         planSource: access.effective.planSource,
       } : null,
-      grant: { active: grant.active, code: grant.active ? "COMETA-AGENCY-6M" : null, type: grant.type, startsAt: grant.startsAt, endsAt: grant.endsAt, daysRemaining },
+      grant: { active: grant.active, code: grant.active ? "COMPLIMENTARY" : null, type: grant.type, startsAt: grant.startsAt, endsAt: grant.endsAt, daysRemaining },
       stripe: { connected: Boolean(link?.stripe_customer_id), customerConnected: Boolean(link?.stripe_customer_id), subscriptionConnected: Boolean(link?.stripe_subscription_id), livemode },
     });
   } catch (error) {

@@ -6,6 +6,7 @@ import ts from "typescript";
 const require = createRequire(import.meta.url);
 class PosApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
 function compile(file, dependencies) {
+  if (dependencies["next/headers"]) dependencies["@/lib/pos/transport-server"] = { posCookies: dependencies["next/headers"].cookies };
   const loaded = { exports: {} };
   const code = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   new Function("require", "module", "exports", code)((name) => Object.hasOwn(dependencies, name) ? dependencies[name] : require(name), loaded, loaded.exports);

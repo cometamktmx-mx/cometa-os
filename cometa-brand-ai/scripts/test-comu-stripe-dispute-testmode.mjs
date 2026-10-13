@@ -11,15 +11,23 @@ import { createServerClient } from "@supabase/ssr";
 const fileEnv = parseEnv(await readFile(new URL("../.env.local", import.meta.url), "utf8"));
 const env = { ...fileEnv, ...process.env };
 const supabaseUrl = new URL(env.NEXT_PUBLIC_SUPABASE_URL || "");
-if (env.NODE_ENV === "production" || env.VERCEL || supabaseUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(supabaseUrl.hostname) || supabaseUrl.port !== "54321") throw new Error("LOCAL_DB_GUARD_FAILED");
+if (env.NODE_ENV === "production" || env.VERCEL || supabaseUrl.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(supabaseUrl.hostname) || supabaseUrl.port !== "54321" || supabaseUrl.username || supabaseUrl.password) throw new Error("LOCAL_DB_GUARD_FAILED");
 const secret = String(env.COMU_STRIPE_SECRET_KEY || "");
 if (!secret.startsWith("sk_test_")) throw new Error("STRIPE_TEST_SECRET_REQUIRED");
 if (!env.COMU_STRIPE_WEBHOOK_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("CERTIFICATION_ENV_MISSING");
 const stripe = new Stripe(secret, { maxNetworkRetries: 1, timeout: 20000 });
 const platform = await stripe.accounts.retrieve();
 if (platform.livemode === true) throw new Error("STRIPE_LIVEMODE_REJECTED");
-const admin = createClient(supabaseUrl.origin, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const admin = createClient(supabaseUrl.origin, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+  global: { fetch: (input, options) => {
+    const target = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (target.origin !== supabaseUrl.origin) throw new Error("LOCAL_DB_REQUEST_GUARD_FAILED");
+    return fetch(input, { ...options, redirect: "error", signal: AbortSignal.timeout(15000) });
+  } },
+});
 const run = `stripe-dispute-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+const createdListings = [];
 const email = `${run}@example.test`;
 const password = `Cert-${crypto.randomUUID()}-Aa1!`;
 const user = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -32,6 +40,17 @@ const certificationStartedAt = new Date().toISOString();
 let child;
 
 function data(result, label) { if (result.error) throw new Error(`${label}: ${result.error.message}`); return result.data; }
+async function hideCreatedListings() {
+  const failures = [];
+  for (const listing of createdListings) {
+    try {
+      data(await admin.from("comu_product_listings").update({ status: "HIDDEN" }).eq("id", listing.id).eq("public_slug", listing.slug).eq("seller_id", listing.sellerId).eq("product_id", listing.productId), "hide dispute fixture");
+      const row = data(await admin.from("comu_product_listings").select("status").eq("id", listing.id).maybeSingle(), "verify dispute cleanup");
+      if (row && row.status !== "HIDDEN") throw new Error("DISPUTE_FIXTURE_STILL_VISIBLE");
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length) throw new AggregateError(failures, "DISPUTE_FIXTURE_CLEANUP_FAILED");
+}
 async function postJson(path, cookie, body) {
   const response = await fetch(`${base}${path}`, { method: "POST", headers: { Cookie: cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
   const text = await response.text();
@@ -88,6 +107,8 @@ async function createOrder(paymentMethod) {
   data(await admin.from("pos_product_variants").insert({ id: variant.id, brand_id: seller.brand_id, brand_slug: brand.brand_slug, product_id: listing.product_id, name: "Variant", sku: `${run}-${crypto.randomUUID()}`, price: 199, cost: 0, unit_code: "piece", attributes: {}, active: true, is_default: true, variant_signature: {} }), "variant");
   if (!existingStorefront) data(await admin.from("comu_storefronts").insert({ id: storefront, seller_id: listing.seller_id, name: `${run} Store`, slug: `${run}-store`, status: "ACTIVE" }), "storefront");
   const listingSlug = `${run}-${paymentMethod}-${crypto.randomUUID()}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  // Register before insert so cleanup also covers an ambiguous network response.
+  createdListings.push({ id: listing.id, slug: listingSlug, sellerId: listing.seller_id, productId: listing.product_id });
   data(await admin.from("comu_product_listings").insert({ id: listing.id, seller_id: listing.seller_id, storefront_id: storefront, product_id: listing.product_id, public_slug: listingSlug, status: "PUBLISHED", title_override: `${run} Product`, retail_price_override: 199 }), "listing");
   data(await admin.from("comu_variant_listings").insert({ id: variantListing.id, listing_id: listing.id, variant_id: variant.id, enabled: true, price_override: 199 }), "variant listing");
   data(await admin.from("pos_inventory").insert({ id: crypto.randomUUID(), brand_id: seller.brand_id, brand_slug: brand.brand_slug, location_id: location.id, variant_id: variant.id, quantity: 20, reserved_quantity: 0, minimum_quantity: 0 }), "inventory fixture");
@@ -175,7 +196,11 @@ try {
   assert.ok(wonEvidence.length >= 2); assert.ok(lostLiability.some((row) => row.liability_owner === "SELLER"));
   console.log(JSON.stringify({ ok: true, localDb: true, stripeTest: true, paymentMethod: "pm_card_createDisputeProductNotReceived", won: { paymentIntentId: wonPayment.intent.id, chargeId: wonPayment.charge.id, disputeId: wonDispute.id, reason: wonDispute.reason, amountCents: wonDispute.amount, status: won.final.status, balanceTransactions: wonBalanceTransactions.balance_transactions, openHold: Boolean(wonOpen.allocation.hold_id), openPermanentLiabilityCents: 0, finalPermanentLiabilityCents: won.allocation.permanent_liability_cents, duplicateNoOp: Boolean(won.duplicate.duplicate) }, lost: { paymentIntentId: lostPayment.intent.id, chargeId: lostPayment.charge.id, disputeId: lostDispute.id, reason: lostDispute.reason, amountCents: lostDispute.amount, status: lost.final.status, balanceTransactions: lostBalanceTransactions.balance_transactions, openHold: Boolean(lostOpen.allocation.hold_id), finalPermanentLiabilityCents: lost.allocation.permanent_liability_cents, disputeCostCents: lost.allocation.dispute_cost_share_cents, duplicateNoOp: Boolean(lost.duplicate.duplicate) }, evidenceRefs: { won: wonEvidence.length }, actualStripeWebhookDelivery: actualForwarded.length > 0 ? "PASS" : "PARTIAL", actualForwardedEvents: actualForwarded.map((row) => ({ id: row.stripe_event_id, type: row.event_type })), payoutCalls: 0, transferCalls: 0, refundCalls: 0, reversalCalls: 0 }, null, 2));
 } finally {
-  if (child) child.kill("SIGTERM");
-  await delay(500);
-  await admin.auth.admin.deleteUser(userId).catch(() => {});
+  try {
+    await hideCreatedListings();
+  } finally {
+    if (child) child.kill("SIGTERM");
+    await delay(500);
+    await admin.auth.admin.deleteUser(userId).catch(() => {});
+  }
 }

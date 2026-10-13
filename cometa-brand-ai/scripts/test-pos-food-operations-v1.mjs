@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 const require = createRequire(import.meta.url);
 const normalized = value => value.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "");
 function compile(file, deps = {}) {
+  deps["@/lib/pos/client-transport"] ??= { usePosFetch: () => globalThis.fetch };
   const loaded = { exports: {} };
   const code = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   new Function("require", "module", "exports", code)(name => Object.hasOwn(deps, name) ? deps[name] : name === "@/lib/pos/offline-storage" ? compile("src/lib/pos/offline-storage.ts") : require(name), loaded, loaded.exports);

@@ -7,6 +7,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 function compile(file,deps={}) {
+  deps['@/lib/pos/client-transport'] ??= { usePosFetch: () => globalThis.fetch };
   const compiledModule={exports:{}};
   const code=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
   new Function('require','module','exports',code)(name=>Object.hasOwn(deps,name)?deps[name]:require(name),compiledModule,compiledModule.exports);

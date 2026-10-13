@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { automaticFoodModifierIds, validFoodModifierSelection, type FoodConfigurationPreview, type FoodProduct, type FoodModifierSelection } from "@/lib/pos/food-shared";
 import { PosModal } from "./pos-ui/pos-modal";
+import { usePosFetch } from "@/lib/pos/client-transport";
 
 export function PosFoodModifierDialog({ product, variants = [product], brandSlug, locationId, checkId, visual, money, busy, error, onClose, onAdd }: {
   product: FoodProduct; variants?: FoodProduct[]; brandSlug?: string; locationId?: string; checkId?: string; visual: ReactNode; money: (amount: number) => string; busy: boolean; error: string | null;
   onClose: () => void; onAdd: (ids: string[], notes: string, variantId?: string) => Promise<boolean>;
 }) {
+  const fetch = usePosFetch();
   const [variantId, setVariantId] = useState(product.id);
   const selectedProduct = variants.find(variant => variant.id === variantId) || product;
   const [ids, setIds] = useState<string[]>(() => automaticFoodModifierIds(product.modifier_groups || []));
@@ -34,7 +36,7 @@ export function PosFoodModifierDialog({ product, variants = [product], brandSlug
         if (!controller.signal.aborted) setResult({ key, preview: body.preview });
       }).catch(reason => { if (!controller.signal.aborted) setResult({ key, error: reason instanceof Error ? reason.message : 'No se pudo consultar la disponibilidad.' }); });
     return () => controller.abort();
-  }, [brandSlug, locationId, checkId, selectedProduct.id, selectionKey, selectionValid, previewRetry]);
+  }, [brandSlug, locationId, checkId, selectedProduct.id, selectionKey, selectionValid, previewRetry, fetch]);
   async function add() {
     if (!valid || busy || adding.current) return;
     adding.current = true;

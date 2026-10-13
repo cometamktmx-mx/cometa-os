@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { cookies } from "next/headers";
+import { posCookies as cookies } from "@/lib/pos/transport-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PosApiError, type PosRequestContext } from "@/lib/pos/server";
 import { POS_STAFF_ROLE_PERMISSIONS, resolvePosMode, isPosStaffRole, staffHasRole, staffRoles, type PosStaffPermission, type PosStaffRole } from "@/lib/pos/staff-shared";

@@ -13,6 +13,7 @@ export type PosNavItem = {
   route: string;
   icon: PosIconName;
   requiresTeamPermission?: boolean;
+  retailOnly?: boolean;
   section:
     | "Operación"
     | "Catálogo"
@@ -22,6 +23,7 @@ export type PosNavItem = {
 };
 
 export const POS_NAV_ITEMS: PosNavItem[] = [
+  { label: "Tienda online · Apariencia", route: "online-store/appearance", icon: "settings", section: "Sistema", retailOnly: true },
   { label: "Resumen", route: "", icon: "home", section: "Operación" },
   { label: "Nueva venta", route: "register", icon: "sale", section: "Operación" },
   { label: "Caja", route: "cash", icon: "cash", section: "Operación" },
@@ -148,7 +150,7 @@ function PosNavigation({
     <nav aria-label="Navegación de Cometa POS">
       {NAV_SECTIONS.map((section) => {
         const items = POS_NAV_ITEMS.filter(
-          (item) => item.section === section && (!item.requiresTeamPermission || canManageTeam) && operatorCanSeeRoute(operator, item.route)
+          (item) => item.section === section && (!item.retailOnly || !foodMode) && (!item.requiresTeamPermission || canManageTeam) && operatorCanSeeRoute(operator, item.route)
         );
 
         if (items.length === 0) return null;

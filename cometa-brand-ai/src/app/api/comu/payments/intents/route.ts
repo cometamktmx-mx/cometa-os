@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createComuPaymentIntent, getBuyerPayment } from "@/lib/comu/payments";
+import { closedComuPurchaseResponse } from "@/lib/comu/purchase-access";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const closed = closedComuPurchaseResponse(); if (closed) return closed;
   try {
     const body = await request.json() as { orderId?: unknown; idempotencyKey?: unknown };
     const orderId = typeof body.orderId === "string" ? body.orderId : "";

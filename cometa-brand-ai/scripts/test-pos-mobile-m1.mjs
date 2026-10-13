@@ -8,6 +8,7 @@ import ts from "typescript";
 const require = createRequire(import.meta.url);
 const read = file => readFileSync(file, "utf8");
 function load(file, deps = {}) {
+  if (deps["next/headers"]) deps["@/lib/pos/transport-server"] = { posCookies: deps["next/headers"].cookies };
   const module = { exports: {} };
   const code = ts.transpileModule(read(file), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   new Function("require", "module", "exports", code)(name => Object.hasOwn(deps, name) ? deps[name] : require(name), module, module.exports);

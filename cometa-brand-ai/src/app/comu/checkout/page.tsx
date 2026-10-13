@@ -41,6 +41,7 @@ export default function ComuCheckoutPage() {
   const elementsRef = useRef<StripeElements | null>(null);
   const paymentRef = useRef<StripeElement | null>(null);
   const busyRef = useRef(false);
+  const checkoutAttemptRef = useRef<{ key: string; addressId: string; shippingMode: string } | null>(null);
   const paymentLockedRef = useRef(false);
   const previousFailureRef = useRef<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -243,20 +244,25 @@ export default function ComuCheckoutPage() {
   }
 
   async function prepareOrder() {
-    if (busyRef.current || paymentLockedRef.current || recovering || orderId || cartState !== "ready" || loading || loadFailed || showForm || !addresses.some((address) => address.id === addressId)) return;
-    busyRef.current = true; setBusy(true); setMessage(""); const key = crypto.randomUUID();
+    const retry = checkoutAttemptRef.current?.addressId === addressId && checkoutAttemptRef.current?.shippingMode === shippingMode;
+    if (busyRef.current || paymentLockedRef.current || recovering || orderId || (!retry && cartState !== "ready") || loading || loadFailed || showForm || !addresses.some((address) => address.id === addressId)) return;
+    busyRef.current = true; setBusy(true); setMessage("");
     try {
-      if (await loadCart() !== "ready") return;
+      if (!retry && await loadCart() !== "ready") return;
       if (!shippingQuotes.length) {
         const quoteResponse = await fetch("/api/comu/shipping/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: "cart-preview", subtotal: cartSubtotal, provider: "LOCAL_TEST" }) });
         const quoteData = await quoteResponse.json() as { ok?: boolean; quotes?: ShippingQuote[] };
         if (!quoteResponse.ok || !quoteData.ok) { setMessage("No se pudo cotizar el envío. Inténtalo nuevamente."); return; }
         setShippingQuotes(quoteData.quotes || []); setMessage("Elige tu velocidad de envío para continuar al pago."); return;
       }
+      if (!retry) checkoutAttemptRef.current = { key: crypto.randomUUID(), addressId, shippingMode };
+      const key = checkoutAttemptRef.current?.key;
+      if (!key) return;
       const response = await fetch("/api/comu/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idempotencyKey: key, addressId, shippingMode }) });
-      const data = await response.json() as { ok?: boolean; code?: string; order?: { id: string; reservation_id?: string } };
+      const data = await response.json() as { ok?: boolean; code?: string; order?: { id: string; reservation_id?: string; status?: string } };
       if (!response.ok || !data.ok || !data.order?.id) { if (data.code === "COMU_CART_EMPTY") setCartState("empty"); else if (["COMU_LISTING_UNAVAILABLE", "COMU_VARIANT_UNAVAILABLE", "COMU_INSUFFICIENT_STOCK"].includes(data.code || "")) setCartState("unavailable"); else setMessage("No se pudo preparar la orden. Revisa tu dirección y carrito e inténtalo nuevamente."); return; }
       setOrderId(data.order.id); window.history?.replaceState(null, "", `/comu/checkout?orderId=${encodeURIComponent(data.order.id)}`); setReservationId(data.order.reservation_id || null);
+      if (data.order.status && data.order.status !== "PAYMENT_PENDING") { setMessage("Este pedido ya no está pendiente de pago. Consulta su estado."); return; }
       const paymentResponse = await fetch("/api/comu/payments/intents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: data.order.id, idempotencyKey: `${key}:payment` }) });
       const payment = await paymentResponse.json() as { ok?: boolean; clientSecret?: string };
       if (!paymentResponse.ok || !payment.ok || !payment.clientSecret) { setMessage("No se pudo iniciar el pago. Inténtalo nuevamente."); return; }

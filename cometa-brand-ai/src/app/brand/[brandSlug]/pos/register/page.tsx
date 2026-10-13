@@ -621,7 +621,7 @@ export default function PosRegisterPage() {
           apiRequest<ProductsResponse>(
             `/api/pos/products?brandSlug=${encodeURIComponent(
               brand.slug
-            )}&pageSize=100&active=true`
+            )}&pageSize=100&active=true&channel=physical`
           ),
           apiRequest<CustomersResponse>(
             `/api/pos/customers?brandSlug=${encodeURIComponent(

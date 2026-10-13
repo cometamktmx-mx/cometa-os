@@ -26,7 +26,8 @@ export default async function ComuHome({ searchParams }: { searchParams: Promise
   const { mode } = await searchParams;
   const enabled = isComuFeatureEnabled("enabled") && isComuFeatureEnabled("catalog");
   const publicRows = enabled ? await getPublicCatalog() : [];
-  const catalog: PublicListing[] = publicRows;
+  // Development publications must not become editorial brand endorsements.
+  const catalog: PublicListing[] = publicRows.filter(row => row.product?.brand_slug !== "comu-stripe-smoke-local" && !/^stripe-(e2e|dispute|refund|connect)-/.test(row.public_slug));
   const listings = catalog.filter(row => mode !== "wholesale" || row.wholesale_enabled);
   const sellers = [...new Map(catalog.flatMap(row => row.seller ? [[row.seller.slug, row.seller] as const] : [])).values()];
   const fashion = "/comu/auth/buyer-login.jpg";

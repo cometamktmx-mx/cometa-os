@@ -1,0 +1,4 @@
+{
+  "beta": { "backendOrigin": "", "supabaseOrigin": "", "metadataUrl": "" },
+  "production": { "enabled": false, "backendOrigin": "", "supabaseOrigin": "", "metadataUrl": "" }
+}

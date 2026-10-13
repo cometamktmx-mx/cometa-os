@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { posCookies as cookies } from "@/lib/pos/transport-server";
 import { handlePosError, ok, PosApiError, readJsonBody, requiredText, requirePosContext, getBrandSlugFromUrl, uuidValue } from "@/lib/pos/server";
 import { clearPosSessionCookies, enrollPosDevice, findSessionDevice, resolvePosDevice, revokePosDevice } from "@/lib/pos/device-server";
 import { requirePosCommercialAccess } from "@/lib/pos/access";

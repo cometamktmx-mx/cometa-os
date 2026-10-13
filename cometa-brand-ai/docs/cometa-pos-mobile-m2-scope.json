@@ -1,0 +1,865 @@
+{
+  "baseM1": "78a5998d33317e1e91f79b4952a481263eafca42",
+  "scope": "Conceptual ownership by file; cumulative edits have no per-milestone commits",
+  "files": [
+    {
+      "file": "apps/pos-mobile/.env.example",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "e625928a69fdb543615967e8be4cc869a2556b36236ff323f4c9cfa0962ee3a2",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/.gitignore",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "0cad0af2e980801aba2f181eed00e4cef461fb1c1d96dd8dec35946cadfb57b8",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/README.md",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "5cd7144f34cdb0cc9b28bae777561dc658436927c930dbbb06b2feed13a268e3",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/.gitignore",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "065e4a92a240fe11a0ea230491ad9dabef143f5fd5a3e6884ad6f0395666a971",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/.gitignore",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "99c54e51ee601a60fbde8016b2cbf717483bc2e92773be86c9247d02a7fa6ea4",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/build.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "46c431b63ae9344991f57445c384379fe3c63142fdbe17dd1e4b2132507a14aa",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/capacitor.build.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7e3074a572af3ed841b14c3c4bfa69396a855c3db7bdfb51ff3043ad52f26a14",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/proguard-rules.pro",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "1cf8c57e8f79c250b0af9c1a5a4edad71a5c348a79ab70243b6bae086c150ad2",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "47b1368337a7a6cd0c2b57527490a8f42c5550f4eafd12eba7960ce688b48312",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/debug/AndroidManifest.xml",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "0032f10620d2a6ab8deebd44f076e17d4adc8123dc86955e4e4bb2a264abb73d",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/AndroidManifest.xml",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "133ec6ac29dece8aa3d7399a9179e272809b0ece2ea71b44e38a08a419d5f9b3",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/java/com/cometaos/pos/MainActivity.java",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "10f34c33792852a0a5e6504ded50f640ff38005c2e2a5220746b6a364f54ed9d",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-land-hdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-land-mdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-land-xhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-land-xxhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-land-xxxhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-port-hdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-port-mdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-port-xhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-port-xxhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-port-xxxhdpi/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "a8514094f754b099d3e55ce1d6e0b2de79db418b2eeacb0fc2a6bb0bfadef221",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable/cometa_splash.xml",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "bc4b16da1e5b3d3ae22ff62faaf660ef1ca8ab4aed4b34ca54f9ac5d110d0ba6",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable/ic_launcher_background.xml",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "718ba51adf166bb55c3e9936bb8199a0148457f7f0191aaa2f37a94f3159d6ec",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/drawable/splash.png",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/layout/activity_main.xml",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "5d770feb791313b947020cbfc57e5c733c556dac5e9e49261a1190e527073253",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "9c3a7e0a6515c6e1a7ae834a9ae430311ebc3241f7b2e5e7f0460aa690709a7c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "9c3a7e0a6515c6e1a7ae834a9ae430311ebc3241f7b2e5e7f0460aa690709a7c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "88d641c84a7878db82cff4344a04940168cb2967dde19a984f19bf9c889cdacd",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "98e8bea89fda1530ad099d92c2f2e9718cfc359c84f4ea7255e846f5d47962a0",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "47f2325123c1b5c13059b803e2c42c831fe71bcd52bce7b1d9496dea136f530f",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "fcbbf55a1b56f3b668092c8825e36affa143650fd638396672ecc36474c63343",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "e1b9dc66a7dbef871bc32e9e009199b4b57caa8f7466462051a138fa7933ecab",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "18774b4c4011f1aea5e2a437bd85a64defafc415c3787d950f48784ca1f31bd0",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "5daca7229f0cb1233b50c37585caa0cbf44bc2192d3d61a76c8a68856512a013",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "ce84885c5fba381abfc6d9c03cc867b62369bec787c2bb79d40d853801fd00c1",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "625e57e83d061b43f520c7b9c830552b56d44280dda44ac620680eaca9d40662",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "e647b917e5446911253cfb5065a5595facdc072c4d7d6cdd69785639a3824e37",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "2e4434475810358c91724844321244bf6db8ec4eabf68098369f64860c558180",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "a6735e3573b48bc5f03b49a5df4fb933eb004175f7fc73e58b93e589433d2e35",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "0947b4c9c09aea171977ecce2d07123ddd6a8edbf21e5b1ad41cdb4f1f43b273",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "d34813673d3028fe1fe638e81e828fe5d2404b0febccf64d774ac037ace99f57",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "e3b107d005e5abbe43418e24ec8e63ad0bfd31359af840a6816a1b45dfe6ae6e",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/values/ic_launcher_background.xml",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "806ea6319406c4acc59625809760a2373de1a9c963e087adaf9bf0d563150efa",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/values/strings.xml",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "1edb2b2bbf5ed6fb1b85de06a73f2056ab4b6c6793edfaf1671631246bd2c57a",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/values/styles.xml",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "ce447ef030d009d0cbe43b6e5d0829faef28cce5283e260cbc3552568a8d4569",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/main/res/xml/file_paths.xml",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "a46ed43ef65c90cb6778f4581decf3556e3f0055aad8f36d69dae16f9a0e99aa",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "d4045ae8fac1f0807e6b24eb34e68409a9a235df9d1a3f896fb8c9a49424363d",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/build.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "e2aa5075e1fcfd5e77c63eb8d662932b3c8586c927376b88a4986365af3b635f",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/capacitor.settings.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "a6785d754963c736fbb84f2ec7d23fa9f10028a5ddf6fa45e9089fb1786eebae",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/gradle.properties",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "3bab15c5b8bc4c2f4b6cf525497d15ad4abca53a460e6dd2eb0f0135817d31e6",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/gradle/wrapper/gradle-wrapper.jar",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/gradle/wrapper/gradle-wrapper.properties",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "a2bf6655790bb542acb5fc3021137820a7151cb3887b6da8fb19ca62a4f15784",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/gradlew",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "b187b4c52e749f5760afdd6fadc31b2a98ad35fb249bf0dff03b72650f320409",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/gradlew.bat",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "1d297e00bd21de3ace22b4d7f2de1f9dfa858883d66bbf7c1ccbecccec8f4f3b",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/settings.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "6ce098d15ebd69b44c4ecd786bca1bdc366340d2459b2af4d7bb0ab317aa9669",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/android/variables.gradle",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "83d502c9ed8fcf1dd4791482067abeedbebae49fafe9cd14a8a1f5891deb0d88",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/assets/brand/cometa-isotipo.png",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "6e56ae5119264c4d18fe36643ca157cf541923767c015e925461e68f2df02810",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/assets/brand/cometa-logo-source.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/capacitor.config.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "1f4d7671791c496c5c5f07988821e10b103b3df0f94a25d64cac785d1245eb57",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/index.html",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "755fa810160f325a37994898e27819c5d10995cce58d0be0b45c399d2953c537",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/package-lock.json",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "be3212a0cffabc6bd2d34f9ecedec0c5fcec69155e7b0072b86b0d80d4af9490",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/package.json",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "c2dc96bd52827f0ded9363d4c9205ca434c2ff5dde1e415c6d5ee238a808db24",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/public/brand/cometa-logo.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "7b71ede9fc98b96918319b93bf998efae7cc961fe1c8c3290d6474d2bc796c4c",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/public/onboarding/01-ecosystem.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "524bb74f363000083a39b1812c7331165e94eb3dc8c18c7561e09c71bb01582e",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/public/onboarding/02-food.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "4273fff85904fca8942fd73d96374a67b7a142a68371dd4a77c0e79d96be39a9",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/public/onboarding/03-retail.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "0cbbbc94b4d830de63a8666bdd219f1f5718e395c10fd58f4af55f2fc9273f62",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/public/onboarding/04-omnichannel.png",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "60cf7256df2405519bffda26636c0b3ff73fc2e0c1b6d060034a55e5f311b7de",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/build-android-debug.ps1",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "e41cb999a1ecdca77afd6d70796745f42ed95078b8d68dee41b86066f3d414cc",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/configure-local-debug.mjs",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "64c19bffe1e4c56f653054c95fd76c9051c14b8c7a2e8bd29643af20b61eb184",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/generate-launcher-icon.cjs",
+      "milestones": [
+        "M2.6 app icon approved"
+      ],
+      "sha256BeforeM27B": "f0519f5add3e515d933ef9e7caeb2f91dd11fe90780c9b7dd88701ca54da0948",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/inspect-debug-apk.ps1",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "c9d4f6da262679958527b37a528b1d5c1b3c052eaaf3406d76f0c8b07d0012bb",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/onboarding-android-proof.mjs",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "cd998752e1b554eadc014cf398afe0aab605d177603e57d96e02b4fe12a936f9",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/onboarding-certification.mjs",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "34c66cc4d1f91567a4a570b7127a38a48e5aaf1583a39818958efc77bf085f79",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/onboarding-gestures-proof.mjs",
+      "milestones": [
+        "M2.6",
+        "M2.6.2"
+      ],
+      "sha256BeforeM27B": "2de0b9030129c246036695d2303e9c0b6d1282a256645420ca2a942388eace6d",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/scripts/prepare-native.mjs",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "04403eebb882f80ee261a77d20201b7684c6d81c6089eb69795a68e1898213cf",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/App.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "97495630014bbd2a345e07f1fcaaade997cc91fd4fccb958f4f7d9cd65df289a",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/main.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "0c4523cb8e3b79da673a3625bc1696ef0ed4009397970689863e73bd057d461e",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/onboarding/Onboarding.tsx",
+      "milestones": [
+        "M2.6",
+        "M2.6.2"
+      ],
+      "sha256BeforeM27B": "aee9ddde7733e31a3ba0aaedccfd54eb1dd76e1f09d63940fb4b3cf0a83b5b8b",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/onboarding/onboarding.css",
+      "milestones": [
+        "M2.6",
+        "M2.6.2"
+      ],
+      "sha256BeforeM27B": "8bf9d347444bd11ccf38bd51d8619283bcb4d5b2846330cfe55016678073ee58",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/onboarding/slides.ts",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "ee239559afd01cf4ddb4dd8c76ae860e3a1f61e55790ad5b92685521936a5afe",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/policy.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "0829eca0afc396d4a767ba57d4c3633935adcb0bdbb9861dcb9c8019077785e2",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/responsive.ts",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "c256dacdea01b892e850b50dd697cac21b0d5d732995c7d7f594ce896cdfc785",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/styles.css",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "fd5281c11c2642bc3b4278364419fb38949c6b5749b35de629fa8094b1f03b68",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/transport.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "02654f920407256d12cd1f3f20f1aba97b48aca7f063658e7c14618033ea181d",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/src/vault.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "75115c39085fa2c7515fa94cf1928531da6ea8325336de73a7a8164cee388889",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/tests/foundation.test.mjs",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "cb40d1e7720e4026d5005dce3c1a2ddf00c8e89346741797b86b0fc95d21b888",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/tests/onboarding.test.mjs",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "d47694915ae48ef41b6d3b2cafdd2c7019c7223930f36b81d4fd2c6b57a24ca8",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/tsconfig.json",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "299675a97c92da3734d6f1ec4e2b0d470920d717476a69a53f416f6d41b2d0d1",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "apps/pos-mobile/vite.config.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "bb2ee59b0a995c3dfd87f5cf6c9e6bd3dbca2e71129e4d8a74b0cfd76dd11b1f",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "docs/cometa-pos-mobile-m2-5.md",
+      "milestones": [
+        "M2.5"
+      ],
+      "sha256BeforeM27B": "fe94ae8a9b96a567b87b00fd386a32910d8f1ff01bd1bd552af366d0bb670c71",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "docs/cometa-pos-mobile-m2-6-1.md",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "486274fef0a447d1e17c92dacb9a84ab2f3efab8198d7ef255b140df694269b2",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "docs/cometa-pos-mobile-m2-6.md",
+      "milestones": [
+        "M2.6"
+      ],
+      "sha256BeforeM27B": "de9c34cdf24823b99168e95a5891e800ee92d3f541fe2c9b1e7406b3a96113de",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "docs/cometa-pos-mobile-m2.md",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "9148c7218f25778298a449759ac438085f796d07986f4afb1eab8b93219288a7",
+      "note": "Existing before M2.7B"
+    },
+    {
+      "file": "scripts/test-pos-mobile-m2-http-local.mjs",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "be3f58f5b56aac4698e25f2590bc64f1d67fba98f33489c0e1fc673bce1dda16",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/app/api/pos/mobile/[...path]/route.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "4b92b56050e3baac6af0ab4d004401c01c1b1ee7a8691ac445757c65e0a9b89a",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/lib/pos/client-transport.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "a2c914a93195d16db373b1c08050d4e23782662dba5ae06afaf6ddb0fc42f357",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/lib/pos/transport-server.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "88417ebde7321943392e34945f0823b1c9d75a3a330bbb8a55dc84fb1d3d5768",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/app/api/pos/devices/route.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "a5db1c869e849c92d16e90844e0d3b858e37f5fcec7fee11ede5af4da4f2fbfc",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/app/brand/[brandSlug]/components/pos-food-modifiers.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "851c0e3689bd0221de2f57899d9ecb93b454ee989ebb8ca7e1fd67484168987c",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/app/brand/[brandSlug]/components/pos-food-operations.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "fb2e2efc9eca61fee5f7d25fdb2b6eff767ebdb1a2c729aad5978f689768b1e5",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/app/brand/[brandSlug]/components/pos-food-receipt.tsx",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "94f00b24d7edbf4c5852c7891eaebe28424779c72546117e2f8a12dbf7734081",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/lib/pos/device-server.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "289f7612c698221b6ae4f3c25da2e2e7193044a5c738dfff4207e0fceb104a73",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/lib/pos/server.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "1a27b95b8409ad405bf2681112ee46282a126aa27e3fc82936438dd216a3d022",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "src/lib/pos/staff-server.ts",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "fdfa9dbb6bd3667b38b8611c1142a36e86f83f81374962d56edc09b00f8a9ae8",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    },
+    {
+      "file": "tsconfig.json",
+      "milestones": [
+        "M2"
+      ],
+      "sha256BeforeM27B": "da6ed9be439945f63dc304a242a7d061e8ae0aec3af447bb508e66307529c794",
+      "note": "Shared M1/M2 adaptation; review exact hunk, never include unrelated dirty changes"
+    }
+  ]
+}

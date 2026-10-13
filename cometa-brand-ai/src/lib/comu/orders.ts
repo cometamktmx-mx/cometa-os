@@ -1,5 +1,5 @@
 import { PosApiError } from "@/lib/pos/server";
-import { requireComuBuyer, requireComuBuyerRead } from "./buyers";
+import { requireComuBuyerRead } from "./buyers";
 import { readBuyerOrder, readBuyerOrderPage, legacyBuyerOrder } from "./buyer-orders";
 import { getStripeClient } from "./stripe";
 import { LocalTestShippingProvider } from "./shipping-provider";
@@ -16,12 +16,31 @@ export function requireCheckoutShippingProvider() {
   }
 }
 
-export async function createOrderFromReservation(reservationId: string, idempotencyKey: string, addressSnapshot: Record<string, unknown> | null, shippingMode: "STANDARD" | "FAST" = "STANDARD") {
-  const provider = requireCheckoutShippingProvider();
-  const { buyer, admin } = await requireComuBuyer();
+export async function createOrderFromReservation(reservationId: string, idempotencyKey: string, addressSnapshot: Record<string, unknown> | null, shippingMode: "STANDARD" | "FAST" = "STANDARD"): Promise<{ id: string; [key: string]: unknown }> {
+  const { buyer, admin } = await requireComuBuyerRead();
+  const failConflict = (): never => { throw new PosApiError(409, "COMU_IDEMPOTENCY_CONFLICT", "La clave ya corresponde a otra solicitud."); };
+  const stable = (value: unknown): string => JSON.stringify(value, (_key, part) => part && typeof part === "object" && !Array.isArray(part) ? Object.fromEntries(Object.entries(part).sort(([a], [b]) => a.localeCompare(b))) : part);
+  const { data: existing, error: existingError } = await admin.from("comu_orders").select("id,buyer_id,reservation_id,currency,shipping_address_snapshot,shipping_mode,shipping_quote_id,status").eq("idempotency_key", idempotencyKey).maybeSingle();
+  if (existingError) throw new PosApiError(503, "COMU_ORDER_LOOKUP_FAILED", "No se pudo consultar el pedido.");
+  if (existing) {
+    const original = existing.shipping_address_snapshot;
+    if (existing.buyer_id !== buyer.id || existing.reservation_id !== reservationId ||
+      (original?.checkoutRequestV1?.shippingMode || existing.shipping_mode) !== shippingMode ||
+      (original?.id ? original.id !== addressSnapshot?.id : stable(original) !== stable(original?.checkoutRequestV1 ? { ...addressSnapshot, checkoutRequestV1: { shippingMode } } : addressSnapshot))) failConflict();
+    // The address book may change; this operation retains the original snapshot.
+    addressSnapshot = original;
+  } else {
+    addressSnapshot = { ...addressSnapshot, checkoutRequestV1: { shippingMode } };
+  }
   const { data: reservation, error: reservationError } = await admin.from("comu_inventory_reservations").select("id,status,expires_at").eq("id", reservationId).eq("buyer_id", buyer.id).maybeSingle();
   if (reservationError) throw new PosApiError(500, "COMU_RESERVATION_LOOKUP_FAILED", "No se pudo validar tu carrito.");
   if (!reservation) throw new PosApiError(404, "COMU_RESERVATION_NOT_FOUND", "La reserva no existe.");
+  if (existing) {
+    const { data: replay, error: replayError } = await admin.rpc("comu_create_order_from_reservation", { p_reservation_id: reservationId, p_idempotency_key: idempotencyKey, p_shipping_address_snapshot: addressSnapshot, p_currency: existing.currency });
+    if (replayError || !replay) failConflict();
+    if (replay.status !== "PAYMENT_PENDING" || replay.shipping_quote_id) return replay;
+  }
+  const provider = requireCheckoutShippingProvider();
   const { data: reservedItems, error: reservedItemsError } = await admin.from("comu_inventory_reservation_items").select("quantity,pricing_snapshot").eq("reservation_id", reservationId);
   if (reservedItemsError || !reservedItems?.length) unavailable();
   // Never reprice an immutable reservation. Reject legacy broken snapshots
@@ -32,9 +51,16 @@ export async function createOrderFromReservation(reservationId: string, idempote
     if (lineCents(moneyCents(snapshot.finalUnitPrice, true), item.quantity) <= 0) unavailable();
   }
   const { data, error } = await admin.rpc("comu_create_order_from_reservation", { p_reservation_id: reservationId, p_idempotency_key: idempotencyKey, p_shipping_address_snapshot: addressSnapshot, p_currency: "MXN" });
+  if (!existing && error?.message === "COMU_IDEMPOTENCY_CONFLICT") {
+    const { data: winner, error: winnerError } = await admin.from("comu_orders").select("id").eq("idempotency_key", idempotencyKey).eq("buyer_id", buyer.id).maybeSingle();
+    if (winnerError) throw new PosApiError(503, "COMU_ORDER_LOOKUP_FAILED", "No se pudo consultar el pedido.");
+    // The same address ID may have changed in the address book while requests
+    // raced. Re-enter only when this key now exists; the replay path validates
+    // the original intent and uses its frozen address, never the newer fields.
+    if (winner) return createOrderFromReservation(reservationId, idempotencyKey, addressSnapshot, shippingMode);
+  }
   if (error || !data) throw new PosApiError(409, error?.message || "COMU_ORDER_CREATE_FAILED", error?.message === "COMU_RESERVATION_EXPIRED" ? "La reserva expiró. Actualiza tu carrito." : "No se pudo crear la orden.");
-  const { data: existingShipping } = await admin.from("comu_orders").select("shipping_snapshot,shipping_mode").eq("id", data.id).maybeSingle();
-  if (existingShipping?.shipping_snapshot && Object.keys(existingShipping.shipping_snapshot).length) return data;
+  if (data.status !== "PAYMENT_PENDING" || data.shipping_quote_id) return data;
   const items = await admin.from("comu_order_items").select("quantity,subtotal").eq("order_id", data.id);
   if (items.error || !items.data?.length) throw new PosApiError(409, "COMU_ORDER_ITEMS_UNAVAILABLE", "No se pudieron validar los importes del pedido.");
   const subtotalCents = items.data.reduce((sum, item) => sum + moneyCents(item.subtotal, true), 0);
@@ -49,9 +75,20 @@ export async function createOrderFromReservation(reservationId: string, idempote
   const { data: quote, error: quoteError } = await admin.from("comu_shipping_quotes").insert({ order_id: data.id, provider: "LOCAL_TEST", service_code: selectedQuote.serviceCode, estimated_eta_days: selectedQuote.etaDays, provider_cost: allocation.providerCost, baseline_cost: allocation.baselineCost, buyer_shipping_charge: allocation.buyerShippingCharge, seller_shipping_subsidy: allocation.sellerShippingSubsidy, cometa_shipping_subsidy: allocation.cometaShippingSubsidy, package_estimate: packages }).select("id").single();
   if (quoteError || !quote) throw new PosApiError(409, "COMU_SHIPPING_SNAPSHOT_FAILED", "No se pudo guardar el envío.");
   const snapshot = { provider: "LOCAL_TEST", service: selectedQuote.serviceCode, shipping_mode: shippingMode, estimated_eta_days: selectedQuote.etaDays, estimated_provider_cost: allocation.providerCost, baseline_cost: allocation.baselineCost, buyer_shipping_charge: allocation.buyerShippingCharge, seller_shipping_subsidy: allocation.sellerShippingSubsidy, cometa_shipping_subsidy: allocation.cometaShippingSubsidy, package_estimate: packages, quote_id: quote.id, quote_version: 1 };
-  const { error: snapshotError } = await admin.from("comu_orders").update({ shipping_total: allocation.buyerShippingCharge, grand_total: grandTotal, shipping_snapshot: snapshot, shipping_quote_id: quote.id, shipping_mode: shippingMode, updated_at: new Date().toISOString() }).eq("id", data.id);
+  const { data: frozen, error: snapshotError } = await admin.from("comu_orders").update({ shipping_total: allocation.buyerShippingCharge, grand_total: grandTotal, shipping_snapshot: snapshot, shipping_quote_id: quote.id, shipping_mode: shippingMode, updated_at: new Date().toISOString() }).eq("id", data.id).eq("buyer_id", buyer.id).eq("status", "PAYMENT_PENDING").is("shipping_quote_id", null).select("id").maybeSingle();
   if (snapshotError) throw new PosApiError(409, "COMU_SHIPPING_SNAPSHOT_FAILED", "No se pudo congelar el envío.");
-  return { ...data, shipping_total: allocation.buyerShippingCharge, grand_total: grandTotal, shipping_snapshot: snapshot, shipping_mode: shippingMode };
+  if (!frozen) {
+    // This invocation's quote lost the compare-and-set and was never published
+    // in an order snapshot. Remove only that unused candidate, not prior quotes.
+    const { error: unusedQuoteError } = await admin.from("comu_shipping_quotes").delete().eq("id", quote.id).eq("order_id", data.id);
+    if (unusedQuoteError) throw new PosApiError(503, "COMU_SHIPPING_SNAPSHOT_FAILED", "No se pudo completar la preparación del envío.");
+    // A concurrent request (or lifecycle command) won. Never overwrite its
+    // economics. SQL validates the original request again before returning it.
+    const { data: winner, error: winnerError } = await admin.rpc("comu_create_order_from_reservation", { p_reservation_id: reservationId, p_idempotency_key: idempotencyKey, p_shipping_address_snapshot: addressSnapshot, p_currency: "MXN" });
+    if (winnerError || !winner) failConflict();
+    return winner;
+  }
+  return { ...data, shipping_total: allocation.buyerShippingCharge, grand_total: grandTotal, shipping_snapshot: snapshot, shipping_quote_id: quote.id, shipping_mode: shippingMode };
 }
 
 export async function getBuyerOrders(params = new URLSearchParams()) {

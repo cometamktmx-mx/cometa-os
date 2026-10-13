@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+*.env.*
 
 # vercel
 .vercel
@@ -44,6 +45,7 @@ next-env.d.ts
 
 # Supabase CLI local link/cache state
 /supabase/.temp/
+/supabase/.branches/
 
 # Local editor workspaces
 /supabase/tests/*.code-workspace

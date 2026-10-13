@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
+import { posCookies as cookies } from "@/lib/pos/transport-server";
 import { PosApiError, type PosRequestContext } from "./server";
 import { POS_DEVICE_COOKIE, type PosDevice } from "./device-contract";
 
