@@ -122,6 +122,47 @@ try {
  await assert.rejects(() => sql(`set role anon;select public.pos_import_v1('synthetic-import-a','${ids.owner}','products',null,'preview')`));
  await assert.rejects(() => sql('set role authenticated;select * from pos_import_runs'));
  console.log('PASS REAL LOCAL POSTGRESQL: migration, durable records, exact repeat, changed retry rejection, same-file rejection, brand isolation, omitted fields, absolute stock, reserved stock rejection, rollback and later-operation barrier, role denials. No remote data used.');
+ await sql(fs.readFileSync('supabase/migrations/20261014140000_pos_product_delivery_save.sql','utf8'));
+ for (const file of ['20261010160000_brand_online_store_access_a1.sql','20261010180000_pos_product_sales_channels_m1.sql']) {
+  await sql(fs.readFileSync('supabase/migrations/'+file,'utf8'));
+ }
+ const payload = {
+  p_brand_id:ids.brand,p_brand_slug:'synthetic-import-a',p_location_id:ids.location,p_category_id:null,
+  p_name:'SYNTHETIC DELIVERY',p_description:null,p_product_type:'physical',p_inventory_mode:'direct',
+  p_default_unit_code:'piece',p_has_variants:false,p_sellable:true,p_purchasable:true,p_tax_rate:0,
+  p_image_url:null,p_configuration:{},p_user_id:ids.owner,p_product_code:'DELIVERY-001',
+  p_variants:[{name:'Única',sku:'DELIVERY-001',price:100,cost:40,initial_quantity:3,minimum_quantity:0,attributes:{},is_default:true}],
+ };
+ const save = async (body,key,channels=null) => JSON.parse(await sql(`set role service_role;select pos_create_product_delivery_v1(${quote(JSON.stringify(body))}::jsonb,'${key}',${channels===null?'null':quote(JSON.stringify(channels))+'::jsonb'})`));
+ const key=randomUUID();
+ const saved=await Promise.all([save(payload,key),save(payload,key)]);
+ assert.ok(saved[0].id);assert.deepEqual(saved[0],saved[1]);
+ assert.deepEqual(await save(payload,key),saved[0]);
+ assert.equal(await sql(`select count(*) from pos_products where id='${saved[0].id}'`),'1');
+ assert.equal(await sql(`select sum(quantity) from pos_inventory where variant_id in (select id from pos_product_variants where product_id='${saved[0].id}')`),'3.000');
+ await assert.rejects(()=>save({...payload,p_name:'CHANGED'},key),/POS_CREATE_RETRY_CONFLICT/);
+ await assert.rejects(()=>save(payload,key,{physicalRequested:true,onlineRequested:false}),/POS_CREATE_RETRY_CONFLICT/);
+ await assert.rejects(()=>save({...payload,p_user_id:ids.other},randomUUID()),/POS_CHANNELS_DENIED/);
+ await assert.rejects(()=>save({...payload,p_brand_id:ids.brandB},randomUUID()),/POS_CHANNELS_DENIED/);
+ const invalidKey=randomUUID();
+ await assert.rejects(()=>save({...payload,p_name:''},invalidKey));
+ assert.equal(await sql(`select count(*) from pos_product_create_receipts where request_id='${invalidKey}'`),'0');
+ const pendingPayload={...payload,p_product_code:'DELIVERY-002',p_variants:[{...payload.p_variants[0],sku:'DELIVERY-002'}]};
+ const pendingKey=randomUUID(),channels={physicalRequested:true,onlineRequested:true};
+ const pending=await save(pendingPayload,pendingKey,channels);
+ assert.equal(pending.channelResult.status,'pending','disabled store must not be reported as published');
+ assert.deepEqual(await save(pendingPayload,pendingKey,channels),pending);
+ assert.deepEqual(JSON.parse(await sql(`select configuration->'requestedSalesChannels' from pos_products where id='${pending.id}'`)),channels);
+ assert.match(pending.channelResult.message,/no está habilitada/);
+ await sql(`update user_profiles set role='admin' where user_id='${ids.owner}';set role service_role;select brand_online_store_set_access_a1('synthetic-import-a','${ids.owner}','enabled',0)`);
+ const livePayload={...payload,p_product_code:'DELIVERY-003',p_variants:[{...payload.p_variants[0],sku:'DELIVERY-003'}]};
+ const liveKey=randomUUID(),live=await save(livePayload,liveKey,channels);
+ assert.equal(live.channelResult.status,'saved');
+ assert.deepEqual(await save(livePayload,liveKey,channels),live);
+ assert.equal(await sql(`select physical_requested and online_requested from pos_product_sales_channels where product_id='${live.id}'`),'t');
+ await assert.rejects(()=>sql(`set role anon;select pos_create_product_delivery_v1('{}','${randomUUID()}',null)`),/permission denied/);
+ await assert.rejects(()=>sql('set role authenticated;select * from pos_product_create_receipts'),/permission denied/);
+ console.log('PASS REAL PRODUCT DELIVERY: migration, concurrent creation/retry, one stock receipt, changed payload/channels rejected, actor/brand denied, invalid creation atomic, pending channels persisted and replayed, role denials.');
 } catch (error) {
  console.error('LOCAL PERSISTENCE NOT CERTIFIED:', error.message);
  process.exitCode = 1;

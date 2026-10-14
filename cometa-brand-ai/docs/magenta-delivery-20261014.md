@@ -1,5 +1,52 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Reanudación tras reinicio — 14 octubre 2026
+
+Esta sección sustituye el estado de bloqueo Docker del checkpoint inferior. La instrucción vigente autoriza cambios, commits, push y Preview, pero exige confirmar antes del despliegue un backend accesible y exclusivo de pruebas, pagos test y migraciones. No autoriza merge ni producción. **La entrega completa sigue pendiente.**
+
+### Docker y aislamiento verificados
+
+- Engine 29.7.2 / Docker Desktop 4.88.1 responde por el named pipe local. El CLI no está en PATH; el sandbox denegó el pipe con EPERM y la consulta posterior con permiso elevado tuvo éxito.
+- Inventario: 30 contenedores: 10 running, 19 exited y 1 restarting. Los 18 `food_cert_auth_*` / `food_cert_rest_*` están detenidos. En el conjunto `supabase_*_zhtagqrzyovsrmsicaot`, db, studio, pg_meta, storage, rest, realtime, inbucket, auth, kong y analytics están activos; edge_runtime detenido y vector reiniciándose. No se modificó su estado.
+- Tres volúmenes existentes conservados: `supabase_db_zhtagqrzyovsrmsicaot`, `supabase_edge_runtime_zhtagqrzyovsrmsicaot`, `supabase_storage_zhtagqrzyovsrmsicaot`. Sin reset, prune, eliminación de contenedores ni reutilización de datos operativos.
+- Aislamiento mediante bases nuevas dentro del PostgreSQL local existente; **no es otro cluster ni un backend para Vercel**. Solo se leyó el esquema public/auth/storage de `postgres`, sin copiar sus filas. Las migraciones y fixtures sintéticos se aplicaron exclusivamente a las bases temporales.
+- Bases de esta ejecución, todas eliminadas por su runner con `dropdb` sin FORCE: `cometa_eleventa_1791990363126`, `cometa_eleventa_1791990449525`, `cometa_eleventa_1791990522769`, `cometa_m6_1791990565316`.
+
+### Resultados nuevos y reproducibles
+
+| Comprobación | Resultado real |
+| --- | --- |
+| `node scripts/test-pos-eleventa-local.mjs` | PASS PostgreSQL: persistencia, códigos con ceros, duplicados, mismo archivo con clave nueva rechazado, replay, dos solicitudes concurrentes con misma clave, payload alterado rechazado, aislamiento de marca, campos omitidos conservados, inventario absoluto, reservas, preview obsoleto, rollback, reversión y bloqueo tras actividad posterior, denegación de roles |
+| Alta `20261014140000_pos_product_delivery_save.sql`, dentro del mismo runner ampliado | PASS: alta/reintentos concurrentes devuelven el mismo producto y una sola existencia inicial; cambio de payload/canales rechazado; actor/marca ajenos rechazados; alta inválida no deja recibo; intención de canales persistida |
+| Dependencias A1/M1 reales en la última ejecución | PASS: tienda deshabilitada retorna pendiente con motivo correspondiente; tienda habilitada guarda ambos canales y repite el resultado sin duplicación. La prueba anterior sin dependencias solo comprobaba recuperación ante fallo; no se utiliza como prueba de habilitación |
+| `node scripts/test-storefront-m6-local.mjs` | PASS SQL M4/M5/M6, A1/M1/M2 y M0 instalados: configuración/envío fail-closed, snapshots de precio, replay con stock cero, pagos duplicados, cancelación/expiración, pago tardío, carreras Retail/COMU/tienda por última unidad, permisos/RLS y suspensión. Cotizaciones/configuración son fixtures; no hubo proveedor Stripe real |
+| `node scripts/test-pos-eleventa-api.mjs` | PASS handler con Auth/RPC simulados; distinto de la prueba PostgreSQL |
+| `node scripts/test-pos-camera-scanner.mjs` | PASS imágenes sintéticas EAN-13/UPC-A. Cámara, Code 128 físico y permisos de móvil siguen pendientes |
+| `node scripts/test-storefront-m{3,4,5,6}-contract.mjs` (cada archivo individualmente) | PASS; proveedores y transporte simulados según cada suite |
+| `node scripts/test-comu-buyer-notifications-node.mjs`, `test-comu-orders-o1-presentation-local.mjs`, `test-comu-notifications-n1-node.mjs` | PASS lógica existente de pedidos/notificaciones COMU; cero correos reales. No certifica ni implementa la nueva bandeja/campanita POS para pedidos de tienda propia |
+| `node node_modules/typescript/bin/tsc --noEmit --incremental false --pretty false` | PASS, salida 0 |
+| `node node_modules/eslint/bin/eslint.js scripts/test-pos-eleventa-local.mjs` | PASS, salida 0 |
+| Build webpack de copia storefront sin `.env` | PASS compilación, TypeScript y rutas. Advertencia: 27 archivos de dependencias fuera de outputFileTracingRoot; empaquetado standalone no certificado |
+| `git diff --check` | PASS; advertencias LF/CRLF de Git, sin errores de whitespace |
+
+Build reproducido con `node scripts/prepare-magenta-preview.mjs` y `node node_modules/next/dist/bin/next build .next/magenta-preview-preparation/source-1791990675889/storefront/apps/magenta-storefront --webpack`. La copia ignorada contiene 676 archivos, sin secretos ni archivos de entorno; no se desplegó. No se instalaron dependencias.
+
+### Atelier: referencia encontrada y adaptación inicial
+
+Archivo disponible: `referencias-magenta/MAGENTA-Atelier-Shopify-v0.6.zip`, sin el sufijo `(1)`. SHA256: `8c62a787114fd2f86643c72adba56be7472c9514ee50ce9b50ddb64edecc5db7`. Se inspeccionaron su inventario, `assets/atelier-v4.css`, `sections/hero.liquid`, tokens y settings.
+
+Se adaptaron a `packages/own-storefront/home.css` tipografía/espaciado de tarjetas, botones, encabezado, hero, proporción de look, beneficios, FAQ y footer, con reglas responsivas y movimiento reducido. Se mantienen variables de apariencia y overrides existentes del editor; no se copiaron textos comerciales, imágenes demo ni lógica Shopify. **Es una adaptación inicial, no equivalencia visual completa certificada.** No se abrió una vía alternativa de automatización del navegador bloqueado. Revisión desktop/móvil a cargo del usuario: home con/sin imagen, tarjetas vacías/con datos, editor y sus overrides, catálogo/producto/bolsa, footer y foco de teclado.
+
+### Bloques abiertos y publicación
+
+- Se solicitó el prompt original con los criterios de configuración persistente, tarifas/cobertura, WhatsApp, pedidos y campanita: el checkpoint solo conserva una enumeración, insuficiente para fijar las reglas comerciales o ampliar schema. No se inventaron tarifas, canales de notificación ni integración entre pedidos COMU y tienda propia.
+- El checkout existente tiene reserva/lifecycle real probado localmente; aún no hay cotizador real ni Stripe test del proveedor certificado. Sigue pendiente el recorrido autenticado y visual.
+- Falta nombre/referencia de backend Supabase exclusivo de pruebas accesible desde Vercel, sin datos operativos. No se leyeron claves ni se aplicaron migraciones remotas. Las variables Preview históricas compartidas con producción no sirven como evidencia de aislamiento.
+- La autorización de push/Preview sigue vigente, pero no se hace push en esta reanudación: la configuración versionada solo deshabilita despliegues Git de otra rama de backup; no se ha confirmado que el push de delivery no dispare un Preview con el backend anterior. Resolver el gate de despliegue antes de publicar la rama.
+- Sin nueva URL Preview, sin merge ni producción. Permanecen pendientes los bloques funcionales anteriores y el producto de captura única completo descrito en el checkpoint.
+
+Archivos modificados en esta reanudación: `scripts/test-pos-eleventa-local.mjs`, `packages/own-storefront/home.css`, `docs/magenta-delivery-20261014.md`. SQL de aplicación, M1–M6 y escáner conservados. `../cometa-hotfix-recovery/` no se toca ni se incluye.
+
 ## Checkpoint antes de reiniciar Windows
 
 Rama: `delivery/magenta-20261014`. Checkpoint local de trabajo en curso, **no entrega certificada**. Por instrucción del usuario, no hacer push ni desplegar. El hash se obtiene con `git log -1 --format=%H` después del commit; este informe queda dentro de ese commit.

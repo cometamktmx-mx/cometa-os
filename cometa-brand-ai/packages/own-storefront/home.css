@@ -5,3 +5,36 @@
 .mag-home .mag-hero-no-image{min-height:260px;align-items:center;gap:24px;padding:32px 5%}.mag-hero-no-image .mag-hero-copy{width:100%;padding:24px 0;background:none}.mag-hero-no-image h1{font-size:clamp(32px,5cqw,64px);margin:0 0 24px}.mag-editor-photo{min-height:260px;flex:1 0 45%;border:1px dashed var(--mag-accent);background:transparent;color:var(--mag-accent);cursor:pointer}.mag-editor-empty{margin:24px 5%;padding:28px;border:1px dashed var(--mag-accent);border-radius:8px}.mag-editor-empty button{padding:12px;border:0;background:var(--mag-soft);color:var(--mag-accent);cursor:pointer}.mag-footer nav{flex-direction:column;gap:10px}.mag-home .mag-footer-logo{width:180px;max-height:100px;object-fit:contain}.mag-footer .mag-wordmark{font-size:var(--wordmark-size,100px)}@container magstage (max-width:600px){.mag-hero-no-image{flex-direction:column}.mag-editor-photo{width:100%;min-height:180px}.mag-footer .mag-wordmark{font-size:var(--wordmark-mobile,44px)}}
 
 .mag-header .mag-logo img{width:var(--logo-width,170px)}.mag-header-centered{display:grid;grid-template-columns:1fr auto 1fr}.mag-header-centered .mag-logo{grid-column:2;grid-row:1;text-align:center}.mag-header-centered nav{grid-column:1;grid-row:1}.mag-logo span{display:block}.mag-header .mag-logo:empty:before{content:""}@container magstage (max-width:600px){.mag-header .mag-logo img{width:var(--logo-mobile,145px)}.mag-header-centered{display:flex}}
+
+/* Atelier v0.6: adapted from referencias-magenta/MAGENTA-Atelier-Shopify-v0.6.zip,
+   assets/atelier-v4.css. Existing appearance tokens and editor overrides remain authoritative. */
+.mag-home{-webkit-font-smoothing:antialiased}
+.mag-home h1,.mag-home h2{letter-spacing:-.045em;line-height:1.08}
+.mag-home button,.mag-home a,.mag-home input,.mag-home select{touch-action:manipulation}
+.mag-button{min-height:48px;padding:15px 26px;gap:20px;font-size:11px;font-weight:600;letter-spacing:.065em;text-transform:uppercase;transition:background .2s,transform .2s}
+.mag-header nav{gap:28px}
+.mag-header nav a{font-size:10px;letter-spacing:.075em}
+.mag-announcement{font-size:9px;line-height:1.4}
+.mag-hero-copy{width:51%;padding:60px 5%}
+.mag-hero h1{letter-spacing:-.055em;line-height:.96;margin:0 0 28px}
+.mag-hero p{font-size:14px;line-height:1.8;max-width:310px;margin:0 0 28px}
+.mag-heading{margin-bottom:30px}
+.mag-products{gap:28px 20px}
+.mag-product{min-width:0}
+.mag-product h3{font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;margin:17px 1px 8px}
+.mag-product>p{font-size:13px;font-weight:500}
+.mag-product-image{overflow:hidden}
+.mag-product-image small{font-size:9px;text-transform:uppercase;letter-spacing:.07em;padding:7px 10px;top:14px;left:14px}
+.mag-look .mag-look-layout{grid-template-columns:1.55fr 1fr;gap:45px}
+.mag-benefits .mag-entries{gap:24px}
+.mag-benefits h3{font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:600;letter-spacing:.05em}
+.mag-benefits p{font-size:11px;line-height:1.5}
+.mag-faq{grid-template-columns:1fr 1.4fr;gap:80px}
+.mag-faq summary,.mag-faq details p{font-size:13px;line-height:1.6}
+.mag-faq details[open] summary span{transform:rotate(45deg)}
+.mag-footer>div>p{font-size:12px;line-height:1.9;max-width:280px}
+.mag-footer nav a{font-size:11px;line-height:1.6}
+@media(hover:hover){.mag-button:hover{transform:translateY(-2px)}.mag-footer nav a:hover{text-decoration:underline;text-underline-offset:4px}}
+@container magstage (max-width:850px){.mag-look .mag-look-layout,.mag-faq{grid-template-columns:1fr;gap:30px}.mag-header nav{gap:16px}.mag-hero-copy{width:58%}}
+@container magstage (max-width:600px){.mag-hero-copy{width:100%;padding:30px 6%}.mag-hero h1{margin-bottom:20px}.mag-hero p{font-size:12px;max-width:260px;margin-bottom:20px}.mag-hero .mag-button{padding:14px 20px;font-size:10px;min-height:46px}.mag-products{gap:25px 12px}.mag-product h3{font-size:11px;margin:12px 0 8px}.mag-product>p{font-size:12px}.mag-product-image small{font-size:8px;top:10px;left:10px;padding:5px 7px}.mag-look-image{max-height:400px}.mag-benefits .mag-entries{gap:24px 16px}.mag-benefits h3{font-size:9px;line-height:1.6}.mag-benefits p{font-size:10px}.mag-faq{gap:20px}.mag-faq summary{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.mag-button{transition:none}.mag-button:hover{transform:none}}
