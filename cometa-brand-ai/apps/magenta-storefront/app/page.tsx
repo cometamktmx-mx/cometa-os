@@ -1,6 +1,6 @@
 import { StoreInformation } from '../lib/store-information';
 import { createClient } from "@supabase/supabase-js";
-import { StoreHome } from "../../../packages/own-storefront/home";
+import {AtelierStore as StoreHome} from '../lib/atelier-store';
 import { parseAppearance, type ProductCard } from "../../../packages/own-storefront/contract";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

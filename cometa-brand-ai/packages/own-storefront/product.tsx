@@ -40,7 +40,7 @@ export function ProductDetail({ product: p, config = defaultProduct(), mediaBase
     if (preview) { setMessage("Vista previa: no se modifica la bolsa ni se generan pedidos."); return; }
     if (!canBuy || !variant || pending.current) return;
     pending.current = true; setBusy(true); setMessage("");
-    try { const result = await addToBag(p.brandId, p.id, variant.id, quantity); setCount(result.count); setMessage(result.persisted ? "Agregado a tu bolsa. Puedes seguir explorando." : "Agregado solo en esta pestaña. El navegador no permite guardar la bolsa al recargar."); }
+    try { const result = await addToBag(p.brandId, p.id, variant.id, quantity); setCount(result.count); window.dispatchEvent(new CustomEvent("atelier-open-bag")); setMessage(result.persisted ? "Agregado a tu bolsa. Puedes seguir explorando." : "Agregado solo en esta pestaña. El navegador no permite guardar la bolsa al recargar."); }
     catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo agregar. Intenta de nuevo."); }
     finally { pending.current = false; setBusy(false); }
   };

@@ -1,0 +1,5 @@
+// Exact luminance-to-alpha treatment from Atelier 0.6 snippets/brand.liquid.
+// Retains the source raster and its proportions; currentColor works on light/dark surfaces.
+export function AtelierLogo({identity,src,name='MAGENTA'}:{identity:string;src:string;name?:string}){
+ return <svg className="brand-vector" viewBox="48 36 377 108" role="img" aria-label={name} xmlns="http://www.w3.org/2000/svg"><defs><filter id={'BrandAlpha-'+identity} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -0.3333 -0.3333 -0.3333 0 1"/><feComponentTransfer><feFuncA type="linear" slope="1.25"/></feComponentTransfer></filter><mask id={'BrandMask-'+identity} maskUnits="userSpaceOnUse" x="0" y="0" width="472" height="175" style={{maskType:'alpha'}}><image href={src} width="472" height="175" filter={'url(#BrandAlpha-'+identity+')'}/></mask></defs><rect width="472" height="175" fill="currentColor" mask={'url(#BrandMask-'+identity+')'}/></svg>;
+}

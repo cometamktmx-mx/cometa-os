@@ -1,6 +1,6 @@
 import { StoreInformation } from '../../lib/store-information';
 import { createClient } from "@supabase/supabase-js";
-import { StoreHome } from "../../../../packages/own-storefront/home";
+import {AtelierStore as StoreHome} from '../../lib/atelier-store';
 import { parseAppearance } from "../../../../packages/own-storefront/contract";
 import { Catalog } from "../../../../packages/own-storefront/catalog";
 import { catalogQuery, defaultCatalog, type CatalogResult } from "../../../../packages/own-storefront/catalog-contract";

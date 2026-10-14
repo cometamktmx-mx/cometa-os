@@ -1,7 +1,7 @@
 import { StoreInformation } from '../../../lib/store-information';
 import { notFound } from "next/navigation";
 import { publicStore } from "../../../lib/public-store";
-import { StoreHome } from "../../../../../packages/own-storefront/home";
+import {AtelierStore as StoreHome} from '../../../lib/atelier-store';
 import { parseAppearance } from "../../../../../packages/own-storefront/contract";
 import { ProductDetail } from "../../../../../packages/own-storefront/product";
 import { uuidPattern, type PublicProduct } from "../../../../../packages/own-storefront/product-contract";

@@ -1,0 +1,568 @@
+{
+  "global": {
+    "brand_name": "MAGENTA",
+    "logo_width": 170,
+    "logo_width_mobile": 135,
+    "demo_assets": true,
+    "accent": "#B20E53",
+    "paper": "#FFF9F5",
+    "ink": "#29191F",
+    "blush": "#F2D8DF",
+    "wine": "#620D30",
+    "on_dark": "#FFF9F5",
+    "soft": "#F9E8EC",
+    "use_shopify_fonts": false,
+    "heading_font": "playfair_display_n4",
+    "body_font": "assistant_n4",
+    "body_size": 16,
+    "heading_scale": 100,
+    "button_radius": 26,
+    "image_radius": 2,
+    "page_width": 1500,
+    "gutter": 60,
+    "gutter_mobile": 20,
+    "show_intro": true,
+    "intro_mode": "monogram",
+    "intro_width": 110,
+    "intro_duration": 800,
+    "intro_once": true,
+    "intro_background": "#FFF9F5",
+    "intro_color": "#620D30",
+    "motion_enabled": true,
+    "reveal_enabled": true,
+    "card_ratio": "portrait",
+    "card_fit": "cover",
+    "card_second_image": true,
+    "card_quick_buy": true,
+    "card_favorites": true,
+    "card_swatches": true,
+    "card_ratings": true,
+    "card_vendor": false,
+    "card_badges": true,
+    "new_tag": "nuevo",
+    "card_button": "Elegir talla",
+    "new_label": "Nuevo",
+    "sale_label": "Oferta",
+    "soldout_label": "Agotado",
+    "cart_title": "Tu bolsa",
+    "cart_empty": "Tu próximo favorito está esperando.",
+    "cart_continue": "Explorar colección",
+    "checkout_label": "Continuar al pago",
+    "cart_note": "Envío y total final confirmados al pagar.",
+    "drawer_width": 480,
+    "search_title": "Tu próximo favorito.",
+    "search_label": "Busca una prenda, colección o color",
+    "search_placeholder": "Leggings, tops, conjuntos…",
+    "search_limit": 6,
+    "color_picker_style": "circles",
+    "color_swatch_size": 48,
+    "color_option_names": "Color,Colour,Tono",
+    "benefit_background": "#F4ECEE",
+    "benefit_foreground": "#620D30",
+    "benefit_columns": 4,
+    "color_name_1": "Pastel Yellow",
+    "color_value_1": "#F0E7A4",
+    "color_name_2": "Magenta",
+    "color_value_2": "#A31960",
+    "color_name_3": "Rojo",
+    "color_value_3": "#AF2838",
+    "color_name_4": "Langostino",
+    "color_value_4": "#D97B6C",
+    "color_name_5": "Blueberry Pie",
+    "color_value_5": "#474D70",
+    "color_name_6": "Pastel Blueberry",
+    "color_value_6": "#ADB9D5",
+    "color_name_7": "Black",
+    "color_value_7": "#181818",
+    "color_name_8": "Olivo",
+    "color_value_8": "#77754C",
+    "color_name_9": "Blanco",
+    "color_value_9": "#FFFFFF",
+    "color_name_10": "Azul",
+    "color_value_10": "#4C84A9",
+    "color_name_11": "Cocoa",
+    "color_value_11": "#5B4139",
+    "color_name_12": "Negro",
+    "color_value_12": "#181818"
+  },
+  "sections": {
+    "hero": {
+      "kicker": "EL UNIVERSO MAGENTA",
+      "title": "Tu nueva",
+      "italic": "obsesión.",
+      "copy": "Looks que quieres llevar a todas partes.",
+      "cta": "Quiero mi look",
+      "note": "Disciplina también se viste bonito.",
+      "image_alt": "Campaña ilustrativa de moda deportiva",
+      "autoplay": false,
+      "layout": "full",
+      "alignment": "left",
+      "height": 660,
+      "height_mobile": 600,
+      "title_size": 104,
+      "title_size_mobile": 62,
+      "image_position": 50,
+      "image_position_mobile": 67,
+      "text_color": "#620D30",
+      "overlay_color": "#F9E8EC",
+      "overlay_opacity": 0,
+      "secondary_label": "Explora tus favoritos",
+      "index": "01 — THE MAGENTA EDIT"
+    },
+    "header": {
+      "announcement": "MENUDEO Y MAYOREO · MAGENTA FITWEAR",
+      "menu": "main-menu",
+      "announcement_bg": "#620D30",
+      "announcement_text": "#FFF9F5",
+      "background": "#FFF9F5",
+      "foreground": "#29191F",
+      "sticky": true,
+      "show_favorites": true,
+      "show_account": true,
+      "menu_kicker": "EL UNIVERSO MAGENTA",
+      "vertical_padding": 14
+    },
+    "footer": {
+      "logo_width": 190,
+      "background": "#620D30",
+      "foreground": "#FFF9F5",
+      "copy": "<p>Para moverte como tú.<br>Para sentirte increíble.</p>",
+      "show_social": true,
+      "show_payments": true,
+      "show_wordmark": true,
+      "wordmark": "MAGENTA",
+      "copyright": "Todos los derechos reservados.",
+      "padding_top": 64,
+      "padding_bottom": 28,
+      "payments_label": "Paga como tú quieras",
+      "payment_icon_width": 44
+    },
+    "editorial": {
+      "title": "Encuentra tu mood.",
+      "kicker": "ESTILO PARA CADA VERSIÓN DE TI",
+      "link_label": "Encuentra el tuyo",
+      "columns": 4,
+      "image_height": 400,
+      "mobile_layout": "grid",
+      "palette": "base",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    },
+    "shop-look": {
+      "title": "Un look. Mil planes.",
+      "copy": "<p>Descubre tus favoritos y combínalos a tu manera.</p>",
+      "kicker": "SHOP THE LOOK",
+      "side_kicker": "COMBÍNALO A TU MANERA",
+      "button_label": "Comprar el look",
+      "reverse": false,
+      "photo_height": 600,
+      "palette": "soft",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    },
+    "marquee": {
+      "text": "MOVE PRETTY. FEEL STRONG. MAGENTA.",
+      "separator": "✳",
+      "speed": 30,
+      "animated": true,
+      "font_size": 18,
+      "palette": "base",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36
+    },
+    "faq": {
+      "title": "Antes de tu primer MAGENTA.",
+      "kicker": "TE ACOMPAÑAMOS",
+      "palette": "base",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    },
+    "wholesale": {
+      "title": "Tu siguiente best seller empieza aquí.",
+      "copy": "Arma tu selección y conoce las condiciones de compra por volumen.",
+      "kicker": "CRECE CON MAGENTA",
+      "button_label": "Conocer mayoreo",
+      "wordmark": "MAGENTA",
+      "wordmark_sub": "para tu negocio.",
+      "palette": "dark",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    },
+    "benefits": {
+      "palette": "base",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    },
+    "featured-collection": {
+      "title": "Favoritos por una razón.",
+      "limit": 4,
+      "tab_label": "Favoritos",
+      "carousel": false,
+      "kicker": "THE MAGENTA SELECTION",
+      "view_all": "Ver toda la colección",
+      "columns": 4,
+      "show_tabs": true,
+      "palette": "base",
+      "section_bg": "#FFF9F5",
+      "section_text": "#29191F",
+      "section_heading": "#620D30",
+      "content_width": "contained",
+      "padding_top": 64,
+      "padding_bottom": 64,
+      "padding_mobile": 36,
+      "heading_size": 48,
+      "heading_size_mobile": 34,
+      "heading_align": "left"
+    }
+  },
+  "index": {
+    "sections": {
+      "hero": {
+        "type": "hero",
+        "settings": {
+          "cta": "Comprar colección",
+          "kicker": "THE MAGENTA EDIT",
+          "title": "Tu nueva",
+          "italic": "obsesión.",
+          "copy": "Comodidad que se siente. Estilo que se nota.",
+          "height": 660,
+          "title_size": 104,
+          "secondary_label": "Explora tus favoritos",
+          "note": "Hecha para moverte. Diseñada para ti."
+        }
+      },
+      "marquee": {
+        "type": "marquee",
+        "settings": {}
+      },
+      "categories": {
+        "type": "editorial",
+        "settings": {
+          "padding_top": 64,
+          "padding_bottom": 36,
+          "title": "Encuentra tu mood.",
+          "heading_align": "center",
+          "heading_size": 50
+        },
+        "blocks": {
+          "0": {
+            "type": "collection",
+            "settings": {
+              "title": "Leggings"
+            }
+          },
+          "1": {
+            "type": "collection",
+            "settings": {
+              "title": "Tops"
+            }
+          },
+          "2": {
+            "type": "collection",
+            "settings": {
+              "title": "Conjuntos"
+            }
+          },
+          "3": {
+            "type": "collection",
+            "settings": {
+              "title": "Esenciales"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "favorites": {
+        "type": "featured-collection",
+        "settings": {
+          "title": "Favoritos por una razón.",
+          "padding_top": 40,
+          "padding_bottom": 72,
+          "show_tabs": false,
+          "limit": 4
+        }
+      },
+      "look": {
+        "type": "shop-look",
+        "settings": {
+          "title": "Un look. Mil planes.",
+          "copy": "<p>De la rutina al café, del gym a tus planes. Comodidad y estilo para moverte a tu manera.</p>",
+          "photo_height": 620,
+          "padding_top": 0,
+          "padding_bottom": 0,
+          "padding_mobile": 0
+        }
+      },
+      "videos": {
+        "type": "videos",
+        "settings": {},
+        "blocks": {
+          "0": {
+            "type": "video",
+            "settings": {
+              "title": "Rutinas reales"
+            }
+          },
+          "1": {
+            "type": "video",
+            "settings": {
+              "title": "Looks en movimiento"
+            }
+          },
+          "2": {
+            "type": "video",
+            "settings": {
+              "title": "Tu momento MAGENTA"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "reviews": {
+        "type": "testimonials",
+        "settings": {}
+      },
+      "benefits": {
+        "type": "benefits",
+        "settings": {
+          "padding_top": 28,
+          "padding_bottom": 28,
+          "padding_mobile": 28
+        },
+        "blocks": {
+          "0": {
+            "type": "benefit",
+            "settings": {
+              "title": "Envíos a México",
+              "copy": "Consulta cobertura y tarifas",
+              "icon": "↗"
+            }
+          },
+          "1": {
+            "type": "benefit",
+            "settings": {
+              "title": "Compra segura",
+              "copy": "Tus datos protegidos",
+              "icon": "◇"
+            }
+          },
+          "2": {
+            "type": "benefit",
+            "settings": {
+              "title": "Guía de tallas",
+              "copy": "Encuentra tu talla ideal",
+              "icon": "↔"
+            }
+          },
+          "3": {
+            "type": "benefit",
+            "settings": {
+              "title": "Menudeo y mayoreo",
+              "copy": "Para ti y tu negocio",
+              "icon": "♡"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "wholesale": {
+        "type": "wholesale",
+        "settings": {
+          "padding_top": 72,
+          "padding_bottom": 72
+        }
+      },
+      "faq": {
+        "type": "faq",
+        "settings": {
+          "padding_top": 72,
+          "padding_bottom": 72
+        },
+        "blocks": {
+          "0": {
+            "type": "question",
+            "settings": {
+              "question": "¿Cómo elijo mi talla?",
+              "answer": "<p>Consulta la guía de tallas del producto o contáctanos para recibir asesoría.</p>"
+            }
+          },
+          "1": {
+            "type": "question",
+            "settings": {
+              "question": "¿Cómo se calcula el envío?",
+              "answer": "<p>El costo se calcula al pagar según tu dirección y las tarifas configuradas en la tienda.</p>"
+            }
+          },
+          "2": {
+            "type": "question",
+            "settings": {
+              "question": "¿Puedo comprar por mayoreo?",
+              "answer": "<p>Consulta las condiciones por modelo en nuestra sección de mayoreo.</p>"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "newsletter": {
+        "type": "newsletter",
+        "settings": {
+          "padding_top": 48,
+          "padding_bottom": 48,
+          "heading_size": 40
+        }
+      },
+      "colors": {
+        "type": "collection-directory",
+        "settings": {},
+        "blocks": {
+          "0": {
+            "type": "collection",
+            "settings": {
+              "title": "Burgundy",
+              "color": "#712c43"
+            }
+          },
+          "1": {
+            "type": "collection",
+            "settings": {
+              "title": "Rosa",
+              "color": "#dd98b3"
+            }
+          },
+          "2": {
+            "type": "collection",
+            "settings": {
+              "title": "Negro",
+              "color": "#202020"
+            }
+          },
+          "3": {
+            "type": "collection",
+            "settings": {
+              "title": "Crema",
+              "color": "#efe4d4"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ],
+        "disabled": true
+      },
+      "activities": {
+        "type": "collection-directory",
+        "settings": {
+          "title": "Muévete a tu manera.",
+          "style": "photos"
+        },
+        "blocks": {
+          "0": {
+            "type": "collection",
+            "settings": {
+              "title": "Entrena"
+            }
+          },
+          "1": {
+            "type": "collection",
+            "settings": {
+              "title": "Fluye"
+            }
+          },
+          "2": {
+            "type": "collection",
+            "settings": {
+              "title": "Todos los días"
+            }
+          }
+        },
+        "block_order": [
+          "0",
+          "1",
+          "2"
+        ],
+        "disabled": true
+      }
+    },
+    "order": [
+      "hero",
+      "marquee",
+      "categories",
+      "favorites",
+      "look",
+      "colors",
+      "activities",
+      "videos",
+      "reviews",
+      "benefits",
+      "wholesale",
+      "faq",
+      "newsletter"
+    ]
+  }
+}

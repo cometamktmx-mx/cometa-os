@@ -1,6 +1,6 @@
 import { StoreInformation } from './store-information';
 import { publicStore } from "./public-store";
-import { StoreHome } from "../../../packages/own-storefront/home";
+import {AtelierStore as StoreHome} from './atelier-store';
 import { emptyAppearance, parseAppearance } from "../../../packages/own-storefront/contract";
 import { Checkout } from "../../../packages/own-storefront/checkout";
 export async function CheckoutPage({ orderId = "", bagOnly = false }: { orderId?: string; bagOnly?: boolean }) {
