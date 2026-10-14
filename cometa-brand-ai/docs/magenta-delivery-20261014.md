@@ -1,5 +1,53 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Continuación desde 299fa29: tienda propia, pedidos y Preview visual
+
+**Estado vigente:** implementación local ampliada y pruebas PostgreSQL aprobadas; integración remota y revisión visual pendientes. Este apartado sustituye los pendientes históricos que ya están resueltos abajo. Rama `delivery/magenta-20261014`; sin merge ni modificaciones de bases operativas.
+
+### Resultado implementado
+
+- Configuración propia persistida por marca en `store_settings`, con revisión optimista y autorización owner/admin: nombre/contacto/dirección/estado, sucursal, cobertura postal/país, tarifa, umbral gratis, plazo, recolección, métodos de pago, políticas y destinatarios POS. No depende de cajas ni modifica COMU. Dominio muestra URL configurada y estado explícitamente no verificado; DNS se gestiona internamente, no se simula una conexión. El canal disponible es campanita POS; no se prometen email/WhatsApp automáticos.
+- Mayoreo propio por producto o combinado con semántica UNIT_PRICE/AMOUNT_OFF/PERCENT_OFF existente; cálculo SQL autoritativo, prioridad por producto y umbral mayor aplicable. No se leen reglas privadas de COMU. Las pruebas nuevas cubren combinado porcentual; faltan casos específicos de paridad para cada modalidad.
+- Checkout reutiliza reserva, expiración y confirmación M6; calcula precios, descuento, cobertura, envío y stock en servidor. Snapshots de artículo/variante/precio/contacto/entrega; recolección sin tarifa. La tarifa es política del comercio, no cotización de paquetería. WhatsApp crea primero pedido pendiente/reserva y ofrece mensaje con folio: no envía ni confirma pago. No hay conciliación manual de pagos offline ni reembolso implementado.
+- Consulta de pedidos del comprador con cookie de propietario y filtro de marca, detalle y confirmación en pantalla. No hay correo transaccional ni recuperación entre dispositivos sin la cookie. API POS con bandeja/detalle/historial y estados separados; preparar/listo/enviado con guía/entregado requieren pago confirmado. Cancelación pendiente libera reserva; cancelación pagada antes de envío repone una vez y deja `refund_required`, sin afirmar reembolso. Se rechaza cancelar enviado/entregado.
+- Campanita persistida por evento/destinatario, contador total y últimos 100 avisos, lectura persistente, consulta cada 15 s y recuperación al reconectar/volver a la pestaña. Sonido habilitado por clic, deduplicación por evento durante el montaje; una señal por lote nuevo. No se certifica deduplicación entre pestañas ni sonido con navegador cerrado.
+- Atelier: ZIP ya localizado sin `(1)`; se contrastaron también `product-v6.css` y los estilos de portada/categorías. Adaptados producto, galería, variantes, modal, mayoreo, navegación a bolsa/pedidos y móvil conservando componentes y catálogo real M3–M6. No equivale a revisión visual aprobada. Escáner/importador y alta aprobados en 299fa29 conservados.
+
+### Pruebas reales y límites
+
+- `node scripts/test-storefront-m6-local.mjs --operations`: PASS en dos bases aisladas `cometa_m6_1791991823317` y `cometa_m6_1791992202506`, eliminadas al terminar sin FORCE. Copia de esquema local, fixtures sintéticos, migración `20261014160000_store_operations_m7.sql` solo en esas bases. Sin reset ni cambios a contenedores/volúmenes existentes.
+- Suite M6 original completa seguida de M7: configuración/CAS/autorización, destinatarios/productos de otra marca rechazados, redacción pública, mayoreo, tarifa/umbral/recolección/cobertura, creación/replay concurrentes, payload cambiado, propietario ajeno, precio inmutable, transiciones por pago y entrega, guía, cancelación pagada concurrente con una sola reposición, última unidad, expiración, avisos persistentes/lectura/autorización y RLS.
+- `test-store-webhook-local.mjs`, invocado desde la suite: handler real y firmas del SDK Stripe; transporte hacia PostgreSQL local. Rechaza firma incorrecta, live, importe incorrecto y marca ajena; webhook duplicado concurrente produce un pago/evento/descuento de stock. **No** es prueba contra Stripe remoto ni certifica Checkout Session del proveedor.
+- `node scripts/test-store-operations-api.mjs`: PASS parser y handler real con Auth/transporte simulados, 401/403, marca ajena, límites de documento, acciones inválidas, Stripe ausente, conflictos y errores seguros. Contratos M3–M6 y escáner sintético PASS; no se sustituyeron las pruebas reales de importador/alta registradas en la sección anterior.
+- TypeScript sin emisión PASS. Build webpack storefront en su ubicación real PASS. La advertencia standalone anterior venía de la copia anidada y dependencias fuera del tracing root; no aparece al compilar `apps/magenta-storefront` en el monorepo. La Preview estática no usa standalone ni funciones servidor.
+- ESLint dirigido: se corrigió el enlace interno de la nueva página de pedidos con `Link`; comprobación final de esa página/campanita PASS. Resto de archivos nuevos comprobados sin errores; permanecen cuatro advertencias en componentes compartidos por `<img>` y navegación interna existente. `git diff --check` sin errores de whitespace.
+- Build general en copia sin `.env`: compilación JS correcta; falla el chequeo de página en `src/app/comu/seller/orders/page.tsx` por prop de página `brandSlug?: string` no admitida por App Router. Firma verificada en 299fa29: deuda preexistente, no corregida incidentalmente. Esto bloquea el build administrativo completo.
+- Navegador bloqueado: no se buscó una vía alternativa ni se generaron capturas como supuesta aprobación. Pendientes QA autenticada, móvil, galería/variantes/bolsa, accesibilidad, sonido real y recorridos integrales.
+
+### Infraestructura y siguiente paso concreto
+
+Metadatos Supabase accesibles: `fvaruzjravbwzatnjfoe` (PTM App MVP, inactivo), `ofkvisonfllafkzihdvq` (Nahuitech-Quotes, activo), `zhtagqrzyovsrmsicaot` (Cometa BRAND IA, activo/vinculado). **Ninguno confirmado exclusivo de pruebas.** Vercel `cometa-os` comparte variables Supabase entre Production y Preview; nombres de proyectos o variables no acreditan aislamiento. No se consultaron datos remotos ni se mostraron secretos.
+
+Para habilitar Preview funcional: crear o designar un proyecto Supabase vacío exclusivo de pruebas, confirmar su referencia y ausencia de datos operativos, cargar baseline y dependencias A1/M0–M6 más migraciones de importador/alta/M7 con fixtures sintéticos; configurar Auth/Storage y variables solo Preview en proyectos aislados. No conectar Vercel a Supabase local. Provisionar `STOREFRONT_STRIPE_TEST_SECRET_KEY` (`sk_test_`) y `STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET` del endpoint Preview y validar cuenta, evento firmado y Checkout Session test; estas variables no estaban disponibles. Las claves genéricas/COMU existentes no se reutilizaron. Configurar y verificar también el ejecutor de expiraciones M6; hay liberación en solicitudes de checkout, pero no se certifica un scheduler remoto. No se realizaron pagos ni mensajes reales.
+
+### Preview disponible e incidente de clasificación
+
+URL: https://magenta-controlled-preview-hme052ccm-cometa-os-s-projects.vercel.app
+
+Vercel inspect: `dpl_ABfALPXGoyV6EC82Kg674BdhVL8G`, **target preview / Ready**. Artefacto HTML estático generado con los componentes actuales y recursos demo del ZIP; banners explícitos, datos sintéticos, CSP sin scripts/conexiones/formularios. Bloqueados: edición POS, interacción de variantes/galería, bolsa persistente, checkout, pagos, WhatsApp, pedidos reales y campanita. No sustituye al frontend funcional ni certifica su integración. Puede requerir acceso del equipo por la protección de Preview; no se desactivó esa protección. Verificación estructural local de rutas/recursos/ausencia de secretos y estado remoto, no revisión visual.
+
+Incidente: el primer intento con `--target preview` en el proyecto administrativo sin despliegues fue clasificado por Vercel como **production**. Se detectó y eliminó inmediatamente el despliegue estático propio `dpl_3ShmVvSJzWNYUxQ3fQF6tnceskFf` (CLI confirmó eliminación). No contenía backend, pagos ni datos reales. El reintento usó el proyecto storefront ya existente y se verificó explícitamente como Preview. No se promovió la aplicación operativa ni se alteraron sus bases. No se debe afirmar que no ocurrió ningún despliegue clasificado producción.
+
+Se deshabilitó despliegue automático Git para esta rama en ambos `vercel.json`, conservando las otras reglas; evita que el push active una app funcional con variables compartidas. Las publicaciones posteriores deben seguir el gate anterior.
+
+### Archivos exactos de esta continuación
+
+Modificados: `apps/magenta-storefront/app/api/checkout/route.ts`, `apps/magenta-storefront/app/layout.tsx`, `apps/magenta-storefront/lib/checkout-server.ts`, `packages/own-storefront/checkout.css`, `packages/own-storefront/checkout.tsx`, `packages/own-storefront/home.css`, `packages/own-storefront/home.tsx`, `packages/own-storefront/product.css`, `scripts/test-storefront-m6-local.mjs`, `src/app/brand/[brandSlug]/components/pos-sidebar.tsx`, `src/app/brand/[brandSlug]/components/pos-topbar.tsx`, `vercel.json`, este informe.
+
+Añadidos: `apps/magenta-storefront/app/api/store-settings/route.ts`, `apps/magenta-storefront/app/pedidos/page.tsx`, `apps/magenta-storefront/lib/store-information.tsx`, `apps/magenta-storefront/vercel.json`, `packages/own-storefront/operations-contract.ts`, `scripts/prepare-magenta-visual-preview.mjs`, `scripts/test-store-operations-api.mjs`, `scripts/test-store-operations-local.mjs`, `scripts/test-store-webhook-local.mjs`, `src/app/api/pos/online-store/operations/route.ts`, `src/app/brand/[brandSlug]/components/pos-store-bell.tsx`, `src/app/brand/[brandSlug]/pos/online-store/operations.tsx`, `src/app/brand/[brandSlug]/pos/online-store/orders/page.tsx`, `src/app/brand/[brandSlug]/pos/online-store/page.tsx`, `supabase/migrations/20261014160000_store_operations_m7.sql`.
+
+No se incorporan `.env`, claves, artefactos `.next`, ZIP ni `../cometa-hotfix-recovery/`.
+
 ## Reanudación tras reinicio — 14 octubre 2026
 
 Esta sección sustituye el estado de bloqueo Docker del checkpoint inferior. La instrucción vigente autoriza cambios, commits, push y Preview, pero exige confirmar antes del despliegue un backend accesible y exclusivo de pruebas, pagos test y migraciones. No autoriza merge ni producción. **La entrega completa sigue pendiente.**

@@ -43,19 +43,38 @@ export async function quoteCart(lines: BagLine[], owner: string, contact?: Conta
   if (!process.env.STOREFRONT_STRIPE_TEST_SECRET_KEY?.startsWith("sk_test_") || !process.env.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET || !process.env.STOREFRONT_ORIGIN) blockers.push("El pago de prueba todavía no está configurado.");
   return { ...cart, shippingCents: shipping?.amount_cents ?? null, totalCents: shipping ? cart.subtotalCents + shipping.amount_cents : null, quoteId: shipping?.id ?? null, ready: blockers.length === 0, blockers };
 }
-export type StoreOrder = { id: string; brand_id: string; owner_hash: string; status: string; currency: string; total_cents: number; subtotal_cents: number; shipping_cents: number; stripe_account_ref: string; stripe_session_id: string | null; expires_at: string; contact: Contact; request: { lines: BagLine[]; contact: Contact } };
+export async function operationQuote(lines:BagLine[],owner:string,contact?:Contact,delivery='SHIPPING',method='STRIPE'):Promise<CartQuote>{
+ const {slug,db}=checkoutStore();
+ const result=contact?await db.rpc('store_quote_m7',{p_brand:slug,p_owner:owner,p_lines:lines,p_contact:contact,p_delivery:delivery,p_method:method,p_hash:shippingRequestHash(lines,contact)}):await db.rpc('store_cart_m7',{p_brand:slug,p_lines:lines});
+ if(result.error||!result.data)throw Error(result.error?.message.includes('OUTSIDE_COVERAGE')?'Tu dirección está fuera de la cobertura configurada.':'No se pudo cotizar. Revisa disponibilidad, entrega y métodos habilitados.');
+ const cart=result.data as CartQuote,blockers:string[]=[];
+ if(cart.items.some(i=>!i.available))blockers.push('Hay variantes sin existencias suficientes en la sucursal.');
+ if(!contact)blockers.push('Completa tus datos y revisa la entrega.');
+ if(method==='STRIPE'&&(!process.env.STOREFRONT_STRIPE_TEST_SECRET_KEY?.startsWith('sk_test_')||!process.env.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET))blockers.push('El pago Stripe test no está configurado.');
+ return {...cart,shippingCents:cart.shippingCents??null,totalCents:cart.totalCents??null,quoteId:cart.quoteId??null,ready:blockers.length===0,blockers};
+}
+export type StoreOrder = { id: string; brand_id: string; owner_hash: string; status: string; currency: string; total_cents: number; subtotal_cents: number; shipping_cents: number; stripe_account_ref: string; stripe_session_id: string | null; expires_at: string; contact: Contact; request: { lines: BagLine[]; contact: Contact };payment_method?:string;delivery_method?:string;preparation_status?:string;delivery_status?:string;tracking?:string|null;refund_required?:boolean;delivery_snapshot?:{pickup?:{address?:string;hours?:string;instructions?:string}} };
 export async function ownedOrder(owner: string, id?: string, attempt?: string): Promise<StoreOrder | null> {
   const { slug, db } = checkoutStore();
   const brand = await db.from("brands").select("id").eq("slug", slug).maybeSingle();
   if (brand.error || !brand.data) throw Error("STORE_UNAVAILABLE");
-  let q = db.from("store_orders").select("id,brand_id,owner_hash,status,currency,total_cents,subtotal_cents,shipping_cents,stripe_account_ref,stripe_session_id,expires_at,contact,request").eq("brand_id", brand.data.id).eq("owner_hash", owner);
+  let q = db.from("store_orders").select("id,brand_id,owner_hash,status,currency,total_cents,subtotal_cents,shipping_cents,stripe_account_ref,stripe_session_id,expires_at,contact,request,payment_method,delivery_method,preparation_status,delivery_status,tracking,refund_required,delivery_snapshot").eq("brand_id", brand.data.id).eq("owner_hash", owner);
   q = attempt ? q.eq("attempt_id", attempt) : id ? q.eq("id", id) : q.eq("status", "PENDING");
   const result = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (result.error) throw Error("STORE_ORDER_UNAVAILABLE");
   return result.data;
 }
-export function safeOrder(o: StoreOrder) { return { id: o.id, status: o.status, currency: o.currency, total_cents: o.total_cents, subtotal_cents: o.subtotal_cents, shipping_cents: o.shipping_cents, expires_at: o.expires_at }; }
+export function safeOrder(o: StoreOrder) { return { id: o.id, status: o.status, currency: o.currency, total_cents: o.total_cents, subtotal_cents: o.subtotal_cents, shipping_cents: o.shipping_cents, expires_at: o.expires_at,payment_method:o.payment_method,delivery_method:o.delivery_method,preparation_status:o.preparation_status,delivery_status:o.delivery_status,tracking:o.tracking,refund_required:o.refund_required,delivery_snapshot:o.delivery_snapshot }; }
+export async function continueOrder(o:StoreOrder){
+ if(o.payment_method!=='WHATSAPP')return payOrder(o);
+ if(o.status!=='PENDING'||Date.parse(o.expires_at)<=Date.now())return {order:safeOrder(o),url:null};
+ const {slug,db}=checkoutStore(),settings=await db.rpc('store_public_settings_m7',{p_brand:slug});
+ if(settings.error||!settings.data?.payments?.whatsapp||!/^[1-9][0-9]{7,14}$/.test(settings.data.whatsapp))throw Error('STORE_WHATSAPP_UNAVAILABLE');
+ const message=`Hola, quiero coordinar mi pedido ${o.id.slice(0,8).toUpperCase()}. Total ${o.currency} ${(o.total_cents/100).toFixed(2)}. Pago pendiente. Folio completo: ${o.id}`;
+ return {order:safeOrder(o),url:'https://wa.me/'+settings.data.whatsapp+'?text='+encodeURIComponent(message)};
+}
 export async function payOrder(o: StoreOrder) {
+  if(o.payment_method==='WHATSAPP')throw Error('STORE_PAYMENT_METHOD_MISMATCH');
   if (o.status !== "PENDING" || Date.parse(o.expires_at) <= Date.now()) return { order: safeOrder(o), url: null };
   const stripe = stripeTest(), { db } = checkoutStore();
   const account = await stripe.accounts.retrieveCurrent();

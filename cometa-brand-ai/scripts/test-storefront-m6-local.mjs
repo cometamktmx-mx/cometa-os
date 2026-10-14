@@ -170,7 +170,8 @@ try{
  await sql(`begin;set local session_replication_role=replica;insert into pos_locations(id,brand_id,brand_slug,name,code) values('${branch2}','${ids.brand}','m1-brand','Second fixture','M5');insert into pos_inventory(brand_id,brand_slug,location_id,variant_id,quantity,reserved_quantity) values('${ids.brand}','m1-brand','${branch2}','${variant2}',1,0);commit;`);
  const multiLocation=await snapshot();assert.equal(await validate(variant2,2),null,'must not sum 1+1 across branches');assert.equal((await validate()).quantity,1);assert.equal(await snapshot(),multiLocation);
  console.log('PASS M5 SQL: published-only detail, direct URL gates, color photos, foreign IDs, reserved/soldout, quantity in one location, zero mutations, concurrent validation, draft/publication/CAS/config preservation');
- const {certify:certifyM6}=await import('./test-storefront-m6-sql.mjs');await certifyM6({sql,quote,ids,document});
+ const {certify:certifyM6}=await import('./test-storefront-m6-sql.mjs');const m6=await certifyM6({sql,quote,ids,document});
+ if(process.argv.includes('--operations')){await sql(fs.readFileSync('supabase/migrations/20261014160000_store_operations_m7.sql','utf8'));const {certify}=await import('./test-store-operations-local.mjs');await certify({sql,quote,ids,...m6});}
  await sql(`set role service_role;select brand_online_store_set_access_a1('m1-brand','${ids.admin}','suspended',1)`);assert.equal(await read(),null);
  assert.equal(await detail(),null);assert.equal(await validate(),null);console.log('PASS M5 suspension blocks detail and bag');
  console.log('PASS M4 SQL: gates, public facets/counts, cross-brand, same-variant filters, reserved stock, M2 description/photos, ranges, stable pagination, draft/CAS/banner, suspension and read invariance');

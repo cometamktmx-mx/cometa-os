@@ -8,6 +8,7 @@ import {
   POS_NAV_ITEMS,
 } from "./pos-sidebar";
 import { PosIcon } from "./pos-icons";
+import { PosStoreBell } from "./pos-store-bell";
 import { posStaffRoleLabel, staffRoles } from "@/lib/pos/staff-shared";
 import type { PosOperator } from "./pos-operator-gate";
 
@@ -118,6 +119,7 @@ export function PosTopbar({
           ) : null}
 
           {showAdminAction && adminHref ? <Link href={adminHref} className="pos-ui-focus hidden min-h-10 items-center rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] px-3 text-xs font-semibold text-[var(--pos-text-primary)] sm:inline-flex">Administrar POS</Link> : null}
+          {!foodOperational && user && <PosStoreBell key={brand.slug} brandSlug={brand.slug} />}
           {!foodOperational && !isRegister ? (
             <Link
               href={buildPosHref(brand.slug, "register")}

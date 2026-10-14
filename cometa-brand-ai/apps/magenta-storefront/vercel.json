@@ -1,0 +1,7 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "delivery/magenta-20261014": false
+    }
+  }
+}

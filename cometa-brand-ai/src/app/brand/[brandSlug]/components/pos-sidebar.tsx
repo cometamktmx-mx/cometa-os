@@ -24,6 +24,8 @@ export type PosNavItem = {
 
 export const POS_NAV_ITEMS: PosNavItem[] = [
   { label: "Tienda online · Apariencia", route: "online-store/appearance", icon: "settings", section: "Sistema", retailOnly: true },
+  { label: "Tienda online · Configuración", route: "online-store", icon: "settings", section: "Sistema", retailOnly: true },
+  { label: "Pedidos online", route: "online-store/orders", icon: "sale", section: "Sistema", retailOnly: true },
   { label: "Resumen", route: "", icon: "home", section: "Operación" },
   { label: "Nueva venta", route: "register", icon: "sale", section: "Operación" },
   { label: "Caja", route: "cash", icon: "cash", section: "Operación" },

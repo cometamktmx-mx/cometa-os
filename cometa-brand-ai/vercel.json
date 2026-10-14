@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "backup/mac-transfer-20261013-104342": false
+      "backup/mac-transfer-20261013-104342": false,
+      "delivery/magenta-20261014": false
     }
   },
   "crons": [
