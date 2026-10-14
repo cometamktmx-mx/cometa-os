@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import {presentOrderItems} from '@/lib/pos/order-presentation';
 import { requirePosOperationalAccess } from '@/lib/pos/access';
 import { requirePosMutationAccess } from '@/lib/pos/mutation-access';
 import { assertWebAdministrator } from '@/lib/pos/product-web';
@@ -17,10 +18,10 @@ export async function GET(request:Request){try{const c=await context(request),qu
   let q=c.admin.from('store_orders').select(orderFields).eq('brand_id',c.brand.id);if(id)q=q.eq('id',id);
   const orders=await q.order('created_at',{ascending:false}).order('id').limit(100);if(orders.error)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','Pedidos no disponibles. Comprueba las migraciones.');
   if(!id)return reply({orders:orders.data??[]});if(!orders.data?.length)throw new PosApiError(404,'POS_NOT_FOUND','Pedido no disponible.');
-  const [items,events]=await Promise.all([c.admin.from('store_order_items').select('id,quantity,unit_cents,snapshot').eq('order_id',id),c.admin.from('store_order_events').select('id,order_id,kind,created_at,detail').eq('brand_id',c.brand.id).eq('order_id',id).order('created_at').order('id')]);if(items.error||events.error)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','No se pudo recuperar el detalle.');return reply({orders:orders.data,items:items.data,events:events.data});
+  const [items,events]=await Promise.all([c.admin.from('store_order_items').select('id,product_id,variant_id,quantity,unit_cents,snapshot').eq('order_id',id),c.admin.from('store_order_events').select('id,order_id,kind,created_at,detail').eq('brand_id',c.brand.id).eq('order_id',id).order('created_at').order('id')]);if(items.error||events.error)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','No se pudo recuperar el detalle.');return reply({orders:orders.data,items:await presentOrderItems(c,items.data??[]),events:events.data});
  }
  if(view==='notifications'){
-  const r=await c.admin.rpc('store_notification_list_m7',{p_brand:c.brand.slug,p_actor:c.user.userId});
+  const r=await c.admin.rpc(query.get('includeRead')==='1'?'store_notification_history_m8':'store_notification_list_m7',{p_brand:c.brand.slug,p_actor:c.user.userId});
   if(r.error||!r.data)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','Avisos no disponibles.');return reply(r.data);
  }
  if(view!=='settings')throw new PosApiError(400,'POS_VALIDATION_ERROR','Consulta inválida.');

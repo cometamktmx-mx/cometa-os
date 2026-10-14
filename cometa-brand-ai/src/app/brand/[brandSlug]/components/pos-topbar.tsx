@@ -143,7 +143,7 @@ function getCurrentNavItem({
   brandSlug: string;
   pathname: string;
 }) {
-  return POS_NAV_ITEMS.find((item) => {
+  return [...POS_NAV_ITEMS].sort((a,b)=>b.route.length-a.route.length).find((item) => {
     const href = buildPosHref(brandSlug, item.route);
     return isActivePath({
       pathname,

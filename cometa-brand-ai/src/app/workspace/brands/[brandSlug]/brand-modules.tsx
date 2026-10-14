@@ -55,7 +55,7 @@ export function BrandModulesPanel({ initial }: { initial: BrandModules }) {
       <Card title="Tienda online propia" status={!data.store ? "No se pudo verificar" : enabled ? "Servicio habilitado" : data.store.status === "suspended" ? "Servicio suspendido" : "Servicio deshabilitado"}>
         <p className="font-semibold">Apariencia publicada: {data.publication ? data.publication.hasPublishedAppearance ? `Sí · revisión ${data.publication.publishedRevision}` : "No" : "No se pudo verificar"}.</p>
         <p>Publicar apariencia no confirma dominio, pagos ni envíos operativos.</p>
-        <Link className="mt-3 inline-block underline" href={`/brand/${encodeURIComponent(data.brand.slug)}/pos/online-store/appearance`}>Editar Apariencia ↗</Link>
+        <Link className="mt-3 inline-block underline" href={`/brand/${encodeURIComponent(data.brand.slug)}/pos/online-store`}>Configurar tienda online ↗</Link>
         <p className="mt-2">Habilitar este servicio no publica productos, activa COMU ni conecta dominio, pagos o envíos.</p>
         {data.store?.status === "suspended" && <p className="mt-2">Nuevas operaciones bloqueadas. Suspender el servicio no elimina datos.</p>}
         <button type="button" disabled={busy || !data.store || refreshRequired || (!enabled && data.brand.status !== "active")}

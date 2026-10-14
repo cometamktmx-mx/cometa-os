@@ -1,5 +1,68 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Ajuste de experiencia POS y pago Stripe completo verificado
+
+**Estado vigente:** el usuario completó manualmente el Checkout test. Se verificó la cadena real del pedido **9594E855** (`9594e855-ddef-4831-a8c0-2181d07623ff`): sesión Stripe `complete/paid`, PaymentIntent `succeeded`, evento Stripe real correlacionado con sesión, intención e importe **300.00 MXN**, ledger del webhook, pedido PAID y un único efecto SALE de 3 unidades para la variante importada. Inventario final **5 unidades, reserva 0**. El aviso está persistido y ya leído; se corrigió la prueba que confundía ausencia de avisos no leídos con ausencia del evento. No se creó otro cobro ni se falsificó un evento remoto. La evidencia detallada permanece en `.next/magenta-functional/ephmrsjnpkcgddulvckj/verified-payment.json`, fuera de Git.
+
+### URLs funcionales para revisar
+
+- Administración: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app**.
+- Pedidos online: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store/orders**.
+- Pedido pagado: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store/orders?order=9594e855-ddef-4831-a8c0-2181d07623ff**.
+- Atelier: **https://magenta-controlled-preview-test-delivery-cometa-os-s-projects.vercel.app**.
+
+Las credenciales siguen en el archivo local privado `ACCESO-PRUEBAS.txt` indicado más abajo. Ambos alias son exclusivamente de pruebas; el publicador y verificador exigen `Ready/preview` y comparan los destinos Production, sin cambiar dominios operativos. Diseño Atelier, escáner y avances M1–M6 conservados.
+
+### Experiencia implementada
+
+- **Navegación:** Pedidos online en Operación, inmediatamente después de Ventas. Una sola Tienda online en Sistema, hacia configuración operativa. Se retiraron los enlaces a Apariencia del menú, de la cabecera de operaciones y de módulos; el editor y sus rutas conservan su implementación. La selección activa de configuración ya no abarca pedidos; el topbar resuelve primero la ruta más específica. Listado y detalle usan Pedidos online → folio → Volver a pedidos, sin pestañas Configuración/Apariencia/Pedidos. Se conservan filtros Retail, restricciones de operador, permisos y autorización por marca.
+- **Detalle:** cabecera con folio/fecha/canal y estados separados; artículos con miniatura o placeholder, datos históricos, cantidad/precio/subtotal; cliente; dirección o recolección/horario/instrucciones; resumen de productos, descuentos, envío y total; botones con las mismas precondiciones/transiciones y advertencia de reembolso pendiente. Historial en español con fechas es-MX. Paneles y artículos adaptables, listado con desplazamiento horizontal cuando hace falta. Cambio de ruta/marca reinicia el estado de la vista para evitar mostrar datos anteriores.
+- **Históricos:** no se reescriben nombres, opciones, importes ni snapshots existentes. Si falta SKU/código histórico, se ofrece la referencia actual etiquetada explícitamente. La imagen usa la ruta histórica del espacio inmutable de medios, después imagen actual validada dentro de la misma marca y finalmente placeholder, también al fallar la descarga. Nunca se aceptan URLs arbitrarias desde snapshots. Cuando un pedido antiguo no desglosa descuento, se informa “No desglosados”; no se inventa cero.
+- **Avisos:** mapeo compartido de todos los eventos reales y estados, incluidos CREATED, PAYMENT_PAID, PAYMENT_EXPIRED, revisión/cancelación de pago, preparación, listo, envío, entrega y cancelación. Valores desconocidos (incluidos nombres de propiedades heredadas de JavaScript) muestran texto neutral en español. La campanita presenta folio, mensaje, fecha y estado Leído/No leído; “Marcar como leído” persiste sin ocultar el aviso. Cuenta solo pendientes, mantiene reconexión, sonido activado por clic y deduplicación; no promete sonido con navegador cerrado.
+
+### Migración M8: acotada y aplicada solo a pruebas
+
+`20261014180000_store_order_presentation_m8.sql` añade metadatos de presentación al insertar artículos nuevos: SKU, barcode, opciones, color y ruta de foto publicada, y nombre de sucursal al capturar la entrega. El enriquecimiento se conserva cuando M7 añade el precio/mayoreo; no modifica importes ni funciones de pago, reservas o inventario. No hay backfill de pedidos antiguos. Añade lectura de historial de avisos con los mismos controles `store_actor_m7`, destinatario y marca; la RPC anterior de avisos no leídos sigue disponible. La API opta al historial solo con `includeRead=1`.
+
+Se probó desde cero en `cometa_bootstrap_1792001843987`: **85 migraciones**, cadena comercial local y prueba específica M8. PASS captura de datos/foto/sucursal, retención de precios, reintentos inmutables, históricos previos sin cambios, avisos leídos/no leídos, marcación idempotente y denegación de rol/marca ajena. La base temporal se eliminó por su nombre. Se aplicó únicamente a **`ephmrsjnpkcgddulvckj` / `magenta-preview-test`**, validado por metadatos. Un fingerprint transaccional comprobó que pedidos, snapshots existentes, inventario y efectos fueran idénticos antes y después; sin ampliar grants de tablas.
+
+### Verificación y límites
+
+- `node scripts/test-order-presentation.mjs`: PASS sobre componentes React reales, navegación/selección, datos antiguos/incompletos, alternativas de imagen y SKU, descuentos, acciones por estado y textos conocidos/desconocidos. Verifica markup y estructura adaptable; **no es revisión visual en navegador**.
+- `node scripts/test-store-operations-api.mjs`: PASS autorización, marca ajena, validación, conflictos, errores seguros y selección compatible entre historial nuevo/avisos anteriores; transporte simulado.
+- `node scripts/test-storefront-m6-local.mjs --operations`: PASS en `cometa_m6_1792002182881`, **con M8 instalada antes de la matriz M7**. Conserva M3–M6, compras, mayoreo, envío/recolección, concurrencia, último stock, webhook firmado local, transiciones, guía, cancelación pagada con una sola compensación, expiración y privacidad/RLS. Base temporal eliminada; ninguna operación remota de pago.
+- `node scripts/test-magenta-functional-preview.mjs --check --verify-payment`: PASS en Preview con datos reales sintéticos: seis rutas storefront, página autenticada de pedidos, metadatos de detalle, historial leído, POS anónimo 401, origen ajeno 403, firma falsa 400, privacidad de comprador, reanudaciones concurrentes sin reserva duplicada y correlación Stripe completa del pago existente.
+- TypeScript `--noEmit --incremental false --pretty false`: PASS. Builds administrativos/storefront Ready/preview con comprobación previa del backend aislado; sin desactivar TypeScript y sin bloqueo por `standalone`. Lint dirigido PASS en cambios nuevos. **Deuda preexistente separada:** `react-hooks/set-state-in-effect` en `pos-sidebar.tsx`, `setCanManageTeam(teamPermissionCache.get(brandSlug) || false)`; confirmado también en HEAD anterior, no se limpió incidentalmente.
+- `cua.getState()` devolvió cero apps y cero navegadores. No se eludió el bloqueo ni se generaron capturas ficticias. **Pendientes para revisión manual:** composición visual real móvil/escritorio, interacción del menú/campanita y reproducción de sonido. No se hicieron nuevas aprobaciones visuales del Atelier ya aprobado.
+
+### Archivos exactos de este ajuste
+
+Modificados:
+
+- `src/app/brand/[brandSlug]/components/pos-sidebar.tsx`
+- `src/app/brand/[brandSlug]/components/pos-topbar.tsx`
+- `src/app/brand/[brandSlug]/components/pos-store-bell.tsx`
+- `src/app/brand/[brandSlug]/pos/online-store/operations.tsx`
+- `src/app/workspace/brands/[brandSlug]/brand-modules.tsx`
+- `src/app/api/pos/online-store/operations/route.ts`
+- `scripts/test-magenta-functional-preview.mjs`
+- `scripts/test-magenta-bootstrap-local.mjs`
+- `scripts/test-store-operations-api.mjs`
+- `scripts/test-storefront-m6-local.mjs`
+- `docs/magenta-delivery-20261014.md`
+
+Añadidos:
+
+- `packages/own-storefront/order-presentation.ts`
+- `src/app/brand/[brandSlug]/pos/online-store/order-detail.tsx`
+- `src/lib/pos/order-presentation.ts`
+- `supabase/migrations/20261014180000_store_order_presentation_m8.sql`
+- `scripts/apply-magenta-presentation-test.mjs`
+- `scripts/test-order-presentation.mjs`
+- `scripts/test-order-presentation-local.mjs`
+
+Se conserva `../cometa-hotfix-recovery/` fuera de la tarea. Sin merge ni cambios de Production. Los apartados inferiores son checkpoints históricos; sus pendientes de completar el pago ya fueron resueltos por esta verificación.
+
 ## Estado vigente: backend autorizado y Preview funcional
 
 Este apartado sustituye los bloqueos de infraestructura descritos en los checkpoints históricos inferiores. El diseño Atelier está aprobado por el usuario y no se modificó. No se hizo merge, despliegue Production ni cambio de dominio operativo.

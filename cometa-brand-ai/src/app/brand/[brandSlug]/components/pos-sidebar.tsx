@@ -23,19 +23,18 @@ export type PosNavItem = {
 };
 
 export const POS_NAV_ITEMS: PosNavItem[] = [
-  { label: "Tienda online · Apariencia", route: "online-store/appearance", icon: "settings", section: "Sistema", retailOnly: true },
-  { label: "Tienda online · Configuración", route: "online-store", icon: "settings", section: "Sistema", retailOnly: true },
-  { label: "Pedidos online", route: "online-store/orders", icon: "sale", section: "Sistema", retailOnly: true },
   { label: "Resumen", route: "", icon: "home", section: "Operación" },
   { label: "Nueva venta", route: "register", icon: "sale", section: "Operación" },
   { label: "Caja", route: "cash", icon: "cash", section: "Operación" },
   { label: "Ventas", route: "sales", icon: "receipt", section: "Operación" },
+  { label: "Pedidos online", route: "online-store/orders", icon: "sale", section: "Operación", retailOnly: true },
   { label: "Productos", route: "products", icon: "product", section: "Catálogo" },
   { label: "Inventario", route: "inventory", icon: "inventory", section: "Catálogo" },
   { label: "Clientes", route: "customers", icon: "customer", section: "Clientes" },
   { label: "Fidelización", route: "loyalty", icon: "loyalty", section: "Clientes" },
   { label: "Reportes", route: "reports", icon: "report", section: "Inteligencia" },
   { label: "Suscripción", route: "subscription", icon: "settings", section: "Sistema" },
+  { label: "Tienda online", route: "online-store", icon: "settings", section: "Sistema", retailOnly: true },
   { label: "Configuración", route: "settings", icon: "settings", section: "Sistema" },
   { label: "Equipo", route: "team", icon: "customer", section: "Sistema", requiresTeamPermission: true },
   { label: "Operadores", route: "staff", icon: "customers", section: "Sistema", requiresTeamPermission: true },
@@ -357,6 +356,7 @@ export function isActivePath({
   isHome: boolean;
 }) {
   if (isHome) return pathname === href || pathname === `${href}/`;
+  if (href.endsWith('/online-store')) return pathname === href || pathname === `${href}/`;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
