@@ -25,7 +25,7 @@ const projects=cli(['projects','list']),project=projects.find(p=>p.id===ref);
 if(project?.name!=='magenta-preview-test'||project.status!=='ACTIVE_HEALTHY')throw Error('DEDICATED_TEST_PROJECT_NOT_CONFIRMED');
 async function query(text){
  const file=path.join(dir,'query.sql');fs.writeFileSync(file,text);
- const result=cli(['db','query','--project-ref',ref,'--file',file]);
+ const result=cli(['db','query','--linked','--project-ref',ref,'--file',file]);
  if(!Array.isArray(result.rows))throw Error('UNEXPECTED_SQL_RESPONSE');return result.rows;
 }
 async function sql(text){const rows=await query(text);if(!rows.length)return '';const value=Object.values(rows.at(-1))[0];return typeof value==='object'?JSON.stringify(value):String(value??'');}

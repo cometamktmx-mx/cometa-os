@@ -17,6 +17,7 @@ export async function provisionMagenta({sql,actor,stripeAccount='acct_fixture'})
  insert into pos_locations(id,brand_id,brand_slug,name,code,currency) values('${ids.location}','${ids.brand}','${slug}','Sucursal sintetica','TEST','MXN');
  insert into pos_registers(id,brand_id,brand_slug,location_id,name,code) values('${ids.register}','${ids.brand}','${slug}','${ids.location}','Caja sintetica','TEST');
  insert into pos_units(code,name,symbol,unit_type) values('piece','Pieza','pza','count') on conflict(code) do nothing;
+ select pos_initialize_brand_setup('${ids.brand}','${slug}','Magenta PRUEBAS SINTETICAS','${actor}');
  select pos_manage_complimentary_v1('${slug}','${actor}',null,'save','pro',now()+interval '30 days','SYNTHETIC PREVIEW ONLY');
  select brand_online_store_set_access_a1('${slug}','${actor}','enabled',0);
  commit;`);

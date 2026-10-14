@@ -1,5 +1,62 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Estado vigente: backend autorizado y Preview funcional
+
+Este apartado sustituye los bloqueos de infraestructura descritos en los checkpoints históricos inferiores. El diseño Atelier está aprobado por el usuario y no se modificó. No se hizo merge, despliegue Production ni cambio de dominio operativo.
+
+### Acceso
+
+- Administración: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/login**.
+- POS sintético: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos**.
+- Tienda Atelier: **https://magenta-controlled-preview-test-delivery-cometa-os-s-projects.vercel.app**; rutas `/`, `/catalogo`, `/bolsa`, `/checkout`, `/pedidos`. La ruta exacta del producto sintético está en el archivo privado de acceso.
+- Usuario, contraseña y enlace Checkout test: archivo local ignorado `.next/magenta-functional/ephmrsjnpkcgddulvckj/ACCESO-PRUEBAS.txt`. No se publican credenciales ni enlaces privados de Stripe en este informe. Si Vercel pide autenticación, usar la cuenta del equipo; la protección del panel permanece activa.
+- Storefront inmutable funcional: https://magenta-controlled-preview-l7d8licsm-cometa-os-s-projects.vercel.app. Para compra y retornos usar la dirección estable de pruebas indicada arriba, que coincide con el origen autorizado.
+- Administración inmutable final: https://cometa-aq5zcmpq3-cometa-os-s-projects.vercel.app; Ready/preview. Los logs remotos de ambas aplicaciones confirman `Verified isolated Preview build target` y compilación correcta.
+- Preview visual histórica: https://magenta-controlled-preview-hme052ccm-cometa-os-s-projects.vercel.app. No confundirla con la tienda funcional.
+
+### Supabase: evidencia y escrituras autorizadas
+
+Se verificó mediante CLI que **`ephmrsjnpkcgddulvckj`** corresponde a **`magenta-preview-test`**, `ACTIVE_HEALTHY`, creado el 14/10/2026, región `us-west-2`. Antes de escribir: **0 tablas public, 0 usuarios Auth y 0 objetos Storage**. Se aplicaron los **84 archivos originales** de baseline/migraciones y se registraron en el ledger; cada archivo produjo su SHA-256 en la ejecución. No se vinculó el repositorio a otra base ni se usaron bases operativas.
+
+Se creó un único usuario Auth sintético con email confirmado sin enviar correo, una marca `magenta-preview`, sucursal MXN, caja y cortesía Pro. Producto/variante y stock inicial de **10 unidades** se crearon con la RPC real `pos_import_v1` (productos e inventario). La primera prueba HTTP encontró `POS_SUBSCRIPTION_NOT_FOUND`: faltaba el registro comercial base aunque existía la cortesía. Se corrigió el aprovisionador para llamar `pos_initialize_brand_setup`, y se completó solo esa marca remota mediante la misma RPC. Estado local `trial`, sin `stripe_subscription_id`, sin suscripción externa ni cargo.
+
+### Variables y despliegues
+
+Administración usa variables **Preview + rama `delivery/magenta-20261014`**. La tienda no tiene Git conectado: Vercel rechazó su intento de variable por rama sin crearla. Se resolvió con overrides exclusivos de cada despliegue Preview, tanto build como runtime, enviados por entorno del proceso (solo nombres en argv). No se conectó Git ni se editaron registros compartidos Production/Preview. Ambos apuntan al mismo Supabase test.
+
+Las copias de despliegue excluyen `.env`, secretos, datos, archivos SQL y Git. Una guarda anterior a `next build` exige `VERCEL_ENV=preview`, la URL exacta del backend autorizado y clave `sk_test_`. El publicador comprueba proyecto, rootDirectory y existencia del destino Production antes de usar `--target preview`; inspecciona la clasificación devuelta y detiene cualquier acción posterior si no es Preview. Los dos alias nuevos de pruebas devolvían 404 antes de crearse y solo se asignan a despliegues Ready/preview del proyecto esperado. No se tocó ningún alias Production. Los IDs de Production y rootDirectory se compararon antes/después y permanecen iguales.
+
+Además de la clave específica del storefront, las rutas Stripe administrativas reciben claves test explícitas; sus webhooks de suscripciones/COMU ajenos a esta prueba quedan deshabilitados en la Preview. OpenAI y automatizaciones de WhatsApp se deshabilitan en este entorno. No se mandaron mensajes ni cargos reales.
+
+### Stripe y expiraciones
+
+- Endpoint **test** configurado en la cuenta test ya validada: storefront `/api/stripe/webhook`, sobre la URL estable de pruebas. Eventos `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`. Secreto de firma privado, compartido con la configuración administrativa para indicar `TEST_CONFIGURED`. No se creó un segundo endpoint administrativo para estos pedidos.
+- El webhook llega mediante el mecanismo oficial de Automation Bypass de Vercel, con token privado; no se desactivó Vercel Authentication. Se comprobó HTTP 400 sin firma y con firma inválida.
+- `pg_cron`: job `magenta-preview-expiry`, activo cada minuto; conexión del scheduler y ejecución bajo `service_role`. Se verificó `cron.job_run_details.status=succeeded`.
+- Prueba remota real: una orden sintética reservó 1 unidad; preparación privilegiada venció únicamente su fecha; el **temporizador remoto** la convirtió en EXPIRED y restauró la reserva. Dos repeticiones concurrentes de la RPC no liberaron dos veces. Rol anon denegado. No se ampliaron permisos de tablas: el intento inicial de preparar la fecha mediante service_role fue denegado y se sustituyó por SQL de fixture acotado al pedido y la marca test.
+- La protección del pedido pagado frente a expiración está probada en PostgreSQL local; la misma prueba remota sobre un pago confirmado depende del Checkout pendiente.
+
+### Recorrido y verificaciones reales
+
+- **PASS remoto:** login sintético real Supabase → autorización POS → configuración persistida y `TEST_CONFIGURED` → venta POS por HTTP de **2 unidades del mismo producto importado** → stock **8**, reserva 0.
+- **PASS remoto:** compra web por HTTP, entrega PICKUP, snapshots de productos/contacto/importes, total calculado en servidor **300.00 MXN**, sesión **real de Stripe Checkout test** → stock **8**, reserva **3**. No se declaró PAID al crear el enlace.
+- **PASS remoto:** pedido y aviso persistido consultables en POS, eventos sin IDs duplicados; consulta de comprador con su cookie, sin cookie no se revela la orden; reanudaciones concurrentes conservan pedido y reserva.
+- **PASS HTTP:** portada, catálogo, producto real, bolsa, checkout y pedidos devuelven 200; POS sin sesión 401; origen ajeno al checkout 403; webhook con firma inválida 400. Son pruebas HTTP, no revisión visual ni de sonido.
+- **PASS local repetido:** `node scripts/test-magenta-bootstrap-local.mjs`, base vacía `cometa_bootstrap_1791999549863`, 84 migraciones y fixture corregido. Importación → venta → compra → webhook firmado sintético → aviso → inventario; concurrencia, duplicados y expiración conservan el pagado. Se eliminó exclusivamente esa base temporal. No se reinicializó la instancia ni se borraron contenedores/volúmenes existentes.
+- **PASS:** TypeScript sin emisión, pruebas de configuración Preview, ESLint dirigido y `git diff --check`. Builds remotos de ambas aplicaciones Ready/preview, incluido el administrativo con `/comu/seller/orders`; sin omitir TypeScript. Las copias usan las raíces de monorepo del proyecto y los endpoints funcionan en Vercel; no se reprodujo un bloqueo de despliegue por `standalone`.
+
+### Pendiente indispensable
+
+**El Checkout alojado aún requiere que el usuario complete el pago con tarjeta test desde el enlace privado.** Se solicitó ese paso cuando la sesión estuvo disponible, conservando el bloqueo previo del navegador de automatización. No se usó una firma sintética para marcar este pedido remoto como pagado. El enlace vence aproximadamente 35 minutos tras su creación; una sesión vencida necesita recuperar/crear una nueva compra de prueba, no forzar el estado.
+
+Después: `node scripts/test-magenta-functional-preview.mjs --verify-payment` debe comprobar Checkout `complete/paid`, PaymentIntent `succeeded`, pedido PAID mediante webhook, aviso y cantidad final **5/reserva 0**. Hasta entonces **no se certifica pago completo Stripe ni el tramo posterior al pago**. La consulta segura del comprador fue probada por HTTP con la cookie del runner; abrir directamente el Checkout privado en otro navegador no transfiere esa cookie y su retorno no constituye prueba de confirmación UI. Revisión interactiva, cámara y sonido quedan para el usuario; diseño Atelier aprobado se conserva.
+
+### Archivos de esta continuación
+
+Modificados: `scripts/provision-magenta-test-backend.mjs`, `scripts/magenta-preview-fixture.mjs`, `scripts/magenta-preview-environment.mjs`, `scripts/prepare-magenta-preview.mjs`, `scripts/test-magenta-preview-environment.mjs`, `docs/magenta-delivery-20261014.md`.
+
+Añadidos: `scripts/deploy-magenta-functional-preview.mjs`, `scripts/verify-magenta-preview-deployments.mjs`, `scripts/test-magenta-functional-preview.mjs`, `scripts/test-magenta-remote-expiry.mjs`. Sin cambios a código UI/API, migraciones históricas, escáner ni avances M1–M6. Se conserva `../cometa-hotfix-recovery/` fuera de la tarea.
+
 ## Continuación desde 8818ef9 — arranque vacío y automatización preparada
 
 Estado vigente: los pasos manuales se reducen a disponer de un proyecto Supabase vacío, exclusivo de pruebas y sin coste. No existe uno verificable entre los tres proyectos accesibles; se repitió la consulta de metadatos. No se creó ningún servicio, no se desplegó ni se cambiaron variables o dominios remotos en esta continuación.

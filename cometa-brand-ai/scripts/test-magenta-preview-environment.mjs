@@ -6,6 +6,8 @@ const result=environmentForPreview(input,admin,store,'whsec_synthetic');
 assert.equal(result.admin.NEXT_PUBLIC_SUPABASE_URL,result.storefront.STOREFRONT_SUPABASE_URL);
 assert.equal(result.admin.SALES_AI_SEND_WHATSAPP_ENABLED,'false');assert.equal(result.storefront.STOREFRONT_BRAND_SLUG,'magenta-preview');
 assert.equal(result.admin.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET,result.storefront.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET);
+assert.equal(result.admin.STRIPE_SECRET_KEY,input.stripeTest);assert.equal(result.admin.COMU_STRIPE_SECRET_KEY,input.stripeTest);
+assert.equal(result.admin.STRIPE_WEBHOOK_SECRET,'PREVIEW_DISABLED');
 for(const bad of [{...input,stripeTest:'sk_live_rejected'},{...input,projectRef:'zhtagqrzyovsrmsicaot',url:'https://zhtagqrzyovsrmsicaot.supabase.co'},{...input,url:'http://127.0.0.1:54321'}])assert.throws(()=>environmentForPreview(bad,admin,store));
 assert.throws(()=>environmentForPreview(input,'https://app.cometaos.com',store));
 assert.throws(()=>environmentForPreview(input,admin,'https://magenta-controlled-preview.vercel.app'));
