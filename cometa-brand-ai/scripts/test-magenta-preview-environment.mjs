@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {environmentForPreview} from './magenta-preview-environment.mjs';
+const input={projectRef:'a'.repeat(20),url:'https://'+'a'.repeat(20)+'.supabase.co',anon:'synthetic',service:'synthetic',stripeTest:'sk_test_synthetic'};
+const admin='https://cometa-os-synthetic-cometa-os-s-projects.vercel.app',store='https://magenta-synthetic-cometa-os-s-projects.vercel.app';
+const result=environmentForPreview(input,admin,store,'whsec_synthetic');
+assert.equal(result.admin.NEXT_PUBLIC_SUPABASE_URL,result.storefront.STOREFRONT_SUPABASE_URL);
+assert.equal(result.admin.SALES_AI_SEND_WHATSAPP_ENABLED,'false');assert.equal(result.storefront.STOREFRONT_BRAND_SLUG,'magenta-preview');
+assert.equal(result.admin.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET,result.storefront.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET);
+for(const bad of [{...input,stripeTest:'sk_live_rejected'},{...input,projectRef:'zhtagqrzyovsrmsicaot',url:'https://zhtagqrzyovsrmsicaot.supabase.co'},{...input,url:'http://127.0.0.1:54321'}])assert.throws(()=>environmentForPreview(bad,admin,store));
+assert.throws(()=>environmentForPreview(input,'https://app.cometaos.com',store));
+assert.throws(()=>environmentForPreview(input,admin,'https://magenta-controlled-preview.vercel.app'));
+console.log('PASS Preview environment: shared test backend, branch inputs, live/local/known operational refs/production domains rejected, outbound automation disabled. No remote variables changed.');

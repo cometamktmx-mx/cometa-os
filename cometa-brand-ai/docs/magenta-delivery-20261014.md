@@ -1,5 +1,56 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Continuación desde 8818ef9 — arranque vacío y automatización preparada
+
+Estado vigente: los pasos manuales se reducen a disponer de un proyecto Supabase vacío, exclusivo de pruebas y sin coste. No existe uno verificable entre los tres proyectos accesibles; se repitió la consulta de metadatos. No se creó ningún servicio, no se desplegó ni se cambiaron variables o dominios remotos en esta continuación.
+
+### Única acción manual pendiente ahora
+
+En **Supabase Dashboard → New project**, seleccionar una organización **Free con cupo disponible**, nombre exacto **`magenta-preview-test`**, región **East US (North Virginia)** si está disponible, y generar/guardar la contraseña de base de datos en el gestor privado. Confirmar creación solo si no exige suscripción ni cobro. No pausar, borrar ni transferir proyectos actuales para conseguir cupo. Si no hay cupo gratuito, informar ese impedimento antes de crear nada. Supabase limita los proyectos Free activos; otra organización no garantiza cupo adicional ([billing FAQ](https://supabase.com/docs/guides/platform/billing-faq)).
+
+Al quedar activo, enviar únicamente **Project Settings → General → Reference ID** y confirmar que está vacío y reservado a pruebas Magenta. No enviar contraseña ni claves por chat. El CLI autenticado permite ejecutar SQL contra `--project-ref` mediante Management API y recuperar claves en memoria; no hace falta que el usuario copie credenciales o ejecute SQL. No se modifica el vínculo existente de Supabase.
+
+### Baseline vacío y cadena sintética: resultados reales
+
+- `node scripts/test-magenta-bootstrap-local.mjs`: **PASS** en `cometa_bootstrap_1791996808435`; base creada desde template0, cero tablas public y cero usuarios al inicio. Se cargó únicamente DDL técnico Auth/Storage sin políticas de aplicación ni filas, y la publicación técnica `supabase_realtime`; ningún esquema public ni dato operativo fue copiado. Después se aplicaron **los 84 archivos originales** de `supabase/migrations`, ordenados, con envoltura transaccional y retirada de BOM UTF-8. No se cambió ninguna migración histórica.
+- Primeros ensayos detectaron requisitos del entorno de ejecución: publicación Realtime ausente, políticas de aplicación incluidas indebidamente en el DDL técnico, `LOCK TABLE` fuera de transacción y BOM insertado después de BEGIN. Se corrigió el runner, sin omitir archivos. El baseline completo también pasó por separado en `cometa_bootstrap_1791996625395`.
+- El aprovisionador compartido creó usuario/perfil sintéticos, marca **Magenta — PRUEBAS SINTETICAS**, slug `magenta-preview`, sucursal MXN, caja, acceso Pro de cortesía por 30 días sin suscripción Stripe, tienda habilitada, contenido publicado y destinatario POS. El producto y sus **10 unidades** se crean mediante las RPC reales del importador, no insertando productos/inventario directamente.
+- **Mismo producto/variante:** importación 10 → `pos_complete_sale_v4` de 2 → cantidad 8 → orden web/reserva de 3 → handler webhook real con firma SDK sintética → cantidad 5/reserva 0 → aviso persistido para el destinatario. El webhook duplicado concurrente genera un solo pago/efecto SALE. Firma inválida, live, importe y marca ajena rechazados.
+- Se creó otra orden pendiente, se vencieron sus fechas y las del pedido pagado, y se ejecutó el comando de expiración concurrentemente y de nuevo: solo pendiente pasó a EXPIRED, reserva volvió a 0, cantidad siguió en 5 y el pagado permaneció PAID. Roles anon/authenticated no pueden ejecutar la RPC.
+- Todas las bases `cometa_bootstrap_*` creadas por los ensayos fueron eliminadas por su propio nombre, sin FORCE. Sin resets/prune ni cambios a bases, contenedores o volúmenes existentes.
+- **Esto sigue sin ser un pago completo procesado por Stripe ni un recorrido UI autenticado en Preview.** Se probó continuidad SQL del mismo artículo y handler firmado local; la compra Checkout real necesita el backend remoto y la interacción del usuario mientras el navegador siga bloqueado.
+
+### Stripe: credenciales existentes y endpoints
+
+`node scripts/check-magenta-stripe-test.mjs --verify`: `COMU_STRIPE_SECRET_KEY` y `STRIPE_SECRET_KEY` locales tienen prefijo `sk_test_` y ambas respondieron a `accounts.retrieveCurrent()` en la **misma cuenta**. Se consultó solo la cuenta, sin pagos ni cambios; no se imprimieron valores. La variable específica `STOREFRONT_STRIPE_TEST_SECRET_KEY` sigue ausente, pero puede poblarse desde la clave test validada. No hay que pedir otra clave al usuario.
+
+| Aplicación / ruta | Responsabilidad | Necesaria para esta entrega |
+| --- | --- | --- |
+| Storefront `/api/stripe/webhook` | Pago de órdenes de tienda propia M6/M7 | **Sí, un endpoint test** |
+| Admin `/api/stripe/webhook` | Suscripciones comerciales POS | No; cortesía sintética cubre acceso POS |
+| Admin `/api/comu/stripe/webhook` | Pagos/finanzas del marketplace COMU | No; no es receptor del pedido de tienda propia |
+| Admin `/api/comu/stripe/connect-webhook` | Stripe Connect de COMU | No |
+
+Las rutas iguales `/api/stripe/webhook` tienen hosts y dominios funcionales distintos: no se debe enviar el mismo evento de tienda a ambos. Para tienda propia, eventos **snapshot** `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, en la cuenta test validada. No se requieren precios Stripe ni clave publicable para Checkout alojado.
+
+`configure-magenta-test-webhook.mjs <ref> <origin> --apply` está preparado: exige destino storefront **Ready/preview**, configura un secreto de Automation Bypass mediante API oficial sin desactivar Vercel Authentication, comprueba que el handler responde, crea/actualiza únicamente su endpoint test identificado por metadata y guarda `whsec` en `.next` ignorado. La URL privada agrega `x-vercel-protection-bypass`; no se imprime ni se incluye en Git. No utiliza el secreto para el navegador. [API oficial Vercel](https://vercel.com/docs/rest-api/projects/update-protection-bypass-for-automation), [webhooks protegidos](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
+
+### Expiraciones: ejecutor concreto
+
+`supabase/preview/install-expiry.sql` prepara **pg_cron**, job **`magenta-preview-expiry`**, cada minuto, comando `set role service_role; select public.store_orders_expire_m6('magenta-preview');`. El instalador exige sesión PostgreSQL privilegiada, referencia explícita distinta de los tres proyectos conocidos, una sola marca sintética y únicamente el usuario de prueba. `cron.schedule` usa el mismo nombre al reinstalar, evitando jobs duplicados. La autenticación es la conexión del scheduler PostgreSQL; luego reduce al rol service_role, único rol de aplicación autorizado a la RPC. No necesita secreto HTTP, Vercel cron ni desproteger el panel. El endpoint POST `/api/checkout/expire` existente conserva su autenticación, pero no es la vía elegida.
+
+Comando/efectos/autorización/idempotencia probados en PostgreSQL real como se describe arriba. **Instalación pg_cron y ejecución por reloj en el backend remoto aún pendientes**: después de aprovisionar, comprobar `cron.job`, esperar un ciclo y verificar `cron.job_run_details.status='succeeded'`, luego repetir con pedidos sintéticos vencidos/pagados. No se simula que el temporizador ya corrió. Vercel ejecuta sus cron en producción, por eso no se añadió un cron allí ([Vercel Cron](https://vercel.com/docs/cron-jobs)); Supabase Cron admite llamadas SQL ([documentación](https://supabase.com/docs/guides/cron)).
+
+### Aprovisionamiento y variables listos para el agente
+
+- `provision-magenta-test-backend.mjs <ref>` solo imprime plan. Con `--apply`, bloquea las tres referencias existentes, exige nombre exacto/estado activo y cero tablas public/usuarios, valida Stripe test antes de mutar, aplica archivos registrando ledger, crea usuario con Auth Admin (`email_confirm`, sin correo), carga fixture y job. Contraseña sintética y claves se guardan solo en `.next/magenta-functional/<ref>/`, nunca stdout/Git. Si falla parcialmente, se detiene: no resetea ni reaplica automáticamente una base no vacía.
+- `magenta-preview-environment.mjs <ref> <admin-preview-origin> <store-preview-origin>` prepara nombres sin valores. `--apply` exige inspección **Ready/preview** de ambos proyectos esperados y usa `vercel env add … preview --git-branch delivery/magenta-20261014 --project <id>` con valores por stdin. No escribe los registros compartidos Production/Preview. No contiene `deploy`, `promote`, cambios DNS ni aliases.
+- Variables de Supabase de ambos runtimes se derivan del mismo `<ref>` confirmado; origen y mapa `OWN_STOREFRONT_URLS` apuntan a Preview. La clave test se asigna a `STOREFRONT_STRIPE_TEST_SECRET_KEY`; el `whsec` de storefront se comparte con la comprobación de configuración del administrador, sin crear otro receptor. Se bloquean envíos WhatsApp/IA y COMU en esta rama para el recorrido sintético.
+- Orden operativo restante: proyecto vacío confirmado → aprovisionar/migrar → verificar cron → configurar overrides de rama con orígenes Preview existentes → desplegar solo a proyectos ya establecidos con destino Preview verificado → configurar endpoint test contra storefront funcional → subir `whsec` de rama y recompilar → confirmar Auth URLs y cuenta/política Stripe → ejecutar Checkout test real y seguir los IDs hasta POS/avisos/inventario. No utilizar el proyecto administrativo sin despliegues ni un primer deploy susceptible de autopromoción. No desplegar los artefactos de build con claves ficticias.
+- `test-magenta-preview-environment.mjs`: PASS rechazo de claves live, localhost, referencias conocidas y dominios de producción; backend compartido de pruebas y controles de envíos. Dry-run de aprovisionador/webhook: PASS, sin mutaciones. ESLint dirigido: PASS. TypeScript sin emisión: PASS. Build administrativo/storefront aprobado en checkpoint anterior, sin cambios de aplicación en esta iteración. Los scripts remotos están preparados pero aún no ejecutados contra un proyecto nuevo.
+
+Archivos exactos de esta continuación: modificados `scripts/test-store-webhook-local.mjs` (slug parametrizable, default conservado) y este informe; añadidos `config/magenta-preview-deployment.json`, `scripts/check-magenta-stripe-test.mjs`, `scripts/configure-magenta-test-webhook.mjs`, `scripts/magenta-preview-environment.mjs`, `scripts/magenta-preview-fixture.mjs`, `scripts/provision-magenta-test-backend.mjs`, `scripts/test-magenta-bootstrap-local.mjs`, `scripts/test-magenta-preview-environment.mjs`, `supabase/preview/install-expiry.sql`. `../cometa-hotfix-recovery/` intacto y excluido.
+
 ## Continuación desde 73b3cd4 — build y dependencias exactas
 
 Esta sección es el estado más reciente. Se conserva la rama `delivery/magenta-20261014` y el trabajo anterior. En esta continuación no se desplegó, no se modificaron dominios ni variables remotas y no se accedió a datos operativos.
