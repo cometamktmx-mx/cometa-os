@@ -1,5 +1,77 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Correcciones prioritarias desde d4bf956
+
+### Guardado: reproducción y solución
+
+Se reprodujo por HTTP autenticado en el backend exclusivo `ephmrsjnpkcgddulvckj` / `magenta-preview-test`. `GET /api/pos/online-store/operations?brandSlug=magenta-preview` devolvió 200, revisión 1, WhatsApp vacío, Stripe habilitado y sin reglas de mayoreo. Activar WhatsApp con ese número vacío devolvió **400 / POS_VALIDATION_ERROR / “Revisa la configuración de tienda.”**. Request ID: `sfo1::iad1::vm5xg-1792003487883-67048ceffd77`. Se usó una revisión deliberadamente obsoleta para impedir escrituras si pasaba la validación. Cambiar solo `mixProducts` pasó el parser y llegó al control de revisión, que respondió 409. No se atribuye el intento manual exacto del usuario a un payload desconocido.
+
+Los logs de la Preview administrativa filtrados por 400 corroboraron la entrada al proxy, incluida la petición reproducida y dos anteriores; el código antiguo no registraba campos inválidos ni contenía sus valores en logs. No había evidencia de denegación de permisos ni de un error de persistencia en el caso reproducido. Cliente y API compartían las mismas claves, pero el parser rechazaba WhatsApp con formato habitual (+/espacios/guiones) y devolvía un único mensaje para cualquier campo. Además, el botón “Reintentar” recargaba y podía descartar el borrador.
+
+Ahora el parser compartido normaliza únicamente el formato permitido del teléfono, mantiene límites y validaciones, y devuelve errores por campo en español. La API conserva HTTP 400 y el código existente, añadiendo `details.fields`; registra solo los nombres de los campos rechazados. El cliente usa el mismo parser, conserva los valores ante error y abre la sección correspondiente. No se relajaron permisos ni controles de marca/revisión.
+
+Configuración organizada en **General, Envíos y recolección, Pagos, Mayoreo, Dominio, Políticas y Notificaciones**. Solo se presenta el grupo seleccionado, con campos montados para conservar el borrador, ayudas, indicadores de error/cambios y Guardar visible. No se reintrodujo Apariencia.
+
+Prueba remota real: rechazo 400 sin escritura; guardado 200; recarga del teléfono normalizado y regla de descuento; proyección pública sin destinatarios; cotización del servidor con dos unidades: **18,000 + 2,500 = 20,500 centavos MXN**, aplicando 10% de mayoreo y envío. Se comprobó la instrucción de recolección en el storefront. Se restauró la configuración original mediante revisión esperada y se compararon pedidos/inventario antes y después: idénticos. No se creó pedido, sesión Stripe, cobro ni mensaje en esta prueba.
+
+### Atelier y footer
+
+Comparación real de HTML: Preview visual aprobada = hero + un footer; Preview funcional anterior = sin hero + dos footers. La raíz sí usaba `StoreHome`, no un entrypoint alternativo. La causa fue la configuración del fixture: solo `featured` habilitado y título “Catalogo sintetico”. El layout agregaba `StoreInformation` como segundo footer después del footer de Atelier.
+
+Se examinó `referencias-magenta/MAGENTA-Atelier-Shopify-v0.6.zip`, especialmente `templates/index.json`, y la configuración del generador de la Preview visual. Se publicó la composición de la referencia aprobada: logo, hero “Tu nueva / obsesión.”, marquee, categorías editoriales, favoritos, look y FAQ, con el movimiento existente habilitado. `/catalogo` mantiene su ruta y componentes de catálogo real. El bucket `pos-products` no existía en pruebas; se creó únicamente allí con imágenes públicas y límites de tipo/tamaño. Los cuatro archivos demo del ZIP se guardaron con nombres derivados de SHA-256 y sin sobrescribir recursos existentes.
+
+Las fotos editoriales están identificadas como demostración en el anuncio y las secciones. **No se asignaron fotos demo al producto sintético.** Su ficha y tarjeta mantienen el placeholder cuando falta una foto real. Se compararon contenido de producto, pedidos e inventario tras publicar: idénticos. Se conservaron bolsa, checkout y pedidos. La información operativa se integra dentro del único footer Atelier, sin repetir navegación ni otro bloque de identidad. No hubo migraciones nuevas.
+
+### Cuenta receptora: bloqueo explícito de Connect para tienda propia
+
+Auditoría de solo lectura del PaymentIntent ya pagado: `livemode=false`, `transfer_data=null`, `on_behalf_of=null`, `application_fee_amount=null`. El `stripe_account_ref` histórico del pedido coincide con la cuenta obtenida mediante la clave test de plataforma. El código `payOrder` comprueba esa coincidencia y crea Checkout sin contexto de cuenta conectada. **El saldo simulado corresponde a la plataforma, no a una cuenta conectada de la marca.** No se ensayó otro pago.
+
+La cuenta consultada informa `charges_enabled=true`, `payouts_enabled=true` y `details_submitted=true`; son propiedades de esa cuenta, no acreditan conexión bancaria de Magenta ni depósitos reales en modo test. El backend de pruebas tiene **cero sellers COMU asociados a magenta-preview**. El onboarding existente exige membresía financiera de seller, vincula la cuenta a `comu_seller_id`, solicita capacidad `transfers` y vuelve a configuración COMU. Reutilizar su enlace sin adaptar el dominio no conectaría los cobros de tienda propia.
+
+Pagos muestra **Sin conectar / Configuración pendiente** para la marca, y por separado la cuenta de plataforma test y sus capacidades consultadas. No hay botón de conexión ficticio, captura de datos bancarios ni claves solicitadas al usuario.
+
+**Integración mayor pendiente:** asociación persistida marca↔cuenta Connect↔modo, autorización POS de propietario, onboarding alojado por Stripe con retorno/refresco por marca, sincronización de capacidades mediante eventos Connect y pruebas de aislamiento/reintento. Modelo propuesto para evaluar: cobro directo en la cuenta conectada de cada tienda, ajustando Checkout, webhook, consulta de pagos y conciliación al mismo contexto de cuenta. Hay que definir responsabilidades de comisiones/reembolsos/disputas antes de activarlo. La documentación oficial distingue estos modelos: [Direct charges](https://docs.stripe.com/connect/direct-charges), [Stripe-hosted onboarding](https://docs.stripe.com/connect/hosted-onboarding). No se implementó ni activó Connect/live como efecto de una corrección visual.
+
+### Verificaciones y acceso
+
+- `test-store-operations-api.mjs`: PASS parser, teléfono formateado sin mutar entrada, múltiples errores de campo, permisos/marca ajena, revisión y errores seguros.
+- `test-store-settings-ui.mjs`: PASS componente real con harness de hooks/transporte; siete secciones, errores junto al campo, borrador conservado y guardado/recarga normalizados. No es una prueba visual de navegador.
+- `test-order-presentation.mjs`: PASS navegación y regresiones del detalle de pedido.
+- Contratos M3, M4, M5 y M6: PASS apariencia, catálogo, variantes, bolsa, aislamiento, cantidades, totales y firma sintética de webhook. Sin nuevos cargos.
+- `test-magenta-settings-preview.mjs`: PASS persistencia/cotización remotas, restauración de valores y comparación de inventario/pedidos; home/catalogo/producto/bolsa/checkout con un footer; hero/movimiento presentes; cuatro recursos demo HTTP 200.
+- `test-magenta-functional-preview.mjs --check`: PASS sobre las versiones finales: seis rutas, permisos 401/403, firma falsa 400, consulta del comprador aislada, pedido/avisos existentes y reanudación concurrente del pedido pagado sin cambio de inventario. No se llamó a creación de compra ni se repitió el pago.
+- TypeScript sin emisión: PASS. Lint dirigido: cero errores; tres advertencias preexistentes por `<img>` en `home.tsx`, sin cambio incidental de estrategia de imágenes.
+- Ambos builds verifican destino `Ready/preview` y backend exclusivo. Production y sus destinos permanecen intactos. Las URLs estables están abajo.
+- `cua.getState()` devolvió `apps:[]`, `browsers:[]`. **Pendiente para el usuario:** fidelidad visual Atelier y configuración en móvil/escritorio, interacción visual de bolsa/variantes y sonido. No se eludió el bloqueo ni se declara fidelidad visual comprobada.
+
+Administración/POS: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos**.
+
+Configuración: **https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store**.
+
+Atelier: **https://magenta-controlled-preview-test-delivery-cometa-os-s-projects.vercel.app**. Revisar `/`, `/catalogo`, producto desde catálogo, `/bolsa` y `/checkout`.
+
+### Archivos de esta corrección
+
+1. `apps/magenta-storefront/app/catalogo/page.tsx`
+2. `apps/magenta-storefront/app/layout.tsx`
+3. `apps/magenta-storefront/app/page.tsx`
+4. `apps/magenta-storefront/app/productos/[productId]/page.tsx`
+5. `apps/magenta-storefront/lib/checkout-page.tsx`
+6. `apps/magenta-storefront/lib/store-information.tsx`
+7. `packages/own-storefront/home.css`
+8. `packages/own-storefront/home.tsx`
+9. `packages/own-storefront/operations-contract.ts`
+10. `scripts/test-store-operations-api.mjs`
+11. `src/app/api/pos/online-store/operations/route.ts`
+12. `src/app/brand/[brandSlug]/pos/online-store/operations.tsx`
+13. `scripts/diagnose-magenta-settings.mjs`
+14. `scripts/restore-magenta-atelier-test.mjs`
+15. `scripts/test-magenta-settings-preview.mjs`
+16. `scripts/test-store-settings-ui.mjs`
+17. `docs/magenta-delivery-20261014.md`
+
+Evidencias privadas de diagnóstico/pruebas y copias previas se conservan en `.next/magenta-functional/ephmrsjnpkcgddulvckj/`, fuera de Git. No se tocaron archivos ajenos ni `cometa-hotfix-recovery`.
+
 ## Ajuste de experiencia POS y pago Stripe completo verificado
 
 **Estado vigente:** el usuario completó manualmente el Checkout test. Se verificó la cadena real del pedido **9594E855** (`9594e855-ddef-4831-a8c0-2181d07623ff`): sesión Stripe `complete/paid`, PaymentIntent `succeeded`, evento Stripe real correlacionado con sesión, intención e importe **300.00 MXN**, ledger del webhook, pedido PAID y un único efecto SALE de 3 unidades para la variante importada. Inventario final **5 unidades, reserva 0**. El aviso está persistido y ya leído; se corrigió la prueba que confundía ausencia de avisos no leídos con ausencia del evento. No se creó otro cobro ni se falsificó un evento remoto. La evidencia detallada permanece en `.next/magenta-functional/ephmrsjnpkcgddulvckj/verified-payment.json`, fuera de Git.

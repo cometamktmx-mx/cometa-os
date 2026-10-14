@@ -1,3 +1,4 @@
+import { StoreInformation } from '../lib/store-information';
 import { createClient } from "@supabase/supabase-js";
 import { StoreHome } from "../../../packages/own-storefront/home";
 import { parseAppearance, type ProductCard } from "../../../packages/own-storefront/contract";
@@ -16,5 +17,5 @@ export default async function Page() {
   try { appearance = parseAppearance(data.appearance, slug); } catch { return <p>Esta tienda no está disponible por el momento.</p>; }
   const products: ProductCard[] = Array.isArray(data.products) ? data.products : [];
   const mediaBase = client.storage.from("pos-products").getPublicUrl("").data.publicUrl.replace(/\/?$/, "/");
-  return <StoreHome appearance={appearance} products={products} mediaBase={mediaBase} />;
+  return <StoreHome footerContent={<StoreInformation/>} appearance={appearance} products={products} mediaBase={mediaBase} />;
 }

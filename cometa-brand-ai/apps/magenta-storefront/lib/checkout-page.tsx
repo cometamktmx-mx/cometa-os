@@ -1,3 +1,4 @@
+import { StoreInformation } from './store-information';
 import { publicStore } from "./public-store";
 import { StoreHome } from "../../../packages/own-storefront/home";
 import { emptyAppearance, parseAppearance } from "../../../packages/own-storefront/contract";
@@ -8,5 +9,5 @@ export async function CheckoutPage({ orderId = "", bagOnly = false }: { orderId?
   const data = result?.error ? null : result?.data;
   if (!data && !orderId) return <main><h1>Tienda no disponible</h1><p>No pudimos verificar esta tienda. Tu bolsa se conserva; vuelve a intentarlo más tarde.</p></main>;
   const appearance = data && store ? parseAppearance(data.appearance, store.slug) : { ...emptyAppearance(), name: "Tu tienda", entrance: false };
-  return <StoreHome appearance={appearance} products={[]} mediaBase={store?.mediaBase ?? ""}><Checkout presentation={appearance.bag} brandId={data?.brandId ?? ""} orderId={orderId} bagOnly={bagOnly} /></StoreHome>;
+  return <StoreHome footerContent={<StoreInformation/>} appearance={appearance} products={[]} mediaBase={store?.mediaBase ?? ""}><Checkout presentation={appearance.bag} brandId={data?.brandId ?? ""} orderId={orderId} bagOnly={bagOnly} /></StoreHome>;
 }

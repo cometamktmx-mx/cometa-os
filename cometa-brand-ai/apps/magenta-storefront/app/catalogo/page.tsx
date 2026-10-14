@@ -1,3 +1,4 @@
+import { StoreInformation } from '../../lib/store-information';
 import { createClient } from "@supabase/supabase-js";
 import { StoreHome } from "../../../../packages/own-storefront/home";
 import { parseAppearance } from "../../../../packages/own-storefront/contract";
@@ -18,5 +19,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const appearance = parseAppearance(result.data.appearance,slug), config = appearance.catalog ?? defaultCatalog();
   const data: CatalogResult = result.data;
   const mediaBase = client.storage.from("pos-products").getPublicUrl("").data.publicUrl.replace(/\/?$/, "/");
-  return <StoreHome appearance={appearance} products={[]} mediaBase={mediaBase}><Catalog mediaLayout={appearance.mediaLayout} data={data} query={catalogQuery(params,config.sort)} config={config} mediaBase={mediaBase} /></StoreHome>;
+  return <StoreHome footerContent={<StoreInformation/>} appearance={appearance} products={[]} mediaBase={mediaBase}><Catalog mediaLayout={appearance.mediaLayout} data={data} query={catalogQuery(params,config.sort)} config={config} mediaBase={mediaBase} /></StoreHome>;
 }

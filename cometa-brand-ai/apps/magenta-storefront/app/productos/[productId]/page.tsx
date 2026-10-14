@@ -1,3 +1,4 @@
+import { StoreInformation } from '../../../lib/store-information';
 import { notFound } from "next/navigation";
 import { publicStore } from "../../../lib/public-store";
 import { StoreHome } from "../../../../../packages/own-storefront/home";
@@ -17,5 +18,5 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const appearance = parseAppearance(data.appearance, store.slug), product: PublicProduct = data.product, query = await searchParams;
   const fromColor = typeof query.color === "string" ? product.content.colors.find(c => c.id === query.color) : undefined;
   const fromCatalog = !query.variant && fromColor ? product.variants.find(v => fromColor.variantIds.includes(v.id) && (typeof query.size !== "string" || (v.options.size ?? v.options.talla ?? "").toLowerCase() === query.size.toLowerCase()))?.id ?? "" : "";
-  return <StoreHome appearance={appearance} products={[]} mediaBase={store.mediaBase}><ProductDetail key={product.id} product={product} config={appearance.product} mediaBase={store.mediaBase} initialVariant={typeof query.variant === "string" ? query.variant : fromCatalog} initialColor={typeof query.color === "string" ? query.color : ""} /></StoreHome>;
+  return <StoreHome footerContent={<StoreInformation/>} appearance={appearance} products={[]} mediaBase={store.mediaBase}><ProductDetail key={product.id} product={product} config={appearance.product} mediaBase={store.mediaBase} initialVariant={typeof query.variant === "string" ? query.variant : fromCatalog} initialColor={typeof query.color === "string" ? query.color : ""} /></StoreHome>;
 }
