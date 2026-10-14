@@ -359,6 +359,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
   const [productForm, setProductForm] =
     useState<ProductForm>(EMPTY_PRODUCT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([]);
+  const createRequestId = useRef<string | null>(null);
+  const [newChannels, setNewChannels] = useState({ physicalRequested: true, onlineRequested: false });
   const [attributeValues, setAttributeValues] =
     useState<AttributeValues>({});
   const [bulkPrice, setBulkPrice] = useState("");
@@ -809,7 +811,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     const variant = variants.find((item) => item.localId === localId);
     if (!variant?.imageUrl) return;
     try {
-      await deleteManagedProductImage(variant.imageUrl, brand.slug);
+      // Images may be shared by all sizes of a color; remove the association only.
       setVariants((current) =>
         current.map((item) =>
           item.localId === localId ? { ...item, imageUrl: "" } : item
@@ -1132,21 +1134,21 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       const label = buildVariantName(variant, attributes, 0);
       const signature = variantSignature(variant.attributes);
       if (seenSignatures.has(signature)) {
-        setError(`La combinaci?n ${label} est? duplicada.`);
+        setError(`La combinación ${label} está duplicada.`);
         return;
       }
       seenSignatures.set(signature, label);
 
       const sku = variant.sku.trim().toLowerCase();
       if (sku && seenSkus.has(sku)) {
-        setError(`El SKU ${variant.sku.trim()} est? repetido en el producto.`);
+        setError(`El SKU ${variant.sku.trim()} está repetido en el producto.`);
         return;
       }
       if (sku) seenSkus.set(sku, label);
 
       const barcode = variant.barcode.trim().toLowerCase();
       if (barcode && seenBarcodes.has(barcode)) {
-        setError(`El código de barras ${variant.barcode.trim()} est? repetido en el producto.`);
+        setError(`El código de barras ${variant.barcode.trim()} está repetido en el producto.`);
         return;
       }
       if (barcode) seenBarcodes.set(barcode, label);
@@ -1157,10 +1159,12 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
       setError(null);
       setNotice(null);
 
-      await apiRequest("/api/pos/products", {
+      if (!isEditing && !createRequestId.current) createRequestId.current = crypto.randomUUID();
+      const savedProduct = await apiRequest<{product:{channelResult?:{status:string;message?:string}}}>("/api/pos/products", {
         method: isEditing ? "PATCH" : "POST",
         body: JSON.stringify({
           brandSlug: brand.slug,
+          ...(!isEditing ? { requestId: createRequestId.current, channels: foodDirect ? null : newChannels } : {}),
           ...(isEditing && editingProduct
             ? {
                 action: "update_product",
@@ -1256,9 +1260,13 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
 
       setNotice(
         isEditing
-          ? `Producto ?${productForm.name}? actualizado correctamente.`
-          : `Producto ?${productForm.name}? creado correctamente.`
+          ? `Producto «${productForm.name}» actualizado correctamente.`
+          : `Producto «${productForm.name}» creado correctamente.`
       );
+
+      if (savedProduct.product.channelResult?.status === "pending") {
+        setNotice(`Producto guardado. Canales pendientes: ${savedProduct.product.channelResult.message || "Abre Canales para revisar y reintentar."}`);
+      }
 
       if (
         isEditing &&
@@ -1270,7 +1278,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           await deleteManagedProductImage(editingProduct.image_url, brand.slug);
         } catch {
           setNotice(
-            `Producto ?${productForm.name}? actualizado; la imagen anterior qued? pendiente de limpieza.`
+            `Producto «${productForm.name}» actualizado; la imagen anterior quedó pendiente de limpieza.`
           );
         }
       }
@@ -1287,6 +1295,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
   }
 
   function resetForm() {
+    createRequestId.current = null;
+    setNewChannels({ physicalRequested: true, onlineRequested: false });
     const initialUnit =
       units.some(
         (unit) => unit.code === "piece"
@@ -1408,8 +1418,8 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
 
       setNotice(
         nextActive
-          ? `Producto ?${activeChangeProduct.name}? activado.`
-          : `Producto ?${activeChangeProduct.name}? desactivado.`
+          ? `Producto «${activeChangeProduct.name}» activado.`
+          : `Producto «${activeChangeProduct.name}» desactivado.`
       );
       setActiveChangeProduct(null);
       await loadData();
@@ -1735,7 +1745,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         <RequiredConfiguration
           brandSlug={brand.slug}
           title="Primero configura el giro"
-          description="El Product Engine necesita conocer la operación del negocio antes de crear productos."
+          description="Configura la operación del negocio antes de crear productos."
         />
       ) : null}
 
@@ -1769,7 +1779,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         >
         {!foodDirect ? <nav className="mb-4 flex gap-3" aria-label="Editor del producto"><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "catalog"} onClick={() => { if (webDirty && !window.confirm("Hay cambios sin guardar. Continuar descarta el borrador local.")) return; setWebDirty(false); setEditorTab("catalog"); }}>Producto y variantes</button><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "web"} onClick={() => setEditorTab("web")}>Ficha web</button></nav> : null}
         {!foodDirect && editorTab === "web" ? <ProductWebEditor key={`${editingProduct?.id ?? "new"}-${selectedLocation?.id ?? "all"}`} brandSlug={brand.slug} productId={editingProduct?.id ?? null} locationId={selectedLocation?.id} onDirtyChange={setWebDirty} /> : null}
-        {editorTab !== "web" && (!foodDirect ? <ProductSalesChannels key={editingProduct?.id ?? "new"} brandSlug={brand.slug} productId={editingProduct?.id ?? null} /> : null)}
+        {editorTab !== "web" && (!foodDirect ? <ProductSalesChannels key={editingProduct?.id ?? "new"} brandSlug={brand.slug} productId={editingProduct?.id ?? null} onDraftChange={setNewChannels} /> : null)}
         <article
           ref={createFormRef}
           id="new-product-form"
@@ -3224,7 +3234,7 @@ function ProductScanner({
                   <PosBadge tone="warning" size="compact">Código nuevo</PosBadge>
 
                   <h4 className="mt-2 text-sm font-semibold text-[var(--pos-text-primary)]">
-                    No est? registrado
+                    No está registrado
                   </h4>
 
                   <p className="mt-1 break-all font-mono text-xs font-black text-[var(--pos-primary-text)]">

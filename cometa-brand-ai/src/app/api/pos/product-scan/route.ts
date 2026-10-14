@@ -103,7 +103,7 @@ export async function GET(request: Request) {
         .from("pos_product_variants")
         .select(VARIANT_SELECT)
         .eq("brand_slug", brand.slug)
-        .ilike("sku", normalizedCode)
+        .ilike("sku", normalizedCode.replace(/[\\%_]/g, "\\$&"))
         .eq("active", true)
         .maybeSingle();
 
@@ -119,8 +119,17 @@ export async function GET(request: Request) {
     }
 
     if (!variant) {
+      const productResult = await admin.from("pos_products").select("id")
+        .eq("brand_slug", brand.slug).eq("product_code", normalizedCode)
+        .eq("active", true).eq("sellable", true).maybeSingle();
+      assertDatabaseResult(productResult.error, "No se pudo buscar el código de producto.");
+      const productMatch = productResult.data &&
+        (url.searchParams.get("surface") === "administration" || await getPosMode(context) !== "RETAIL" ||
+          await physicalRequestedForProduct(admin, productResult.data.id))
+        ? { id: productResult.data.id } : null;
       return ok({
         found: false,
+        productMatch,
         code: normalizedCode,
         suggestedField:
           looksLikeBarcode(normalizedCode)

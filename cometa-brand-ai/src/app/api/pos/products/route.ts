@@ -41,6 +41,8 @@ type ProductVariantInput = {
 };
 
 type ProductBody = {
+  requestId?: unknown;
+  channels?: unknown;
   action?: unknown;
   productId?: unknown;
   active?: unknown;
@@ -753,7 +755,8 @@ export async function POST(request: Request) {
         ? body.configuration
         : {};
 
-    if (productCode) {
+    const requestId = uuidValue(body.requestId, "requestId", false);
+    if (productCode && !requestId) {
       const duplicateCode = await admin
         .from("pos_products")
         .select("id")
@@ -790,12 +793,7 @@ export async function POST(request: Request) {
       "No se pudieron sincronizar los atributos del perfil."
     );
 
-    const {
-      data,
-      error,
-    } = await admin.rpc(
-      "pos_create_product_v2",
-      {
+    const createPayload = {
         p_brand_id: brand.id,
         p_brand_slug: brand.slug,
         p_location_id: locationId,
@@ -850,12 +848,22 @@ export async function POST(request: Request) {
         p_user_id:
           user.userId,
         p_product_code: productCode,
-      }
-    );
+      };
+    const { data, error } = requestId
+      ? await admin.rpc("pos_create_product_delivery_v1", {
+          p_payload: createPayload, p_request: requestId, p_channels: body.channels ?? null,
+        })
+      : await admin.rpc("pos_create_product_v2", createPayload);
 
     if (error) {
       const message =
         error.message || "";
+      if (requestId && (error.code === "PGRST202" || error.code === "42883")) {
+        return fail("El guardado único requiere la migración de entrega. No se creó el producto.", 503, "POS_PRODUCT_SAVE_UNAVAILABLE");
+      }
+      if (message.includes("POS_CREATE_RETRY_CONFLICT")) {
+        return fail("Este intento ya guardó otros datos. Recarga el catálogo para revisar el producto antes de volver a crear.", 409, "POS_PRODUCT_VALIDATION_ERROR");
+      }
       const databaseErrorText = [
         error.message,
         error.details,

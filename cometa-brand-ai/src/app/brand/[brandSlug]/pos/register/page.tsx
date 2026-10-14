@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PosCameraScanner } from "@/components/pos-camera-scanner";
 import {
   type FormEvent,
   useCallback,
@@ -265,6 +266,7 @@ type ScanNotFoundResponse = {
   found: false;
   code: string;
   suggestedField: "sku" | "barcode";
+  productMatch?: { id: string } | null;
 };
 
 type ScanResponse =
@@ -1403,9 +1405,9 @@ export default function PosRegisterPage() {
   }
 
   async function handleScan(
-    event: FormEvent<HTMLFormElement>
+    event?: FormEvent<HTMLFormElement>, cameraCode?: string
   ) {
-    event.preventDefault();
+    event?.preventDefault();
 
     if (!selectedSession) {
       setError(
@@ -1415,7 +1417,7 @@ export default function PosRegisterPage() {
     }
 
     const code =
-      scanCode.trim();
+      (cameraCode ?? scanCode).trim();
 
     if (!code) {
       scannerRef.current?.focus();
@@ -1437,6 +1439,12 @@ export default function PosRegisterPage() {
         );
 
       if (!result.found) {
+        const group = result.productMatch && productGroups.find(item => item.productId === result.productMatch?.id);
+        if (group) {
+          selectProduct(group);
+          return;
+        }
+        setSearch(result.code);
         setError(
           `El código ${result.code} no está registrado.`
         );
@@ -2177,6 +2185,7 @@ export default function PosRegisterPage() {
                   : "Agregar"}
               </button>
             </form>
+            <PosCameraScanner disabled={isScanning || !selectedSession} onCode={code => handleScan(undefined, code)} />
           </article>
 
           <article className="rounded-[var(--pos-radius-lg)] bg-[var(--pos-panel)] p-4">
