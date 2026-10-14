@@ -17,8 +17,8 @@ export function StoreOperations({ordersView=false}:{ordersView?:boolean}){
 function StoreOperationsContent({ordersView,selected}:{ordersView:boolean;selected:string|null}){
  const {brand}=usePosContext();
  const [meta,setMeta]=useState<Metadata|null>(null),[draft,setDraft]=useState(emptyStoreSettings),[orders,setOrders]=useState<OnlineOrder[]>([]),[items,setItems]=useState<Item[]>([]),[events,setEvents]=useState<OrderEvent[]>([]),[error,setError]=useState(''),[notice,setNotice]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[tracking,setTracking]=useState('');
- const returnFromStripe=useSearchParams().get('connect');
- const [section,setSection]=useState(returnFromStripe==='return'||returnFromStripe==='refresh'?'Pagos':'General'),[fieldErrors,setFieldErrors]=useState<Record<string,string>>({});
+ const params=useSearchParams(),returnFromStripe=params.get('connect');
+ const [section,setSection]=useState(params.get('section')==='payments'||returnFromStripe==='return'||returnFromStripe==='refresh'?'Pagos':'General'),[fieldErrors,setFieldErrors]=useState<Record<string,string>>({});
  const sections=['General','Envíos y recolección','Pagos','Mayoreo','Dominio','Políticas','Notificaciones'];
  const fieldSection=(path:string)=>path.startsWith('shipping')||path.startsWith('pickup')?'Envíos y recolección':path.startsWith('payments')?'Pagos':path.startsWith('tiers')||path==='mixProducts'?'Mayoreo':path.startsWith('policies')?'Políticas':path==='recipients'?'Notificaciones':'General';
  const dirty=!!meta&&JSON.stringify(draft)!==JSON.stringify(meta.document);

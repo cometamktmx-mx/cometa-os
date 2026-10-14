@@ -1,0 +1,20 @@
+// Authorized synthetic backend only. No account creation, activation or charge.
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';import {createServerClient} from '@supabase/ssr';import Stripe from 'stripe';
+const ref='ephmrsjnpkcgddulvckj',dir=path.resolve('.next/magenta-functional',ref),read=n=>JSON.parse(fs.readFileSync(path.join(dir,n+'.json'),'utf8'));
+const env=read('environment'),access=read('access'),origins=read('origins'),plan=JSON.parse(fs.readFileSync('config/magenta-preview-deployment.json','utf8'));assert.equal(env.projectRef,ref);assert.equal(env.url,'https://'+ref+'.supabase.co');assert.ok(env.stripeTest.startsWith('sk_test_'));
+const vc=path.join(process.env.APPDATA,'npm/node_modules/vercel/dist/vc.js'),deployment=JSON.parse(execFileSync(process.execPath,[vc,'inspect',origins.admin,'--json','--scope',plan.scope],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));assert.equal(deployment.target,'preview');assert.equal(deployment.readyState,'READY');assert.equal(deployment.name,plan.admin.project);
+const jar=new Map(),auth=createServerClient(env.url,env.anon,{cookies:{getAll:()=>[...jar].map(([name,value])=>({name,value})),setAll:rows=>rows.forEach(c=>jar.set(c.name,c.value))}});assert.equal((await auth.auth.signInWithPassword({email:access.email,password:access.password})).error,null);
+const headers={'x-vercel-protection-bypass':read('admin-automation').secret,origin:origins.admin,cookie:[...jar].map(([n,v])=>n+'='+v).join('; '),'content-type':'application/json'};
+const route='/api/pos/online-store/payments?brandSlug=magenta-preview';
+async function request(body){const r=await fetch(origins.admin+route,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});assert.equal(r.status,200,'Payments HTTP status');return r.json();}
+const state=await request();assert.equal(state.mode,'test');assert.ok(state.connected,'Existing synthetic account required');
+const stripe=new Stripe(env.stripeTest,{timeout:15000,maxNetworkRetries:1}),account=await stripe.accounts.retrieve(state.account);assert.equal(account.metadata.store_brand_id,env.fixture.ids.brand);assert.equal(account.metadata.store_mode,'test');assert.notEqual(account.id,(await stripe.accounts.retrieveCurrent()).id);
+const proof={at:new Date().toISOString(),deployment:deployment.id,mode:'test',connected:state.connected,active:state.active,chargesEnabled:account.charges_enabled,payoutsEnabled:account.payouts_enabled,detailsSubmitted:account.details_submitted,currentlyDue:account.requirements?.currently_due??[],uiVerified:false,renewalVerified:false};
+if(process.argv.includes('--ui')){
+ const page=await fetch(origins.admin+'/brand/magenta-preview/pos/online-store?section=payments',{headers});assert.equal(page.status,200);const html=await page.text();const chunks=[...html.matchAll(/<script[^>]+src="([^" ]+)"/g)].map(m=>m[1].replaceAll('&amp;','&'));let code='';
+ for(const chunk of new Set(chunks)){assert.ok(chunk.startsWith('/_next/'));const r=await fetch(origins.admin+chunk,{headers:{'x-vercel-protection-bypass':headers['x-vercel-protection-bypass']}});assert.equal(r.status,200);code+=await r.text();}
+ for(const text of ['Completar configuración','Conectar cuenta','Consultar estado','/api/pos/online-store/payments','payments'])assert.ok(code.includes(text),'Missing deployed control: '+text);proof.uiVerified=true;
+ const a=await request({action:'onboard'}),b=await request({action:'onboard'});for(const link of [a,b]){const u=new URL(link.url);assert.equal(u.protocol,'https:');assert.equal(u.hostname,'connect.stripe.com');assert.ok(link.expiresAt*1000>Date.now());}assert.notEqual(a.url,b.url);assert.equal((await request()).account,state.account);proof.renewalVerified=true;
+ // Do not log or persist private onboarding URLs. Every click obtains a fresh link.
+}
+fs.writeFileSync(path.join(dir,'connect-onboarding-proof.json'),JSON.stringify(proof,null,2));console.log(JSON.stringify(proof));
