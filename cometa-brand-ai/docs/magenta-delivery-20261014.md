@@ -1,5 +1,30 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Preparación de lanzamiento desde 9d04a31 — estado vigente
+
+**Producción intacta. Presentación no lista; operación live no lista.** No se cambió el diseño en esta continuación; el usuario pidió esperar indicaciones por pantalla. La adaptación anterior es parcial y no constituye fidelidad Atelier aprobada. La referencia vinculante es el ZIP 0.6. Ver [comparación previa al cambio visual](magenta-atelier-reference-differences.md).
+
+Se preparó [el procedimiento concreto de lanzamiento](magenta-production-launch.md), con requisitos manuales, cinco migraciones pendientes y hashes respecto al ledger productivo auditado en READ ONLY, respaldo/restauración privados, configuración live, webhook, expiración, permisos, Storage, dominio/contenido y recuperación. No se ejecutaron migraciones, configuración ni despliegues productivos. No hay aún ensayo de restauración de respaldo productivo.
+
+Backend Connect añadido sin tocar composición visual: cuenta Standard por marca/modo, creación y vinculación idempotentes, onboarding alojado en Stripe, sincronización de capacidades, activación explícita y Checkout directo en cuenta conectada. Preview rechaza modo live; una cuenta activada cuyas capacidades se revocan no vuelve silenciosamente a la plataforma al guardar configuración. Los pedidos históricos conservan su destino. M9 aplicada solo en `ephmrsjnpkcgddulvckj`; comparación transaccional confirmó pedidos, artículos, stock y configuración existentes idénticos.
+
+Stripe real **test**: creada cuenta sintética Connect y endpoint Connect con cinco eventos. Stripe devuelve `charges_enabled=false`, `payouts_enabled=false`; no se activó ni hizo otro cobro. Enlace temporal guardado privadamente en `.next/magenta-functional/ephmrsjnpkcgddulvckj/CONECTAR-CUENTA-TEST.txt`. Se regenera con `node scripts/prepare-magenta-connect-test.mjs`. Pendientes: completar onboarding test, activar solo con capacidades verificadas y probar un pago test completo en la cuenta conectada. Los controles y retorno/refresco de la pantalla Pagos y textos de modo todavía deben enlazarse a la API antes de live; no se presentan como terminados.
+
+Pruebas reales y límites:
+
+- Bootstrap PostgreSQL aislado: baseline + 86 migraciones desde cero; importación → POS → compra → webhook firmado localmente; idempotencia, aislamiento, destinos históricos y M9. Base desechable eliminada, sin reiniciar instancias/volúmenes existentes. Firma local no equivale a transacción Stripe Connect.
+- `test-store-payments-api.mjs`: permisos, marca, Retail, validación, recuperación de vinculación, clave estable, país, retorno HTTPS de servidor y requisitos de webhook/capacidades; transporte Stripe simulado.
+- `test-store-stripe-runtime.mjs`, `test-store-operations-api.mjs`, `test-magenta-preview-environment.mjs`: PASS; live bloqueado en Preview, destino directo, guardado sin fallback tras revocación y regresiones de configuración.
+- `test-magenta-functional-preview.mjs --check --verify-payment`: PASS en Preview. Seis rutas HTTP, POS anónimo 401, origen incorrecto 403, firma inválida 400, consulta privada del comprador, detalle/avisos persistidos y reanudación concurrente sin doble reserva. **Pago test anterior** conciliado otra vez con proveedor/eventos/pedido/aviso; stock 5, reservado 0. Ese pago fue a la plataforma, no a Magenta Connect. No se repitió.
+- TypeScript sin emisión y lint dirigido: PASS. Ambos builds Vercel Ready/Preview, verificación de backend aislado y destinos/rootDirectory productivos sin cambios. No hay evidencia visual nueva: navegador no disponible; revisión de escritorio/móvil sigue pendiente.
+
+URLs estables de pruebas:
+
+- Administración/POS: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos
+- Tienda: https://magenta-controlled-preview-test-delivery-cometa-os-s-projects.vercel.app (rutas `/`, `/catalogo`, `/bolsa`, `/checkout`).
+
+Las secciones siguientes son historial de continuaciones anteriores; sus pendientes o afirmaciones de adaptación no reemplazan este estado vigente.
+
 ## Correcciones prioritarias desde d4bf956
 
 ### Guardado: reproducción y solución
@@ -537,3 +562,33 @@ Añadidos:
 - `docs/magenta-delivery-20261014.md`.
 
 La carpeta externa `../cometa-hotfix-recovery/` se conservó. Sin staging, commits ni push. Los cambios adicionales de interfaz/canales quedan a la espera de la revisión consolidada del usuario.
+
+
+## Archivos de la preparacion de lanzamiento desde 9d04a31
+
+- `apps/magenta-storefront/app/api/stripe/connect-webhook/route.ts`
+- `apps/magenta-storefront/app/api/stripe/webhook/route.ts`
+- `apps/magenta-storefront/lib/checkout-server.ts`
+- `apps/magenta-storefront/lib/payment-webhook.ts`
+- `docs/magenta-atelier-reference-differences.md`
+- `docs/magenta-delivery-20261014.md`
+- `docs/magenta-production-launch.md`
+- `packages/own-storefront/stripe-runtime.ts`
+- `scripts/apply-magenta-connect-test.mjs`
+- `scripts/audit-magenta-launch.mjs`
+- `scripts/configure-magenta-connect-test.mjs`
+- `scripts/deploy-magenta-functional-preview.mjs`
+- `scripts/magenta-preview-environment.mjs`
+- `scripts/prepare-magenta-connect-test.mjs`
+- `scripts/test-magenta-bootstrap-local.mjs`
+- `scripts/test-store-connect-local.mjs`
+- `scripts/test-store-operations-api.mjs`
+- `scripts/test-store-payments-api.mjs`
+- `scripts/test-store-stripe-runtime.mjs`
+- `scripts/test-store-webhook-local.mjs`
+- `src/app/api/pos/online-store/operations/route.ts`
+- `src/app/api/pos/online-store/payments/route.ts`
+- `src/lib/pos/store-payments.ts`
+- `supabase/migrations/20261014200000_store_payment_accounts_m9.sql`
+
+`../cometa-hotfix-recovery/` permanece fuera del cambio. Archivos privados de prueba en `.next` excluidos de Git.

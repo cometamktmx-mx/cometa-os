@@ -2,6 +2,9 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { createHash } from "node:crypto";
+import {storeStripeRuntime,assertStoreAccount} from '../../../packages/own-storefront/stripe-runtime';
+export {storeStripeRuntime} from '../../../packages/own-storefront/stripe-runtime';
+export function stripePayments(){return new Stripe(storeStripeRuntime().key,{maxNetworkRetries:2,timeout:20000});}
 import type { BagLine } from "../../../packages/own-storefront/bag";
 import type { Contact, CartQuote } from "../../../packages/own-storefront/checkout-contract";
 
@@ -50,7 +53,7 @@ export async function operationQuote(lines:BagLine[],owner:string,contact?:Conta
  const cart=result.data as CartQuote,blockers:string[]=[];
  if(cart.items.some(i=>!i.available))blockers.push('Hay variantes sin existencias suficientes en la sucursal.');
  if(!contact)blockers.push('Completa tus datos y revisa la entrega.');
- if(method==='STRIPE'&&(!process.env.STOREFRONT_STRIPE_TEST_SECRET_KEY?.startsWith('sk_test_')||!process.env.STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET))blockers.push('El pago Stripe test no está configurado.');
+ if(method==='STRIPE'){try{const runtime=storeStripeRuntime();if(!runtime.webhook&&!runtime.connectWebhook)throw Error();if(runtime.live){const binding=await db.from('store_payment_accounts').select('active,charges_enabled,payouts_enabled,details_submitted').eq('brand_id',cart.brandId).eq('mode','live').maybeSingle();if(binding.error||!binding.data?.active||!binding.data.charges_enabled||!binding.data.payouts_enabled||!binding.data.details_submitted||!runtime.connectWebhook)throw Error();}}catch{blockers.push('La cuenta receptora o el webhook del modo de pago no están listos.');}}
  return {...cart,shippingCents:cart.shippingCents??null,totalCents:cart.totalCents??null,quoteId:cart.quoteId??null,ready:blockers.length===0,blockers};
 }
 export type StoreOrder = { id: string; brand_id: string; owner_hash: string; status: string; currency: string; total_cents: number; subtotal_cents: number; shipping_cents: number; stripe_account_ref: string; stripe_session_id: string | null; expires_at: string; contact: Contact; request: { lines: BagLine[]; contact: Contact };payment_method?:string;delivery_method?:string;preparation_status?:string;delivery_status?:string;tracking?:string|null;refund_required?:boolean;delivery_snapshot?:{pickup?:{address?:string;hours?:string;instructions?:string}} };
@@ -76,18 +79,25 @@ export async function continueOrder(o:StoreOrder){
 export async function payOrder(o: StoreOrder) {
   if(o.payment_method==='WHATSAPP')throw Error('STORE_PAYMENT_METHOD_MISMATCH');
   if (o.status !== "PENDING" || Date.parse(o.expires_at) <= Date.now()) return { order: safeOrder(o), url: null };
-  const stripe = stripeTest(), { db } = checkoutStore();
+  const runtime=storeStripeRuntime(),stripe = stripePayments(), { db } = checkoutStore();
   const account = await stripe.accounts.retrieveCurrent();
-  if (account.id !== o.stripe_account_ref) throw Error("STORE_STRIPE_ACCOUNT_MISMATCH");
+  let stripeAccount:string|undefined;
+  if(account.id===o.stripe_account_ref){if(runtime.live)throw Error('STORE_MERCHANT_ACCOUNT_REQUIRED');}
+  else{
+   const binding=await db.from('store_payment_accounts').select('stripe_account_id,active').eq('brand_id',o.brand_id).eq('mode',runtime.mode).eq('stripe_account_id',o.stripe_account_ref).maybeSingle();
+   if(binding.error||!binding.data?.active)throw Error('STORE_STRIPE_ACCOUNT_MISMATCH');
+   const merchant=await stripe.accounts.retrieve(o.stripe_account_ref);assertStoreAccount(merchant,o.brand_id,runtime.mode);
+   if(!merchant.charges_enabled||!merchant.payouts_enabled||!merchant.details_submitted||!runtime.connectWebhook)throw Error('STORE_MERCHANT_NOT_READY');stripeAccount=merchant.id;
+  }
   // Stable provider payload/key permits recovery after a response is lost.
-  const session = o.stripe_session_id ? await stripe.checkout.sessions.retrieve(o.stripe_session_id) : await stripe.checkout.sessions.create({
+  const session = o.stripe_session_id ? await stripe.checkout.sessions.retrieve(o.stripe_session_id,{}, {stripeAccount}) : await stripe.checkout.sessions.create({
     mode: "payment", payment_method_types: ["card"], client_reference_id: o.id,
     metadata: { store_order_id: o.id, store_brand_id: o.brand_id },
     line_items: [{ price_data: { currency: o.currency.toLowerCase(), unit_amount: o.total_cents, product_data: { name: "Pedido " + o.id.slice(0, 8).toUpperCase() } }, quantity: 1 }],
     success_url: checkoutOrigin() + "/pedido/" + o.id, cancel_url: checkoutOrigin() + "/checkout?order=" + o.id,
     expires_at: Math.floor(Date.parse(o.expires_at) / 1000),
-  }, { idempotencyKey: "store-m6:" + o.id });
-  if (session.livemode || session.client_reference_id !== o.id || session.amount_total !== o.total_cents || session.currency?.toUpperCase() !== o.currency) throw Error("STORE_PAYMENT_MISMATCH");
+  }, { idempotencyKey: "store-m6:" + o.id,stripeAccount });
+  if (session.livemode!==runtime.live || session.client_reference_id !== o.id || session.amount_total !== o.total_cents || session.currency?.toUpperCase() !== o.currency) throw Error("STORE_PAYMENT_MISMATCH");
   if (!o.stripe_session_id) { const attached = await db.rpc("store_order_attach_session_m6", { p_order: o.id, p_session: session.id }); if (attached.error) throw Error("STORE_SESSION_PENDING"); }
   return { order: safeOrder(o), url: session.status === "open" ? session.url : null };
 }

@@ -1,0 +1,11 @@
+// Only the existing authorized test backend and verified Vercel Preview; never live.
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';import Stripe from 'stripe';
+const ref='ephmrsjnpkcgddulvckj',dir=path.resolve('.next/magenta-functional',ref),read=n=>JSON.parse(fs.readFileSync(path.join(dir,n+'.json'),'utf8'));
+const env=read('environment'),origins=read('origins'),plan=JSON.parse(fs.readFileSync('config/magenta-preview-deployment.json','utf8'));assert.equal(env.projectRef,ref);assert.ok(env.stripeTest.startsWith('sk_test_'));
+const vc=path.join(process.env.APPDATA,'npm/node_modules/vercel/dist/vc.js'),deployment=JSON.parse(execFileSync(process.execPath,[vc,'inspect',origins.storefront,'--json','--scope',plan.scope],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));assert.equal(deployment.target,'preview');assert.equal(deployment.readyState,'READY');assert.equal(deployment.name,plan.storefront.project);
+const stripe=new Stripe(env.stripeTest,{timeout:15000,maxNetworkRetries:1});assert.equal((await stripe.accounts.retrieveCurrent()).id,env.stripeAccount);
+const events=[...plan.webhook.events,'account.updated'],url=new URL('/api/stripe/connect-webhook',origins.storefront);url.searchParams.set('x-vercel-protection-bypass',read('automation').secret);
+const file=path.join(dir,'connect-webhook.json');let record;
+if(fs.existsSync(file)){record=read('connect-webhook');assert.equal(record.connect,true);const endpoint=await stripe.webhookEndpoints.retrieve(record.id);assert.equal(endpoint.livemode,false);assert.equal(endpoint.metadata.magenta_test_ref,ref);assert.equal(record.origin,origins.storefront);}
+else{const endpoint=await stripe.webhookEndpoints.create({url:url.toString(),connect:true,enabled_events:events,metadata:{magenta_test_ref:ref},description:'Magenta test connected accounts only'},{idempotencyKey:'magenta-connect-webhook:'+ref});assert.equal(endpoint.livemode,false);assert.ok(endpoint.secret);record={id:endpoint.id,secret:endpoint.secret,connect:true,origin:origins.storefront};fs.writeFileSync(file,JSON.stringify(record),{mode:0o600});}
+console.log('PASS dedicated Connect test webhook prepared: Checkout events + account.updated. Secret saved locally; legacy webhook unchanged; no charges.');

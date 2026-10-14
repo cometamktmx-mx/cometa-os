@@ -26,7 +26,8 @@ const environment=JSON.parse(fs.readFileSync(path.join(dir,'environment.json'),'
 const origins=JSON.parse(fs.readFileSync(path.join(dir,'origins.json'),'utf8'));
 const webhookFile=path.join(dir,'webhook.json');
 const secret=fs.existsSync(webhookFile)?JSON.parse(fs.readFileSync(webhookFile,'utf8')).secret:undefined;
-const values=environmentForPreview(environment,origins.admin,origins.storefront,secret)[app];
+const connectFile=path.join(dir,'connect-webhook.json'),connectSecret=fs.existsSync(connectFile)?JSON.parse(fs.readFileSync(connectFile,'utf8')).secret:undefined;
+const values=environmentForPreview(environment,origins.admin,origins.storefront,secret,connectSecret)[app];
 // CLI reads each value from the child process environment. No secret in argv or source.
 const overrides=Object.keys(values).flatMap(key=>['--env',key,'--build-env',key]);
 try{output=cli(['deploy','--yes','--target','preview','--no-wait','--meta','githubDeployment=1','--meta','githubCommitRef='+plan.branch,...overrides],{...process.env,...values});}

@@ -4,11 +4,12 @@ import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 const plan=JSON.parse(fs.readFileSync('config/magenta-preview-deployment.json','utf8'));
 function previewOrigin(value){const u=new URL(value);if(u.protocol!=='https:'||!u.hostname.endsWith('-cometa-os-s-projects.vercel.app')||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('VERIFIED_PREVIEW_ORIGIN_REQUIRED');return u.origin;}
-export function environmentForPreview({projectRef,url,anon,service,stripeTest},adminOrigin,storeOrigin,webhookSecret){
+export function environmentForPreview({projectRef,url,anon,service,stripeTest},adminOrigin,storeOrigin,webhookSecret,connectSecret){
  if(!/^[a-z]{20}$/.test(projectRef)||['zhtagqrzyovsrmsicaot','ofkvisonfllafkzihdvq','fvaruzjravbwzatnjfoe'].includes(projectRef)||url!=='https://'+projectRef+'.supabase.co'||!anon||!service||!stripeTest?.startsWith('sk_test_'))throw Error('ISOLATED_TEST_ENV_REQUIRED');
  const admin=previewOrigin(adminOrigin),store=previewOrigin(storeOrigin);
  if(webhookSecret&&!webhookSecret.startsWith('whsec_'))throw Error('ENDPOINT_SIGNING_SECRET_REQUIRED');
- const stripe={STOREFRONT_STRIPE_TEST_SECRET_KEY:stripeTest,...(webhookSecret?{STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET:webhookSecret}:{})};
+ if(connectSecret&&!connectSecret.startsWith('whsec_'))throw Error('ENDPOINT_SIGNING_SECRET_REQUIRED');
+ const stripe={STOREFRONT_PAYMENTS_MODE:'test',STOREFRONT_LIVE_ENABLED:'false',STOREFRONT_STRIPE_LIVE_SECRET_KEY:'PREVIEW_DISABLED',STOREFRONT_ADMIN_ORIGIN:admin,STOREFRONT_STRIPE_TEST_SECRET_KEY:stripeTest,...(webhookSecret?{STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET:webhookSecret}:{}),...(connectSecret?{STOREFRONT_STRIPE_TEST_CONNECT_WEBHOOK_SECRET:connectSecret}:{})};
  const administrativePayments={STRIPE_SECRET_KEY:stripeTest,COMU_STRIPE_SECRET_KEY:stripeTest,STRIPE_WEBHOOK_SECRET:'PREVIEW_DISABLED',COMU_STRIPE_WEBHOOK_SECRET:'PREVIEW_DISABLED',COMU_STRIPE_CONNECT_WEBHOOK_SECRET:'PREVIEW_DISABLED'};
  return {
   admin:{NEXT_PUBLIC_SUPABASE_URL:url,NEXT_PUBLIC_SUPABASE_ANON_KEY:anon,SUPABASE_SERVICE_ROLE_KEY:service,APP_ORIGIN:admin,OWN_STOREFRONT_URLS:JSON.stringify({'magenta-preview':store}),...stripe,...administrativePayments,OPENAI_API_KEY:'PREVIEW_DISABLED',OPENAI_BASE_URL:'http://127.0.0.1:9',SALES_AI_SEND_WHATSAPP_ENABLED:'false',SALES_AI_AGENT_MODE:'draft',WHATSAPP_ACCESS_TOKEN:'PREVIEW_DISABLED',WHATSAPP_WEBHOOK_VERIFY_TOKEN:'PREVIEW_DISABLED',WHATSAPP_TOKEN_ENCRYPTION_KEY:'PREVIEW_DISABLED',SALES_AI_INTERNAL_SECRET:'PREVIEW_DISABLED',COMU_ENABLED:'false'},

@@ -65,5 +65,6 @@ try {
  const fixture=await provisionMagenta({sql,actor});
  await verifySyntheticChain({sql,fixture});
  const {certifyPresentation}=await import('./test-order-presentation-local.mjs');await certifyPresentation({sql,fixture});
+ const {certifyConnect}=await import('./test-store-connect-local.mjs');await certifyConnect({sql,fixture});
 }catch(error){console.error('BOOTSTRAP FAILED:',error.message);process.exitCode=1;}
 finally{if(created){await destination();await exec(['dropdb','-U','postgres',database]);console.log('Dropped ONLY',database);}}
