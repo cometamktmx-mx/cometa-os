@@ -1,5 +1,74 @@
 # Magenta — preparación Windows, 14 octubre 2026
 
+## Continuación desde 73b3cd4 — build y dependencias exactas
+
+Esta sección es el estado más reciente. Se conserva la rama `delivery/magenta-20261014` y el trabajo anterior. En esta continuación no se desplegó, no se modificaron dominios ni variables remotas y no se accedió a datos operativos.
+
+### URL visual y rutas
+
+URL exacta: **https://magenta-controlled-preview-hme052ccm-cometa-os-s-projects.vercel.app**. Se repitió `vercel inspect`: `dpl_ABfALPXGoyV6EC82Kg674BdhVL8G`, `target preview`, `Ready`.
+
+| Ruta en esa URL | Qué revisar |
+| --- | --- |
+| `/` | Portada, hero, categorías, look, tipografía, footer y responsive |
+| `/catalogo` | Tarjetas, proporciones y catálogo sintético |
+| `/productos/11111111-1111-4111-8111-111111111111` | Ficha, estructura de galería y variantes; controles desactivados |
+| `/bolsa` | Presentación estática; no persistencia |
+| `/checkout` y `/pedidos` | Aviso de recorrido bloqueado, no formularios funcionales |
+
+No se volvió a automatizar el navegador bloqueado. La revisión visual permanece pendiente del usuario.
+
+### Corrección mínima del build
+
+`src/app/comu/seller/orders/page.tsx` exportaba una página con prop adicional `brandSlug?: string`, incompatible con la validación de App Router. La primera búsqueda se limitó indebidamente al árbol COMU; el build detectó el consumidor Brand OS en `src/app/brand/[brandSlug]/comu/orders/page.tsx`. Se retiró la prop de la página y se trasladó su rama por marca a ese wrapper, que ahora usa directamente el gestor existente manteniendo `requireBrandAccess` seguido de `requireOrderBrand`. La ruta independiente `src/app/comu/seller/[brandSlug]/[view]/page.tsx` se conserva. No se alteraron permisos OWNER/ADMIN/ORDER_MANAGER, consultas, filtros, enlaces ni redirecciones. Regresión adicional verifica orden de ambas guardas, sus denegaciones y uso del seller resuelto.
+
+`node scripts/test-comu-orders-page.mjs`: PASS ejecutando la página real con Auth simulado: 401 al login, 403 a notFound, 503 propagado, estado vacío, redirección de tienda única con filtros permitidos y selector de varias tiendas. `test-comu-orders-o1-presentation-local.mjs`: PASS. ESLint de página/script: PASS. Build administrativo repetido sobre copia de 687 archivos sin `.env` mediante `node node_modules/next/dist/bin/next build .next/magenta-preview-preparation/source-1791995544066/cometa-os/cometa-brand-ai --webpack`; resultado final registrado abajo.
+
+El segundo build pasó compilación y TypeScript (incluida validación App Router); falló luego en `/api/analyze-brand` porque inicializa clientes Supabase/OpenAI al importar y la copia no contenía variables. No se modificó esa API. Reintento con entorno de proceso limitado a variables de Windows y valores ficticios: URL Supabase/OpenAI `http://127.0.0.1:9`, claves `synthetic-build-only`, telemetría deshabilitada. Estos valores no son credenciales, no se escribieron en `.env` y **el artefacto resultante no debe desplegarse**. El build de Preview real debe recompilar con las variables exclusivas de pruebas. TypeScript raíz `--noEmit --incremental false --pretty false`: PASS. Advertencia de múltiples lockfiles en la copia anidada: el tracing root inferido es el repositorio padre; no certifica empaquetado remoto ni justifica cambiar configuración de producción.
+
+**Resultado final del build administrativo con ese entorno sintético: PASS, salida 0.** Compilación, TypeScript, recopilación de rutas, generación de 111 páginas estáticas, optimización y trazas completadas; `/comu/seller/orders` figura como ruta dinámica. No se omitió TypeScript ni se activó `ignoreBuildErrors`. Pruebas de ambas páginas y lint dirigido PASS; `git diff --check` PASS. Se resuelve el bloqueo de código del build; permanecen los de aprovisionamiento y certificación funcional descritos a continuación.
+
+### Bloqueos confirmados por metadatos, sin secretos
+
+Se repitieron `supabase projects list` y `vercel env ls preview` en ambos proyectos. Siguen disponibles únicamente PTM App MVP (inactivo), Nahuitech-Quotes y Cometa BRAND IA (activos); ninguno confirmado exclusivo de pruebas. No se infiere aislamiento por nombre.
+
+| Destino | Configuración necesaria | Estado observado |
+| --- | --- | --- |
+| Admin Preview | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Existen, pero comparten ámbito Production/Preview; no certificadas para pruebas |
+| Admin Preview | `APP_ORIGIN` | Existe compartida; necesita URL Preview propia, no producción |
+| Admin Preview | `OWN_STOREFRONT_URLS` | Ausente; mapa JSON del slug sintético a la URL Preview storefront |
+| Admin y storefront Preview | `STOREFRONT_STRIPE_TEST_SECRET_KEY`, `STOREFRONT_STRIPE_TEST_WEBHOOK_SECRET` | Ausentes en ambos listados; admin las requiere para habilitar Stripe, storefront para crear sesiones/verificar eventos |
+| Storefront Preview | `STOREFRONT_SUPABASE_URL`, `STOREFRONT_SUPABASE_ANON_KEY`, `STOREFRONT_SUPABASE_SERVICE_ROLE_KEY`, `STOREFRONT_BRAND_SLUG`, `STOREFRONT_ORIGIN` | Existen todas compartidas Production/Preview; reemplazar solo para Preview/rama con destino confirmado |
+| Storefront Preview | `STOREFRONT_EXPIRY_SECRET` y scheduler POST `/api/checkout/expire` | Variable ausente; ejecutor remoto no certificado |
+| Entorno local | Variables específicas `STOREFRONT_*` | Ausentes de `.env.local`; solo nombres inspeccionados. Las variables Stripe genéricas y COMU no se consideran credenciales autorizadas de esta tienda |
+
+El checkout usa Stripe Checkout alojado: no necesita publicar una `pk_test` en el navegador ni `STRIPE_PRICE_*`, porque construye el importe de la orden en servidor. No se leyeron valores de las claves genéricas para intentar reutilizarlas.
+
+### Pasos indispensables para desbloquear el recorrido
+
+1. El titular debe identificar un Supabase existente vacío y exclusivo de pruebas o crear uno (organización, región y posible coste requieren su elección). Proporcionar la **referencia**, no contraseñas por chat. No reutilizar los tres candidatos sin confirmación explícita. Aprovisionar credenciales del nuevo proyecto de forma privada y autorización de conexión/migración al destino exacto.
+2. Ensayar el baseline desde cero antes de publicarlo. El repositorio empieza con `20260828233603_remote_schema.sql`; los runners aprobados restauran esquema de PostgreSQL local y prueban migraciones posteriores, **no certifican aún instalar toda la cadena desde cero**. Revisar migraciones de datos y no copiar filas operativas ni ejecutar `db push` contra el proyecto vinculado actual. Además del baseline POS/Auth/Storage/permisos, hacen falta M0, A1, M1–M6, `20261014120000_pos_imports_v1.sql`, `20261014140000_pos_product_delivery_save.sql` y `20261014160000_store_operations_m7.sql`, con dependencias y ledger comprobados en el destino nuevo.
+3. Crear identidad sintética Auth, perfil activo, acceso owner/admin, marca Retail, suscripción/capacidades POS, ubicación/moneda y caja de prueba. Habilitar tienda A1, canales M1 y contenido publicado M2/M3, bucket `pos-products` con políticas; configurar destinatario POS, envío/recolección y pagos. Auth Site URL/redirects deben apuntar solo al admin Preview. No enviar invitaciones ni mensajes reales.
+4. El titular debe facilitar acceso a una cuenta/sandbox Stripe test y configurar de forma privada `sk_test_…` en ambos proyectos Preview. La cuenta consultada debe coincidir con la guardada por configuración de tienda. Registrar destino HTTPS **snapshot** en `<URL-Preview-storefront>/api/stripe/webhook`, en la misma cuenta/modo test, para `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed` y `checkout.session.expired`. Guardar el `whsec_…` específico de ese endpoint; no el de otro endpoint o de Stripe CLI. Referencia: [Stripe webhooks](https://docs.stripe.com/webhooks).
+5. Si Vercel Authentication protege la Preview, el webhook necesita acceso mediante el mecanismo oficial Protection Bypass for Automation configurado por el titular, sin revelar su secreto ni desactivar protección global. Esto habilita entrega servidor-a-servidor, no elude el bloqueo del navegador. [Documentación oficial](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation). Comprobar respuesta del endpoint y recepción en Stripe; login HTML no cuenta como éxito del webhook.
+6. Configurar solo ámbito Preview/rama, verificar referencias/orígenes sin imprimir claves y revisar destino Vercel **antes** de cualquier publicación. No usar el proyecto administrativo sin despliegues: el primer despliegue fue autopromovido en el intento anterior. Mantener Git deployments deshabilitados. Si no se puede asegurar destino Preview, no ejecutar deploy. No crear/modificar aliases de producción. Tras disponer de URL Preview estable, ajustar origen/webhook/Auth y volver a publicar solo Preview.
+7. Completar una sesión Checkout test desde la compra web (tarjeta de prueba oficial, nunca tarjeta real), registrar IDs de sesión/evento/pedido sin datos privados, comprobar `livemode=false`, entrega webhook 2xx, pago PAID, bandeja POS, aviso persistente e inventario. Referencia de pruebas: [Stripe testing](https://docs.stripe.com/testing). El navegador sigue bloqueado: la interacción de Checkout y QA visual requiere al usuario mientras continúe ese bloqueo; no se sustituye por un evento fabricado.
+
+### Estado del recorrido solicitado
+
+| Paso | Evidencia disponible | Falta para certificar la cadena completa |
+| --- | --- | --- |
+| Importación → producto/variante | Persistencia, duplicados, reversión y alta/reintento PostgreSQL PASS en checkpoint aprobado | Importar fixture desde sesión autenticada del backend nuevo y conservar los IDs |
+| Producto → venta POS | Motor canónico y carreras de stock M6 probados localmente | Venta POS autenticada del mismo artículo importado; registrar venta/caja/movimiento |
+| Compra web → pago | Orden/reserva y snapshots M7 PASS; handler webhook real con firma sintética PASS | Checkout Session real de Stripe test y pago completado por proveedor |
+| Pago → pedido POS → aviso → inventario | Transiciones, avisos persistidos, deduplicación y movimientos SQL PASS | Comprobar esos mismos IDs a través de ambas apps Preview y notificación visible/sonora |
+
+**No se ha realizado un pago test completo mediante Stripe ni el recorrido integral solicitado.** Los tests locales usan firmas sintéticas/transporte local; incluso `test-storefront-m62-stripe.cjs` intercepta Stripe con un proveedor simulado. Esto no acredita pago ni webhook entregado por Stripe. El bloqueo actual es aprovisionamiento externo y acceso de pruebas, no se declara resuelto con mocks.
+
+Caso integral preparado para ejecutar cuando estén disponibles las dependencias: importar producto sintético con 10 unidades; registrar venta POS de 2 (cantidad 8, reserva 0); comprar 3 por web (cantidad 8, reserva 3, disponible 5); completar Stripe test (cantidad 5, reserva 0); verificar un solo descuento web de 3, el mismo folio en comprador/POS y evento PAID por destinatario. Reentregar el mismo evento Stripe: cantidad permanece 5, sin evento/movimiento duplicado. Cancelación de un segundo intento pendiente debe liberar únicamente su reserva. Registrar import batch, producto/variante, venta, pedido, sesión Stripe test, evento y movimientos para probar continuidad del **mismo** artículo; las suites separadas actuales no demuestran esa continuidad.
+
+Archivos de esta continuación: `src/app/comu/seller/orders/page.tsx`, `src/app/brand/[brandSlug]/comu/orders/page.tsx`, `scripts/test-comu-orders-page.mjs` y este informe. Se conserva `../cometa-hotfix-recovery/` sin incluirlo.
+
 ## Continuación desde 299fa29: tienda propia, pedidos y Preview visual
 
 **Estado vigente:** implementación local ampliada y pruebas PostgreSQL aprobadas; integración remota y revisión visual pendientes. Este apartado sustituye los pendientes históricos que ya están resueltos abajo. Rama `delivery/magenta-20261014`; sin merge ni modificaciones de bases operativas.

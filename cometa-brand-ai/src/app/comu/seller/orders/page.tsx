@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { PosApiError } from "@/lib/pos/server";
-import { getSellerOrderStores, requireOrderBrand } from "@/lib/comu/seller-orders";
-import SellerOrdersManager from "../orders-manager";
+import { getSellerOrderStores } from "@/lib/comu/seller-orders";
 export const dynamic = "force-dynamic";
-export default async function SellerOrders({ brandSlug, searchParams }: { brandSlug?: string; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
-  if (brandSlug) { const seller = await requireOrderBrand(brandSlug); return <SellerOrdersManager brandSlug={seller.brand_slug} sellerId={seller.id} />; }
+export default async function SellerOrders({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const stores = await getSellerOrderStores().catch(error => {
     if (error instanceof PosApiError && error.status === 401) redirect("/comu/login?next=%2Fcomu%2Fseller%2Forders");
     if (error instanceof PosApiError && error.status === 403) notFound();
