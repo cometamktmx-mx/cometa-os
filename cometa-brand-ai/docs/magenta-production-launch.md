@@ -2,6 +2,16 @@
 
 ## Resultado vigente del lanzamiento
 
+### Verificación autenticada posterior al lanzamiento
+
+Completada el 15/10/2026 con la sesión real iniciada por el usuario en `app.cometaos.com`, sin crear cuentas ni extraer credenciales. POS, Caja y catálogo cargaron; Caja mostró cero turnos y el catálogo real un producto/27 variantes. Desde Configuración se abrió el asistente ELEVENTA y se consultaron los historiales de Productos, Inventario y Clientes. Inventario exige sucursal; seleccionando Principal se habilita Archivo, y sin archivo no permite revisar correspondencias. No se cargaron muestras ni se confirmó ninguna importación.
+
+La prueba encontró y corrigió un rechazo indebido del administrador global al guardar Personalización: una comprobación adicional exigía membresía local después de la autorización central. `983cf39`, integrado por [PR #3](https://github.com/cometamktmx-mx/cometa-os/pull/3), merge `86dd88b`, elimina únicamente esa comprobación redundante y conserva `requirePosMutationAccess(settings.manage)`. La prueba ejecuta ruta, política y RBAC reales con transporte simulado: administrador global y owner/admin permitidos; roles restringidos, no autenticado, marca ajena y Food sin operador rechazados. Sin cambios de roles, permisos persistidos, schema o inventario. TypeScript, lint dirigido, prueba de permisos y build pasaron. Administración actual: `https://cometa-3w0ahzu0f-cometa-os-s-projects.vercel.app`, READY/Production, promovida al dominio existente; storefront sin nuevo despliegue.
+
+Guardado reversible realizado desde la interfaz: Personalización → Tema **Oscuro → Sistema**, guardar y recargar confirmó `system`; después **Sistema → Oscuro**, guardar y recargar confirmó `dark`. Todos los campos del formulario volvieron a sus valores iniciales. Comparación de DB antes/después: configuración exactamente igual salvo `updated_at`; ventas=0, importaciones=0, pedidos=0 e inventario con la misma huella. Evidencia privada: `.next/magenta-launch-audit/authenticated-verification.json`; captura `personalizacion-restaurada.jpg` en el mismo directorio.
+
+Quedan cerrados login real, navegación autenticada POS/importador y guardado reversible de Personalización. **No equivale a configurar ni verificar guardado de las siete secciones comerciales de la tienda**: siguen vacías, con tienda cerrada y tarjeta bloqueada. No se inicializaron para esta prueba. Stripe live, contenido real y onboarding del titular conservan sus pendientes. El error de la auditoría histórica `audit-pos-business-personalization-v1.mjs` por migración ausente es preexistente; se mantuvo intacta y se añadió la prueba ejecutable específica `test-pos-personalization-access.mjs`.
+
 El usuario autorizó explícitamente merge, las cinco migraciones revisadas y despliegues Production, sin cambios de dominio/DNS, sin cobros reales y con tienda cerrada. Candidato funcional: `dbd075e`, que incluye `ca7b86d` (impuesto explícito) y `dbd075e` (existencias iniciales/absolutas). La aceptación manual del importador y la revisión visual ya están cerradas. Los registros inferiores son históricos y no revocan esta autorización.
 
 - Destinos renovados: Supabase `zhtagqrzyovsrmsicaot`, marca `magenta-fitwear` (`70880b54-b6fe-4775-bb39-c9ff19c47c39`); Vercel `cometa-os` y `magenta-controlled-preview`. No confundir con las otras marcas ni con Preview.
