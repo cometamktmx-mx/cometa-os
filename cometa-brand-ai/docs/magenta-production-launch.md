@@ -1,18 +1,36 @@
 # Magenta: procedimiento de lanzamiento pendiente de aprobación
 
-Estado vigente: **diseño aprobado por el usuario, incluida la eliminación del MAGENTA gigante del footer (`e24c109`); operación live no lista**. Conservar esta versión visual. No se hizo merge, migración, cambio de variables/dominios ni despliegue de producción. El documento de diferencias Atelier queda como diagnóstico histórico anterior a la adaptación y aprobación, no como lista vigente de bloqueos visuales.
+Estado vigente desde `1a605b7`: **Atelier, configuración visual POS y Connect test aprobados; operación live no lista**. Conservar estas versiones y pruebas. Falta la prueba manual del titular del POS e importador. No se hizo merge, migración, cambio de variables/dominios ni despliegue de producción. El documento de diferencias Atelier y las secciones históricas de este informe no constituyen bloqueos visuales vigentes.
+
+## Bloqueos técnicos vigentes para decidir el lanzamiento
+
+Auditoría renovada el **15/10/2026 01:55:34 UTC**, exclusivamente `READ ONLY`: mismo proyecto productivo, 81 versiones, las cinco migraciones y hashes de abajo siguen pendientes; `cronAvailable=false`. Bucket `pos-products` conserva límite 5 MB, acceso público de lectura y MIME JPEG/PNG/WebP. Evidencia privada: `.next/magenta-launch-audit/audit.json`. No se copiaron datos ni se repitieron pruebas cerradas.
+
+| Bloqueo | Preparación exacta / criterio de cierre |
+|---|---|
+| Atelier fuera de Preview | `apps/magenta-storefront/lib/atelier-store.tsx:16` devuelve `StoreHome` cuando `VERCEL_ENV` no es `preview`. El código actual **no publicaría Atelier aprobado en producción**. Separar selección de composición y uso de demos, habilitando la composición para la marca autorizada con recursos reales; no quitar simplemente el guard publicando las demos. Conservar tamaños, navegación, movimiento y footer aprobados. Implementación pendiente. |
+| Textos y recursos de test | Hay textos fijos en `atelier-store.tsx`, `packages/own-storefront/checkout.tsx`, `packages/own-storefront/operations-contract.ts` y `src/app/brand/[brandSlug]/pos/online-store/operations.tsx`. Derivar las etiquetas del modo efectivo del servidor y conectar hero/categorías/look a recursos autorizados. Preview conserva su aviso test. No rediseñar ni usar imágenes demo como productos reales. Implementación pendiente. |
+| Migraciones y deriva | Aplicar solo las cinco versiones de este informe tras aprobación. Comparar además definiciones/RLS/grants: el ledger no certifica ausencia de cambios manuales. No ejecutar baseline, fixtures ni un push genérico. |
+| Respaldo recuperable | Todavía no hay evidencia de respaldo productivo restaurado ni confirmación de PITR. Requiere destino privado compatible y custodia aprobada; copia DB y objetos Storage, ensayo y punto de recuperación documentados. |
+| Configuración live | Cuenta, claves y webhook live aún no verificados. No copiar IDs, sesiones, claves ni secretos test. Mantener tienda cerrada hasta capacidades y vinculación live confirmadas. |
+| Expiración | Instalar job exclusivo `magenta-store-expiry`, cada minuto, después de aprobación. Verificar dos ejecuciones correctas y permisos; no fabricar pedidos vencidos productivos para repetir pruebas ya cerradas. |
+| Permisos y publicación | Confirmar operadores, sucursal/caja, Retail, suscripción/capacidades, administrador web, `settings.manage` y destinatarios reales. Verificar políticas efectivas de Storage y aislamiento de marca. Congelar artefactos y verificar únicamente los cambios posteriores a las pruebas aprobadas. |
+
+Los dos primeros pendientes son cambios de código aún no ejecutados. Los demás requieren instalación/configuración final o acceso/datos; no se declaran cerrados por existir variables o por pasar un build. Los scripts de Preview siguen rechazando Production y no deben convertirse en instaladores live.
 
 ## Requisitos manuales indispensables
 
-1. Atelier cerrado y aprobado. El nuevo rediseño de configuración POS requiere revisión del usuario; no modifica Atelier. Referencia recibida posteriormente: `referencias-magenta/configuracion-tienda-aprobada.png`, abierta y revisada antes de la adaptación visual.
-2. Completar **Stripe Connect test desde la interfaz**: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store?section=payments → **Completar configuración**. El control obtiene un enlace nuevo, autenticado; si vence, el retorno `connect=refresh` genera otro sin cambiar de cuenta. No usar enlaces antiguos del archivo privado ni compartir enlaces Stripe. No introducir datos bancarios o identidad reales en esta cuenta sintética. Al regresar, pulsar **Consultar estado**. La consulta real del 14/10/2026 23:55 UTC mostró `charges_enabled=false`, `payouts_enabled=false`, `details_submitted=false`: faltan descripción/teléfono/URL del negocio, cuenta receptora y aceptación de condiciones dentro de Stripe test. Después debe probarse un pago Connect test nuevo: el pago anterior fue a la plataforma y no se repetirá ni contará como Connect.
+1. Completar la prueba manual de POS e importador en Preview y comunicar aceptación o defectos concretos. Atelier, configuración y Connect test están aprobados; no necesitan otra ronda sin un cambio o fallo que la justifique.
+2. Confirmar destino privado y responsable de custodia para respaldo/restauración, ventana operativa y tolerancia de pérdida de datos/tiempo de recuperación. No copiar datos productivos a Preview ni contratar servicios automáticamente.
 3. Confirmar dominio definitivo/registrador y entregar contenido autorizado: imágenes reales por SKU/variante, textos, políticas, contacto, dirección/horarios, cobertura/tarifas y stock real por ubicación. No copiar fixtures ni usuarios de prueba. Confirmar el responsable que operará pedidos y atenderá devoluciones/disputas.
 4. Para live, el titular de Magenta debe completar su identidad y cuenta bancaria **dentro de Stripe**, y aprobar el modelo Standard/direct charges y responsabilidades económicas. Credenciales live y secretos de webhook se suministran solo en Vercel, nunca en chat ni formularios de tienda. El país legal se confirma antes de crear la cuenta, no se infiere del país de pruebas.
 5. Aprobar la ventana y el plan de recuperación después de verificar respaldo restaurable y todos los bloqueos técnicos siguientes. Esta aprobación será separada del trabajo de Preview.
 
+La URL alojada permite operar y no exige dominio propio. `MAGENTAFITWEAR.COM.MX`, observado en onboarding test, es solo candidato: no demuestra control DNS ni autoriza cambiarlo. Si se adopta dominio propio, obtener de Vercel los registros exactos del hostname autorizado, preservar correo/MX y otros servicios y verificar TLS/redirección canónica. No inventar registros. El titular también debe aceptar la presentación compartida actual “COMU / Volver a COMU” o aprobar expresamente el cambio global de branding y su impacto; no alterar la plataforma por resolver la marca.
+
 ## Destinos verificados y migraciones exactas
 
-Auditoría del 14/10/2026 19:33 UTC: `scripts/audit-magenta-launch.mjs`, exclusivamente transacciones `READ ONLY`. Producción: `zhtagqrzyovsrmsicaot`, **Cometa BRAND IA**, ACTIVE_HEALTHY; 81 versiones registradas. Marca autorizada: `magenta-fitwear`, ID `70880b54-b6fe-4775-bb39-c9ff19c47c39`. La otra marca `magenta-fit-wear` es distinta y queda excluida. Pruebas: `ephmrsjnpkcgddulvckj`, `magenta-preview-test`.
+Auditoría renovada del 15/10/2026 01:55:34 UTC: `scripts/audit-magenta-launch.mjs`, exclusivamente transacciones `READ ONLY`. Producción: `zhtagqrzyovsrmsicaot`, **Cometa BRAND IA**, ACTIVE_HEALTHY; 81 versiones registradas. Marca autorizada: `magenta-fitwear`, ID `70880b54-b6fe-4775-bb39-c9ff19c47c39`. La otra marca `magenta-fit-wear` es distinta y queda excluida. Pruebas: `ephmrsjnpkcgddulvckj`, `magenta-preview-test`.
 
 Aplicar únicamente estos archivos, en este orden, después de repetir la auditoría y revisar cualquier deriva:
 
@@ -28,6 +46,8 @@ El ensayo local partió de base vacía: baseline y 86 migraciones, importación/
 
 ## Respaldo y recuperación
 
+Tomar copia fresca tras pausar escrituras afectadas o definir un punto coherente de recuperación. Registrar responsable, pérdida máxima tolerada y duración aceptable. `pg_dump` no cifra por usar una extensión determinada: custodiar en volumen cifrado o cifrar con la herramienta aprobada. Un archivo listado con `pg_restore --list` no sustituye un ensayo restaurado con integridad, roles y dependencias verificados. No hay autorización actual para exportar datos productivos a otro servicio.
+
 No se creó ni restauró todavía un respaldo productivo; no se afirma disponer de PITR. Antes de la ventana: Supabase → proyecto confirmado → Database → Backups: verificar plan, último punto recuperable, retención y procedimiento disponible, sin contratar servicios. Si hace falta respaldo lógico, preparar una conexión privada de lectura y usar `pg_dump --format=custom --file=<archivo-cifrado-en-destino-privado>` con `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD` en el entorno privado (no contraseña en argumentos). Guardar versión PostgreSQL, hora, SHA-256 y alcance de roles/esquemas. Validar `pg_restore --list` y ensayar la restauración con `pg_restore --exit-on-error --no-owner --dbname=<base-aislada-privada> <archivo>` en un entorno de recuperación compatible, sin salida de correos/webhooks y con las dependencias de Auth/Storage verificadas. Ese ensayo no se sustituye por el bootstrap sintético.
 
 Guardar también inventario y copia versionada de objetos Storage y configuración de buckets/políticas; el respaldo de base no incluye los archivos de Storage. Exportar metadatos de despliegue, alias, variables (custodia privada) y ledger, sin secretos en Git. El ensayo con datos reales **no va al backend público de Preview**: requiere entorno de recuperación privado, acceso restringido y autorización de custodia; no crear un servicio de pago automáticamente. Si no existe ese entorno o respaldo restaurable, bloquear lanzamiento. [Alcance de backups Supabase](https://supabase.com/docs/guides/platform/backups).
@@ -42,6 +62,8 @@ API administrativa: `/api/pos/online-store/payments?brandSlug=magenta-fitwear`; 
 
 ### Cierre Connect después del onboarding
 
+**Sección histórica, cerrada por `1a605b7` y aprobación del titular.** La evidencia vigente está en “Cierre de Connect test — pedido 17D591A9”, al final. Los pasos y capacidades pendientes relatados a continuación describen el estado previo, no tareas por repetir. Para live se requiere una cuenta y configuración independientes.
+
 Administración Preview verificada: `https://cometa-cv5cyi71c-cometa-os-s-projects.vercel.app`, Ready/Preview, alias estable de Pagos actualizado. Verificación HTTP autenticada del 14/10/2026 23:58 UTC: página y bundles contienen los tres controles; dos solicitudes de onboarding produjeron enlaces nuevos válidos para la misma cuenta, sin publicarlos ni conservarlos en el informe. API y Stripe coinciden en capacidades pendientes. Prueba del componente cubre retorno/renovación, permisos, bloqueo de doble clic y borrador sin guardar; no sustituye una revisión en navegador. Build, TypeScript y lint dirigido correctos. Storefront visual aprobado y destinos Production sin cambios. Archivos de esta continuación: `src/app/brand/[brandSlug]/pos/online-store/operations.tsx` (enlace directo Pagos), `scripts/verify-magenta-connect-onboarding.mjs` (verificación segura) y este procedimiento.
 
 No crear el checkout mientras las capacidades estén incompletas. Tras el alta: volver a consultar Stripe y verificar metadata marca/modo, cuenta distinta de la plataforma, capacidades y endpoint Connect test; activar explícitamente solo la cuenta test para pedidos nuevos. Crear un checkout nuevo con un registro separado del pago histórico (`connect-chain.json` privado), conservar intento idempotente y capturar stock/reservas anteriores. No sobrescribir `chain.json` ni reutilizar el checkout pagado de plataforma. Consultar sesión y PaymentIntent con `stripeAccount` de la cuenta conectada; el pago debe ser test y el evento llevar esa misma cuenta. Después del pago manual test, comprobar importe/moneda, pedido PAID, un único evento aplicado, un único aviso por evento/destinatario y un solo descuento de inventario; repetir consultas/reintentos sin otro cobro. Si vence el intento, comprobar liberación y preparar otro intento explícito. **Este recorrido completo Connect sigue pendiente; las firmas locales y el pago de plataforma no lo sustituyen.**
@@ -50,9 +72,15 @@ Webhook de cuentas conectadas: storefront `/api/stripe/connect-webhook`, eventos
 
 Producción todavía no tiene `pg_cron`. Después de aprobación: instalar `pg_cron` en Supabase y programar job **`magenta-store-expiry`** cada minuto con comando `set role service_role; select public.store_orders_expire_m6('magenta-fitwear');`. Su autenticación es la conexión PostgreSQL del scheduler, no una clave pública ni una variable sin ejecutor. Verificar marca/ID, función y rol antes de instalar; inspeccionar job y últimas ejecuciones `succeeded`. En pruebas ya se comprobó el ejecutor remoto y la liberación idempotente, excluyendo pedidos pagados. No añadir cron de Vercel que active tareas globales. Para retirar el job específico: `select cron.unschedule('magenta-store-expiry');`, únicamente cuando no queden reservas pendientes de conciliación o exista ejecutor sustituto.
 
+No ejecutar `supabase/preview/install-expiry.sql` en producción: está restringido al backend sintético. Preparar la instalación específica contra el proyecto confirmado, revisar `cron.job` y `cron.job_run_details` filtrados por este job y conservar todos los jobs ajenos. No debilitar los límites del instalador de pruebas. [Ejecutor y monitorización oficiales](https://supabase.com/docs/guides/cron).
+
 Storage productivo auditado: bucket `pos-products` existe público, límite 5 MB, MIME JPEG/PNG/WebP. Mantener políticas autorizadas por marca, no abrir escrituras públicas. Verificar upload del propietario, denegación de otra marca y lectura pública de recursos publicados. No subir recursos ZIP como fotografías de productos reales.
 
 ## Configuración de lanzamiento: solo después de aprobación
+
+La configuración real se prepara en estado **CLOSED**: General (identidad, contacto y sucursal); Envíos/recolección (cobertura, tarifas, umbral gratis, plazos, horario/instrucciones); Pagos (métodos autorizados y Connect live); Mayoreo (reglas aprobadas); Dominio (URL confirmada); Políticas (textos autorizados); Notificaciones (responsables reales con acceso mínimo). No trasladar fixtures ni usuarios test. Revisar precios y stock canónico por variante/ubicación sin reinicializar existencias. La campanita POS es el canal disponible; correo/WhatsApp automáticos no están implementados y el sonido requiere navegador abierto y activación por clic.
+
+Onboarding live del titular, después de configurar servidor y publicar con tienda cerrada: administración `/brand/magenta-fitwear/pos/online-store?section=payments` → Conectar cuenta (país legal confirmado) → Completar configuración → Consultar estado. Verificar metadata marca/modo y capacidades, luego activar explícitamente. En Stripe live, Workbench → Webhooks, configurar un destino de cuentas conectadas hacia la ruta exacta indicada arriba, con los cinco eventos y secreto exclusivo. La revisión externa de Stripe puede demorar: no abrir mientras esté pendiente. No usar datos simulados ni aceptar condiciones en nombre del titular.
 
 Vercel: proyectos existentes `cometa-os` (root `cometa-brand-ai`) y `magenta-controlled-preview` (root `apps/magenta-storefront`). No usar `scripts/configure-magenta-release.mjs`: su alcance histórico de variables compartidas no es el procedimiento de esta entrega. Preview sigue con test y `STOREFRONT_LIVE_ENABLED=false`.
 
@@ -62,8 +90,8 @@ Administración conserva su backend productivo y `APP_ORIGIN`; ampliar `OWN_STOR
 
 ## Secuencia exacta que se someterá a aprobación final
 
-1. Conservar diseño aprobado y completar onboarding/pago Connect test y mensajes de modo antes de live. Verificar importación → producto/variante → venta POS → web → pago test destinado a cuenta conectada → webhook → pedido/aviso → stock. Conservar las pruebas aprobadas de importación/POS; repetirlas solo si cambia ese flujo. Mantener evidencia de cantidades y un único efecto por evento. No sustituir el pago Connect por firma local.
-2. Congelar commit y artefactos, repetir TypeScript/build/checks; auditar ledger/schema/destinos y comparar hashes. Registrar ID de despliegue previo y estado de datos. No ejecutar un push de migraciones genérico con versiones no revisadas.
+1. Recibir aceptación manual de POS/importador. Conservar diseño y Connect test aprobados. Cerrar únicamente los bloqueos de implementación live enumerados al inicio y recibir contenido/configuración reales. Mantener la evidencia ya aprobada sin repetir pagos ni pruebas salvo cambio o fallo justificado.
+2. Congelar commit y artefactos; ejecutar TypeScript/build y checks pertinentes a los cambios posteriores, con comparación visual dirigida a preservar Atelier. Auditar ledger/schema/destinos y comparar hashes. Registrar ID de despliegue previo compatible y estado de datos. No ejecutar un push de migraciones genérico con versiones no revisadas.
 3. Obtener aprobación explícita del lanzamiento, ventana, cinco migraciones, modelo de pagos, dominio y respaldo restaurado. Hacer backup fresco y validar recuperación privada. Si cambia el alcance, detener y actualizar la aprobación.
 4. Mantener tienda cerrada a nuevas compras; aplicar los cinco archivos secuencialmente con registro de versión y transacciones propias de cada migración, contra referencia productiva confirmada. Comprobar RPC/RLS/permisos y que otras marcas no cambien. Instalar job específico de expiración y verificar reloj.
 5. Incorporar contenido real y configuración cerrada de Magenta, sin importar fixtures. Revisar archivo de importación en dry-run, duplicados, SKU/variantes, ubicación y stock canónico; aplicar solo cantidades aprobadas sin reinicializar inventario existente. Preparar personal con permisos mínimos de marca.
@@ -74,6 +102,8 @@ Administración conserva su backend productivo y `APP_ORIGIN`; ampliar `OWN_STOR
 Este documento es un procedimiento para aprobar, **no autorización ni certificado de producción lista**.
 
 ## Configuración POS e identidad Stripe — 14 de octubre, hora México
+
+**Registro histórico:** sus referencias a aprobaciones visuales y Connect test pendientes quedaron cerradas por la aprobación posterior. Se conserva la propuesta de branding global como decisión todavía no aplicada; no reabrir pruebas cerradas.
 
 La configuración conserva el shell POS y sus permisos. Las siete secciones usan navegación interna, panel central y pendientes derivados de datos; una URL alojada basta y no se exige dominio propio. Envío se edita en pesos y se convierte a centavos enteros al guardar; mayoreo ya usa pesos en el contrato y no se multiplica de nuevo. Las identidades de notificaciones se consultan solo para el actor y administradores activos de la marca autorizada; no se muestran UUID. No hay migraciones nuevas.
 
@@ -105,6 +135,8 @@ Archivos de esta revisión (sin archivos de Atelier ni migraciones):
 - `docs/magenta-production-launch.md`
 
 ## Ajuste al mockup de configuración recibido
+
+**Registro histórico de la adaptación.** Las frases siguientes sobre aprobación pendiente describen su fecha original; la configuración visual ya está aprobada por el usuario.
 
 Estado posterior: el usuario aprobó la configuración visual. La revisión descrita abajo queda aprobada; Atelier conserva su aprobación previa.
 
