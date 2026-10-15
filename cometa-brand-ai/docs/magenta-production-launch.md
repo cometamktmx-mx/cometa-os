@@ -1,4 +1,17 @@
-# Magenta: procedimiento de lanzamiento pendiente de aprobación
+# Magenta: lanzamiento autorizado - 15 de octubre de 2026
+
+## Lanzamiento autorizado en ejecución
+
+El usuario autorizó explícitamente merge, las cinco migraciones revisadas y despliegues Production, sin cambios de dominio/DNS, sin cobros reales y con tienda cerrada. Candidato funcional: `dbd075e`, que incluye `ca7b86d` (impuesto explícito) y `dbd075e` (existencias iniciales/absolutas). La aceptación manual del importador y la revisión visual ya están cerradas. Los registros inferiores son históricos y no revocan esta autorización.
+
+- Destinos renovados: Supabase `zhtagqrzyovsrmsicaot`, marca `magenta-fitwear` (`70880b54-b6fe-4775-bb39-c9ff19c47c39`); Vercel `cometa-os` y `magenta-controlled-preview`. No confundir con las otras marcas ni con Preview.
+- Respaldo fresco 15/10 14:19 UTC: instantánea única SQL de esquema/datos, roles/propietarios, 26 objetos Storage. Restauración privada sin puertos publicados, descarga HTTP con 26 hashes iguales y cinco migraciones ensayadas: PASS. Custodia local privada; no se afirma PITR ni copia externa. Evidencia `.next/magenta-launch-audit/recovery-result.json`.
+- Cinco migraciones aplicadas y registradas atómicamente; ledger 81 -> 86. Hashes iguales a la tabla revisada. Marcas, usuarios, accesos, productos e inventario conservaron sus huellas. Evidencia `production-migrations.json` y `production-preservation.json` en el mismo directorio privado de evidencia.
+- Instalado `magenta-store-expiry` mediante el instalador autorizado, autenticación PostgreSQL/service_role, exclusivamente Magenta. Verificación de ejecuciones en curso.
+- Sin configuración comercial guardada ni cuenta Connect para la marca: la ausencia de configuración mantiene la tienda cerrada. No se sembraron datos ni se importaron muestras en producción.
+- Pendientes concretos de Stripe: `STOREFRONT_STRIPE_LIVE_SECRET_KEY` y `STOREFRONT_STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` en Production de ambas aplicaciones. Las claves locales son test; las claves sensibles existentes de otras integraciones no son recuperables ni se reutilizan por su nombre. Pau todavía debe completar y activar su cuenta live. POS no depende de ello.
+- Endpoint previsto: `https://magenta-controlled-preview.vercel.app/api/stripe/connect-webhook`, eventos de cuentas conectadas `account.updated`, `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`. Sin clave live no se ha creado el endpoint externo ni se afirma recepción live. No crear dos receptores para el mismo flujo.
+- Publicación y comprobaciones de acceso todavía en ejecución; no declarar POS publicado hasta confirmar READY/Production y rutas.
 
 Estado actualizado desde `df05a0a`. Candidato de aplicación: **`816883d`**. Implementación y evidencia detalladas en [Cierre ejecutado](magenta-closure-20261014.md), que prevalece sobre los registros históricos de abajo. Production intacto; no merge, migraciones, variables live, dominios ni despliegue productivo.
 
