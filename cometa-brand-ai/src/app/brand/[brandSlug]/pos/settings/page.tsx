@@ -313,7 +313,7 @@ export default function PosSettingsPage() {
   return (
     <section data-pos-settings className="grid gap-5">
       <Link href={`/brand/${brand.slug}/pos/settings/import`} className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-5 text-cyan-100">
-        <strong>¿Vienes de otro POS?</strong><span className="mt-1 block">ELEVENTA → Productos / Inventario / Clientes</span>
+        <strong>Importar información</strong><span className="mt-1 block">¿Vienes de ELEVENTA? → Productos / Inventario / Clientes</span>
       </Link>
       <header className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#081524] p-6 shadow-[0_30px_100px_rgba(0,0,0,0.2)] md:p-8">
         <div

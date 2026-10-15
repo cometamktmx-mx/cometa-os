@@ -1,3 +1,4 @@
+import { publishInitialProductWeb } from "@/lib/pos/product-initial-web";
 import { physicalExclusions } from "@/lib/pos/product-channels";
 import { getPosMode } from "@/lib/pos/staff-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
@@ -371,8 +372,8 @@ export async function POST(request: Request) {
       120
     );
 
-    const { admin, brand, user } =
-      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "products.write", locationId: body.locationId });
+    const context = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "products.write", locationId: body.locationId });
+    const { admin, brand, user } = context;
 
     const requestedAction = optionalText(body.action, 40);
     if (requestedAction === "suggest_product_code") {
@@ -954,6 +955,12 @@ export async function POST(request: Request) {
       error,
       "No se pudo crear el producto."
     );
+
+    if (requestId && data?.id && data.channelResult?.status === "saved" &&
+        body.channels && typeof body.channels === "object" && "onlineRequested" in body.channels && body.channels.onlineRequested === true) {
+      try { await publishInitialProductWeb(context, data.id); }
+      catch { data.channelResult = { ...data.channelResult, status: "pending", message: "Producto guardado. Abre Ficha web para revisar y publicar su contenido; no vuelvas a crear el producto." }; }
+    }
 
     return ok(
       {

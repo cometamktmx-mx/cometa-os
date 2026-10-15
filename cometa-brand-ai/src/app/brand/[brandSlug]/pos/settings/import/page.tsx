@@ -64,7 +64,7 @@ function Importer({ brandSlug }: { brandSlug: string }) {
       if (mode === 'preview') { setPreview(data.preview); setDecisions({}); setRequestKey(crypto.randomUUID()); }
       if (mode === 'apply' || mode === 'revert') {
         invalidate(); setRevertId('');
-        setNotice(data.result.status === 'reverted' ? 'Importación revertida.' : `Importación guardada: ${data.result.id}.`);
+        setNotice(data.result.status === 'reverted' ? 'Importación revertida.' : 'Importación guardada. Consulta el resultado en el historial.');
         await history();
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo completar la operación.'); }
@@ -74,8 +74,10 @@ function Importer({ brandSlug }: { brandSlug: string }) {
   const canApply = !!preview && selected.length > 0 && preview.rows.every(r => decisions[r.rowNumber] && (decisions[r.rowNumber] === 'skip' || r.errors.length === 0));
   return <section className="space-y-5 text-slate-200">
     <Link href={`/brand/${brandSlug}/pos/settings`} className="underline">Volver a Configuración</Link>
-    <header><h1 className="text-3xl font-bold">¿Vienes de otro POS?</h1><p className="mt-2">ELEVENTA · Productos / Inventario / Clientes</p></header>
+    <header><p className="text-sm">Importar información</p><h1 className="text-3xl font-bold">¿Vienes de ELEVENTA?</h1><p className="mt-2">Productos / Inventario / Clientes</p></header>
     <p>Importa tu exportación existente. La compatibilidad final se confirmará con tus archivos reales. Máximo 500 filas y 5 MB por lote.</p>
+    <p>No importa ventas históricas, deudas ni apartados. Primero importa productos y después sus existencias por código y sucursal.</p>
+    <details className={panel}><summary>Archivos sintéticos para practicar</summary><p>Solo para una marca de pruebas. No contienen información de clientes reales.</p><div className="flex flex-wrap gap-4">{['productos','inventario','clientes','invalidos'].map(name=><a key={name} className="underline" href={'/examples/eleventa/SINTETICO-'+name+'.csv'} download>{name==='invalidos'?'Errores y duplicados':name.charAt(0).toUpperCase()+name.slice(1)} · CSV</a>)}</div></details>
     {error && <p role="alert" className="rounded-lg bg-rose-950 p-4">{error}</p>}
     {notice && <p role="status" className="rounded-lg bg-emerald-950 p-4">{notice}</p>}
     <fieldset disabled={busy} className={panel}>
@@ -109,7 +111,7 @@ function Importer({ brandSlug }: { brandSlug: string }) {
     </section>}
     <section className={panel}><h2 className="font-bold">Historial de importaciones</h2><p>La reversión se bloquea si detecta cambios posteriores en productos, inventario, clientes o sus operaciones relacionadas. No borra ventas ni movimientos históricos.</p>
       {!runs.length && <p>No hay importaciones cargadas.</p>}
-      {runs.map(run => <div className="flex flex-wrap gap-3 border-t border-white/10 py-3" key={run.id}><span>{new Date(run.created_at).toLocaleString()} · {run.file_name ?? run.id} · {run.row_count} filas · {run.status === 'done' ? 'Guardada' : 'Revertida'}</span>{run.status === 'done' && (revertId === run.id ? <><button disabled={busy} className={control} onClick={() => void execute('revert', run)}>Confirmar reversión</button><button className={control} onClick={() => setRevertId('')}>Cancelar</button></> : <button disabled={busy} className={control} onClick={() => setRevertId(run.id)}>Revertir esta importación</button>)}</div>)}
+      {runs.map(run => <div className="flex flex-wrap gap-3 border-t border-white/10 py-3" key={run.id}><span>{new Date(run.created_at).toLocaleString('es-MX')} · {run.file_name ?? 'Importación sin nombre de archivo'} · {run.row_count} filas · {run.status === 'done' ? 'Guardada' : 'Revertida'}</span>{run.status === 'done' && (revertId === run.id ? <><button disabled={busy} className={control} onClick={() => void execute('revert', run)}>Confirmar reversión</button><button className={control} onClick={() => setRevertId('')}>Cancelar</button></> : <button disabled={busy} className={control} onClick={() => setRevertId(run.id)}>Revertir esta importación</button>)}</div>)}
     </section>
     {busy && <p role="status">Procesando…</p>}
   </section>;

@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { createHash } from "node:crypto";
+import {paymentAvailability} from './payment-availability';
 import {storeStripeRuntime,assertStoreAccount} from '../../../packages/own-storefront/stripe-runtime';
 export {storeStripeRuntime} from '../../../packages/own-storefront/stripe-runtime';
 export function stripePayments(){return new Stripe(storeStripeRuntime().key,{maxNetworkRetries:2,timeout:20000});}
@@ -53,7 +54,7 @@ export async function operationQuote(lines:BagLine[],owner:string,contact?:Conta
  const cart=result.data as CartQuote,blockers:string[]=[];
  if(cart.items.some(i=>!i.available))blockers.push('Hay variantes sin existencias suficientes en la sucursal.');
  if(!contact)blockers.push('Completa tus datos y revisa la entrega.');
- if(method==='STRIPE'){try{const runtime=storeStripeRuntime();if(!runtime.webhook&&!runtime.connectWebhook)throw Error();if(runtime.live){const binding=await db.from('store_payment_accounts').select('active,charges_enabled,payouts_enabled,details_submitted').eq('brand_id',cart.brandId).eq('mode','live').maybeSingle();if(binding.error||!binding.data?.active||!binding.data.charges_enabled||!binding.data.payouts_enabled||!binding.data.details_submitted||!runtime.connectWebhook)throw Error();}}catch{blockers.push('La cuenta receptora o el webhook del modo de pago no están listos.');}}
+ if(method==='STRIPE'){const payment=await paymentAvailability(cart.brandId);if(!payment.ready)blockers.push(payment.message);}
  return {...cart,shippingCents:cart.shippingCents??null,totalCents:cart.totalCents??null,quoteId:cart.quoteId??null,ready:blockers.length===0,blockers};
 }
 export type StoreOrder = { id: string; brand_id: string; owner_hash: string; status: string; currency: string; total_cents: number; subtotal_cents: number; shipping_cents: number; stripe_account_ref: string; stripe_session_id: string | null; expires_at: string; contact: Contact; request: { lines: BagLine[]; contact: Contact };payment_method?:string;delivery_method?:string;preparation_status?:string;delivery_status?:string;tracking?:string|null;refund_required?:boolean;delivery_snapshot?:{pickup?:{address?:string;hours?:string;instructions?:string}} };

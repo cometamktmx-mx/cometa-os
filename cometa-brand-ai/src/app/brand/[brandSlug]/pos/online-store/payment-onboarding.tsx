@@ -17,12 +17,13 @@ export function PaymentOnboarding({brandSlug,brandName,dirty,onStatus}:{brandSlu
   if(url.protocol!=='https:'||url.hostname!=='connect.stripe.com'||url.username||url.password)throw Error('Stripe no devolvió un enlace válido. Vuelve a intentarlo.');
   window.location.assign(url.href);
  },[request]);
- const act=async(action:'connect'|'onboard'|'refresh')=>{
+ const act=async(action:'connect'|'onboard'|'refresh'|'activate')=>{
   if(locked.current)return;
   if(action!=='refresh'&&dirty){setError('Guarda los cambios de configuración antes de salir hacia Stripe.');return;}
   if(action==='connect'&&!/^[A-Z]{2}$/.test(country)){setError('Indica el país legal de la cuenta con dos letras, por ejemplo MX.');return;}
   locked.current=true;setBusy(true);setError('');setNotice('');
-  try{if(action==='refresh'){await refresh();setNotice('Estado consultado directamente en Stripe.');}
+  try{if(action==='activate'){await request({action:'activate'});await refresh();setNotice('Cuenta habilitada como destino de nuevas compras. Revisa el método tarjeta en la configuración y guarda.');}
+   else if(action==='refresh'){await refresh();setNotice('Estado consultado directamente en Stripe.');}
    else{if(action==='connect')await request({action:'create',country});await refresh();await onboard();}
   }catch(e){setError(e instanceof Error?e.message:'No se pudo completar la solicitud.');}finally{locked.current=false;setBusy(false);}
  };
@@ -49,7 +50,7 @@ export function PaymentOnboarding({brandSlug,brandName,dirty,onStatus}:{brandSlu
    {!state.connected&&<label className="grid gap-1 text-sm">País legal de la cuenta<select className="rounded-lg border border-[var(--pos-line-subtle)] bg-[var(--pos-panel-raised)] p-2" value={country} disabled={busy} onChange={e=>setCountry(e.target.value)}><option value="">Selecciona el país</option>{countryCodes.map(code=><option key={code} value={code}>{countryName(code)}</option>)}</select><span>Confirma el país antes de conectar; no puede cambiarse al reintentar. Stripe determina la disponibilidad según tu país.</span></label>}
   </>}
   {dirty&&<p className="text-sm">Guarda los cambios antes de abrir Stripe. Consultar estado conserva tu borrador.</p>}
-  <div className="flex flex-wrap gap-3">{state&&<button type="button" className={button} disabled={busy||dirty} onClick={()=>void act(state.connected?'onboard':'connect')}>{state.connected?'Completar configuración':'Conectar cuenta'}</button>}<button type="button" className={button} disabled={busy} onClick={()=>void act('refresh')}>Consultar estado</button></div>
+  <div className="flex flex-wrap gap-3">{state&&<button type="button" className={button} disabled={busy||dirty} onClick={()=>void act(state.connected?'onboard':'connect')}>{state.connected?'Completar configuración':'Conectar cuenta'}</button>}<button type="button" className={button} disabled={busy} onClick={()=>void act('refresh')}>Consultar estado</button>{state?.connected&&!state.active&&<button type="button" className={button} disabled={busy||dirty||!state.chargesEnabled||!state.payoutsEnabled||!state.detailsSubmitted} onClick={()=>void act('activate')}>Habilitar cuenta para la tienda</button>}</div>
   {busy&&<p role="status">Consultando Stripe…</p>}{notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="text-red-500">{error}</p>}
   <p className="text-sm text-[var(--pos-text-muted)]">Los datos de la cuenta se completan en Stripe. Si el enlace vence, se genera uno nuevo al regresar o al pulsar Completar configuración.</p>
  </div>;

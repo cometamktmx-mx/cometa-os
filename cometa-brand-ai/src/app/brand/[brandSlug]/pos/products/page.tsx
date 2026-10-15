@@ -360,6 +360,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     useState<ProductForm>(EMPTY_PRODUCT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([]);
   const createRequestId = useRef<string | null>(null);
+  const [newWebPhotos, setNewWebPhotos] = useState<string[]>([]);
   const [newChannels, setNewChannels] = useState({ physicalRequested: true, onlineRequested: false });
   const [attributeValues, setAttributeValues] =
     useState<AttributeValues>({});
@@ -1164,7 +1165,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
         method: isEditing ? "PATCH" : "POST",
         body: JSON.stringify({
           brandSlug: brand.slug,
-          ...(!isEditing ? { requestId: createRequestId.current, channels: foodDirect ? null : newChannels } : {}),
+          ...(!isEditing ? { requestId: createRequestId.current, channels: foodDirect ? null : newChannels, configuration: { initialWebPhotos: newWebPhotos } } : {}),
           ...(isEditing && editingProduct
             ? {
                 action: "update_product",
@@ -1297,6 +1298,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
   function resetForm() {
     createRequestId.current = null;
     setNewChannels({ physicalRequested: true, onlineRequested: false });
+    setNewWebPhotos([]);
     const initialUnit =
       units.some(
         (unit) => unit.code === "piece"
@@ -1428,6 +1430,17 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
     } finally {
       setIsChangingActive(false);
     }
+  }
+
+  async function uploadInitialGallery(file: File | undefined) {
+    if (!file || isUploadingImage || newWebPhotos.length >= 11) return;
+    setIsUploadingImage(true); setImageUploadError(null);
+    try {
+      const form = new FormData(); form.append("file", file);
+      const uploaded = await apiRequest<ProductImageUploadResponse>(`/api/pos/product-images?brandSlug=${encodeURIComponent(brand.slug)}&purpose=web`, { method: "POST", body: form });
+      setNewWebPhotos(current => [...current, uploaded.imageUrl]);
+    } catch (cause) { setImageUploadError(getErrorMessage(cause)); }
+    finally { setIsUploadingImage(false); }
   }
 
   async function uploadProductImage(file: File) {
@@ -2051,6 +2064,12 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
                 }));
               }}
             />
+
+            {!isEditing && newChannels.onlineRequested && <section className="rounded-xl border p-4 space-y-3" aria-label="Galería inicial de tienda">
+              <h3 className="font-semibold">Galería de tienda propia</h3><p>La portada y fotos de las variantes se compartirán al guardar. Añade hasta 11 fotos generales; después puedes ordenarlas por color en Ficha web.</p>
+              <input aria-label="Añadir foto a la galería" type="file" accept="image/jpeg,image/png,image/webp" disabled={isUploadingImage || newWebPhotos.length >= 11} onChange={event => { void uploadInitialGallery(event.target.files?.[0]); event.target.value = ""; }} />
+              {newWebPhotos.map((url,index)=><div key={url} className="flex items-center gap-3"><img src={url} alt={`Foto de galería ${index+1}`} width={72} height={72}/><button type="button" disabled={isUploadingImage} onClick={()=>setNewWebPhotos(current=>current.filter(value=>value!==url))}>Quitar foto {index+1}</button></div>)}
+            </section>}
 
             {productForm.productType ===
               "physical" &&

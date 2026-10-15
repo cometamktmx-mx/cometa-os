@@ -624,10 +624,11 @@ export default function PosCashPage() {
         isSaving={pendingAction === "close"}
         onClose={closeCashModal}
         onNext={() => {
-          if (closeCountedValue === null || closeCountedValue < 0) {
+          if (closeStep === 2 && (closeCountedValue === null || closeCountedValue < 0)) {
             setError("Ingresa el efectivo contado antes de continuar.");
             return;
           }
+          setError(null);
           setCloseStep((current) => (current === 1 ? 2 : 3));
         }}
         onBack={() => setCloseStep((current) => (current === 3 ? 2 : 1))}

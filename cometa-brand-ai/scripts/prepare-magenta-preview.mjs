@@ -10,7 +10,7 @@ const functionalRef = process.argv.find(arg=>arg.startsWith('--functional-ref=')
 if (functionalRef && (functionalRef !== 'ephmrsjnpkcgddulvckj' || branch !== 'delivery/magenta-20261014')) throw Error('AUTHORIZED_TEST_TARGET_REQUIRED');
 const destination = path.join(root, '.next', 'magenta-preview-preparation', 'source-' + Date.now());
 const tracked = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8' }).split('\0').filter(Boolean);
-const extensions = /\.(tsx?|jsx?|mjs|cjs|css|json|svg|png|jpe?g|webp|ico|woff2?)$/i;
+const extensions = /\.(tsx?|jsx?|mjs|cjs|css|json|svg|png|jpe?g|webp|ico|woff2?|csv)$/i;
 const forbidden = /(^|\/)(\.env[^/]*|\.git|\.next|node_modules|\.vercel|backups?|fixtures?|sessions?)(\/|$)|\.(pem|key|p12|sql|apk|zip|log)$/i;
 const shared = ['package.json', 'package-lock.json'];
 const adminConfig = ['tsconfig.json', 'next.config.ts', 'postcss.config.mjs'];
@@ -30,7 +30,7 @@ for (const file of [...new Set(tracked)]) {
   if (forbidden.test(file) || !extensions.test(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) continue;
   if (shared.includes(file) || file.startsWith('apps/magenta-storefront/') || file.startsWith('packages/own-storefront/') || file === 'src/lib/pos/product-web-contract.ts') copy(file, 'storefront');
   // Full source dependencies for the existing admin, excluding local/dev surfaces and data.
-  if (shared.includes(file) || adminConfig.includes(file) || runtimeExtras.includes(file) || (file.startsWith('src/') && !file.startsWith('src/app/dev/')) || file.startsWith('packages/own-storefront/') || file.startsWith('public/comu/') || file.startsWith('public/brand/')) copy(file, adminTarget);
+  if (shared.includes(file) || adminConfig.includes(file) || runtimeExtras.includes(file) || (file.startsWith('src/') && !file.startsWith('src/app/dev/')) || file.startsWith('packages/own-storefront/') || file.startsWith('public/comu/') || file.startsWith('public/brand/') || file.startsWith('public/examples/eleventa/')) copy(file, adminTarget);
 }
 for (const target of ['storefront', adminTarget]) {
   fs.writeFileSync(path.join(destination, target, '.vercelignore'), '.env*\n**/.env*\nnode_modules\n**/node_modules\n.next\n**/.next\n.git\n');
