@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { brandContextErrorResponse } from "@/lib/brand-os/api";
+import { requireCanonicalBrandContext } from "@/lib/brand-os/server";
 import {
   buildSalesPlaybookContext,
   getSalesPlaybook,
@@ -10,27 +12,23 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const brandName = searchParams.get("brandName") || "Mar Cosmetic";
-
-    const playbook = await getSalesPlaybook(brandName);
-    const context = buildSalesPlaybookContext(playbook);
+    const context = await requireCanonicalBrandContext({
+      brandSlug: searchParams.get("brandSlug"),
+      legacyBrandName: searchParams.get("brandName"),
+    });
+    const playbook = await getSalesPlaybook(context.brandName);
 
     return NextResponse.json({
       ok: true,
-      brandName,
-      playbook,
-      context,
-    });
-  } catch (error: any) {
-    console.error("Error generando contexto del playbook:", error);
-
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Error generando contexto del playbook",
-        details: error?.message || String(error),
+      brand: {
+        id: context.brandId,
+        slug: context.brandSlug,
+        name: context.brandName,
       },
-      { status: 500 }
-    );
+      playbook,
+      context: buildSalesPlaybookContext(playbook),
+    });
+  } catch (error: unknown) {
+    return brandContextErrorResponse(error);
   }
 }

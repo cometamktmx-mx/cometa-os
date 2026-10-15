@@ -1,0 +1,37 @@
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+
+const route = readFileSync("src/app/api/admin/brands/[brandSlug]/strategy/route.ts", "utf8");
+const strategy = readFileSync("src/lib/marketing/strategy.ts", "utf8");
+const editor = readFileSync("src/app/workspace/brands/[brandSlug]/strategy/strategy-editor.tsx", "utf8");
+
+assert.match(route, /json_schema/);
+assert.match(route, /objectivesSecondary.*type: "array"/s);
+assert.match(route, /source: "ai"/);
+assert.match(route, /packageSnapshot/);
+assert.match(route, /deterministicCadence/);
+assert.match(route, /confirmedChannels/);
+assert.match(route, /confirmedPromotions/);
+assert.match(route, /generated\.campaigns = promotions/);
+assert.match(route, /generated\.channels = channels/);
+assert.match(route, /set creativo de pauta/);
+assert.match(route, /m.tricas Meta/);
+assert.match(route, /diagnosis/);
+assert.match(route, /select\("id,slug,name"\)/);
+assert.doesNotMatch(route, /select\("id,slug,name,industry"\)/);
+assert.doesNotMatch(route, /brands\.city/);
+assert.match(route, /STRATEGY_PIPELINE_DB_FAILURE/);
+assert.match(strategy, /jsonArray/);
+assert.match(strategy, /STRATEGY_INVALID_ARRAY_FIELD/);
+assert.match(strategy, /status: "draft"/);
+assert.match(strategy, /source: input\.source === "ai" \? "ai" : "manual"/);
+assert.match(strategy, /current && current\.status === "published"/);
+assert.match(editor, /action: "generate_ai"/);
+assert.match(editor, /strategyArrayToTextarea/);
+assert.match(editor, /strategyTextareaToArray/);
+assert.match(editor, /split\("\\n"\)/);
+assert.match(route, /set creativo de pauta de 2 reels, 2 carruseles y 1 post/);
+assert.match(route, /No inventes promociones/);
+assert.match(editor, /status === "PUBLICADA"/);
+assert.doesNotMatch(route, /status: "published"/);
+console.log("Strategy generation/write V1 contract: PASS");

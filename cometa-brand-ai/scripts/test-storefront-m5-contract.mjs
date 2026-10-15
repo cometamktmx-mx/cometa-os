@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import ts from 'typescript';
+const brand='11111111-1111-1111-1111-111111111111',other='22222222-2222-2222-2222-222222222222',product='33333333-3333-3333-3333-333333333333',variant='44444444-4444-4444-4444-444444444444';
+const storage=new Map(),requests=[];let available=true;
+const cache=new Map();
+function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file);const module={exports:{}};cache.set(file,module.exports);vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,URLSearchParams,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},window:{dispatchEvent:()=>{}},CustomEvent:class{},navigator:{},fetch:async(url,init)=>{const body=JSON.parse(init.body);requests.push(body);return{ok:available,json:async()=>({...body,brandId:brand,price:999,currency:'MXN'})};},require:n=>load(path.resolve(path.dirname(file),n)+'.ts')});return module.exports;}
+const contract=load('packages/own-storefront/product-contract.ts'),bag=load('packages/own-storefront/bag.ts');
+assert.equal(contract.parseProductConfig(contract.defaultProduct()).blocks.length,9);
+assert.throws(()=>contract.parseProductConfig({...contract.defaultProduct(),gap:999}));
+assert.throws(()=>contract.parseProductConfig({...contract.defaultProduct(),blocks:[]}));
+assert.equal(bag.parseBag('broken').length,0);assert.equal(bag.parseBag('[{"variantId":"bad"}]').length,0);
+assert.equal((await bag.addToBag(brand,product,variant,1)).count,1);
+await Promise.all([bag.addToBag(brand,product,variant,1),bag.addToBag(brand,product,variant,1)]);
+assert.equal(bag.readBag(brand).length,1);assert.equal(bag.readBag(brand)[0].quantity,3);assert.equal(requests.at(-1).quantity,3);
+assert.equal(bag.readBag(other).length,0);assert.ok(!storage.get(bag.bagKey(brand)).includes('price'));
+available=false;await assert.rejects(()=>bag.addToBag(brand,product,variant,1));assert.equal(bag.readBag(brand)[0].quantity,3);
+available=true;await assert.rejects(()=>bag.addToBag(other,product,variant,1));assert.equal(bag.readBag(other).length,0);
+await assert.rejects(()=>bag.addToBag(brand,product,variant,-1));
+const p={variants:[{id:variant}],content:{colors:[{id:'rose',variantIds:[variant]},{id:'black',variantIds:[]}]}};
+assert.equal(contract.initialProductSelection(p,other,'black').variantId,'');assert.equal(contract.initialProductSelection(p,variant,'black').colorId,'rose');
+assert.equal(new URL('http://fixture'+contract.productHref(product,'','','M')).searchParams.get('size'),'M');
+console.log('PASS M5 Node: bounded config, foreign variant cleared, variant determines color, corrupt storage, same-variant merge, queued additions, brand isolation, failure preservation, cumulative server quantity and no stored prices. Fetch/storage simulated.');

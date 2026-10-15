@@ -1,0 +1,11 @@
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+const read = (p) => readFileSync(p, "utf8");
+const migration = read("supabase/migrations/20260901150000_cometa_strategic_onboarding_v1.sql");
+const helper = read("src/lib/onboarding/strategic.ts");
+const strategy = read("src/app/api/admin/brands/[brandSlug]/strategy/route.ts");
+const diagnosis = read("src/app/api/admin/brands/[brandSlug]/diagnosis/route.ts");
+const ui = read("src/app/workspace/brands/[brandSlug]/diagnosis/diagnosis-client.tsx");
+assert.match(migration, /cometa_brand_diagnoses/); assert.match(migration, /references public\.brands\(id\)/); assert.match(migration, /cometa_brand_context/); assert.match(migration, /cometa_marketing_packages/); assert.match(migration, /BASIC/); assert.match(migration, /INTERMEDIATE/); assert.match(migration, /COMPLETE/); assert.match(migration, /distribution_type/); assert.match(migration, /organic.*paid.*organic_paid/s);
+assert.match(helper, /requireAdminWorkspace/); assert.match(helper, /CONTEXT_KEYS/); assert.match(helper, /readiness/); assert.match(helper, /package_snapshot/); assert.match(strategy, /STRATEGY_CONTEXT_INCOMPLETE/); assert.match(strategy, /packageSnapshot/); assert.doesNotMatch(strategy, /legacyContext/); assert.match(diagnosis, /startDiagnosis/); assert.match(diagnosis, /saveContext/); assert.match(diagnosis, /assignPackage/); assert.match(ui, /Fuentes/); assert.match(ui, /Readiness para estrategia/); assert.match(ui, /evidencia pública verificable/);
+console.log("Strategic Onboarding Foundation V1 contract: PASS");

@@ -1,0 +1,3 @@
+# Local Supabase CLI project configuration.
+# Linking and database operations remain explicit operator actions.
+project_id = "zhtagqrzyovsrmsicaot"

@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "backup/mac-transfer-20261013-104342": false,
+      "delivery/magenta-20261014": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/sales-ai-followups",

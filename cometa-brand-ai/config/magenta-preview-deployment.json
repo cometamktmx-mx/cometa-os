@@ -1,0 +1,36 @@
+{
+  "branch": "delivery/magenta-20261014",
+  "scope": "cometa-os-s-projects",
+  "target": "preview",
+  "supabaseRequiredName": "magenta-preview-test",
+  "admin": {
+    "project": "cometa-os",
+    "id": "prj_ecEVtItINKExbKMjTCfterMj1tJy",
+    "rootDirectory": "cometa-brand-ai"
+  },
+  "storefront": {
+    "project": "magenta-controlled-preview",
+    "id": "prj_MOOHfmywnzMF83PxRtqpDk1fvAqE",
+    "rootDirectory": "apps/magenta-storefront"
+  },
+  "webhook": {
+    "application": "storefront",
+    "path": "/api/stripe/webhook",
+    "mode": "test",
+    "events": ["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired"]
+  },
+  "expiry": {
+    "executor": "Supabase pg_cron",
+    "name": "magenta-preview-expiry",
+    "schedule": "* * * * *",
+    "databaseRole": "service_role",
+    "install": "supabase/preview/install-expiry.sql"
+  },
+  "constraints": {
+    "gitBranchScopedVariablesOnly": true,
+    "sharedProductionVariablesEditable": false,
+    "automaticGitDeployment": false,
+    "firstDeploymentToEmptyProjectAllowed": false,
+    "productionAliasesEditable": false
+  }
+}

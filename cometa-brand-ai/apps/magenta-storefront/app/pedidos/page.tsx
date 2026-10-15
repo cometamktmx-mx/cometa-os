@@ -1,0 +1,7 @@
+"use client";
+import Link from 'next/link';
+import {useEffect,useState} from 'react';
+import {money} from '../../../../packages/own-storefront/checkout-contract';
+import {orderStatusLabels} from '../../../../packages/own-storefront/operations-contract';
+type Order={id:string;status:string;currency:string;total_cents:number};
+export default function Orders(){const [orders,setOrders]=useState<Order[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');useEffect(()=>{const abort=new AbortController();void fetch('/api/checkout?list=1',{cache:'no-store',signal:abort.signal}).then(async r=>{const d=await r.json();if(!r.ok)throw Error();setOrders(d.orders??[]);}).catch(()=>{if(!abort.signal.aborted)setError('No se pudieron consultar tus pedidos. Intenta de nuevo.');}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>abort.abort();},[]);return <main className="m6-checkout"><Link href="/">← Tienda</Link><h1>Mis pedidos</h1><p>Pedidos de esta tienda creados desde este navegador. Conservar esta sesión permite consultarlos.</p>{loading&&<p role="status">Cargando…</p>}{error&&<p role="alert">{error}</p>}{!loading&&!error&&!orders.length&&<p>No hay pedidos disponibles en esta sesión.</p>}{orders.map(o=><article className="m6-order" key={o.id}><Link href={'/pedido/'+o.id}>Pedido {o.id.slice(0,8).toUpperCase()}</Link><p>{orderStatusLabels[o.status]} · {money(o.total_cents,o.currency)}</p></article>)}</main>;}

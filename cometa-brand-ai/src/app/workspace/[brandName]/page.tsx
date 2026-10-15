@@ -1,14 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
+import { createClient as createServerAuthClient } from "@/lib/supabase/server";
 import Sidebar from "@/app/Sidebar";
 import EvidencePanel from "@/components/EvidencePanel";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
@@ -65,26 +63,6 @@ function slugifyLocal(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function parseCsv(value?: string | null) {
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isEnvironmentAdmin(user: {
-  id?: string | null;
-  email?: string | null;
-}) {
-  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
-  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
-
-  const email = String(user.email || "").trim().toLowerCase();
-  const id = String(user.id || "").trim().toLowerCase();
-
-  return adminEmails.includes(email) || adminUserIds.includes(id);
-}
-
 async function getUserProfile(userId: string) {
   const byUserId = await supabaseAdmin
     .from("user_profiles")
@@ -96,34 +74,13 @@ async function getUserProfile(userId: string) {
     return byUserId.data;
   }
 
-  const byId = await supabaseAdmin
-    .from("user_profiles")
-    .select("id,user_id,email,role,status")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (!byId.error && byId.data) {
-    return byId.data;
-  }
-
   return null;
 }
 
 async function requireWorkspaceAccess(brandSlug: string) {
   const workspacePath = `/workspace/${encodeURIComponent(brandSlug)}`;
-  const cookieStore = await cookies();
-
-  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll() {
+  const supabaseAuth = await createServerAuthClient();
         // En Server Components solo necesitamos leer la sesión.
-      },
-    },
-  });
-
   const {
     data: { user },
     error,
@@ -131,13 +88,6 @@ async function requireWorkspaceAccess(brandSlug: string) {
 
   if (error || !user) {
     redirect(`/login?next=${encodeURIComponent(workspacePath)}`);
-  }
-
-  if (isEnvironmentAdmin(user)) {
-    return {
-      userId: user.id,
-      isAdmin: true,
-    };
   }
 
   const profile = await getUserProfile(user.id);
@@ -333,7 +283,9 @@ function getNextAction({
       label: "Construir NOVA",
       description:
         "ORION está listo. Ahora falta construir la memoria comercial.",
-      href: `/nova/${memory?.brand_analysis_id}`,
+      href: `/nova/${memory?.brand_analysis_id}?brandSlug=${encodeURIComponent(
+        brandSlug
+      )}`,
       status: "ready",
     };
   }
@@ -1213,7 +1165,9 @@ export default async function BrandWorkspace({
               description="Oferta, buyer persona, objeciones, revenue drivers y diferenciadores."
               active={hasBusiness}
               locked={!hasOrion}
-              href={`/nova/${memory?.brand_analysis_id}`}
+              href={`/nova/${memory?.brand_analysis_id}?brandSlug=${encodeURIComponent(
+                brandSlug
+              )}`}
               cta={hasBusiness ? "Revisar memoria" : "Construir NOVA"}
               icon="🧬"
             />

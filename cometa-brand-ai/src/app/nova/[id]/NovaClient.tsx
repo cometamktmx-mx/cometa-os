@@ -23,7 +23,15 @@ const initialDiscoveryData: DiscoveryData = {
   internal_notes: "",
 };
 
-export default function NovaClient({ analysisId }: { analysisId: string }) {
+export default function NovaClient({
+  analysisId,
+  brandSlug,
+  brandName,
+}: {
+  analysisId: string;
+  brandSlug: string;
+  brandName: string;
+}) {
   const router = useRouter();
 
   const [analysis, setAnalysis] = useState<any>(null);
@@ -54,7 +62,7 @@ export default function NovaClient({ analysisId }: { analysisId: string }) {
       const response = await fetch("/api/nova/get-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysisId }),
+        body: JSON.stringify({ analysisId, brandSlug, brandName }),
       });
 
       const data = await response.json();

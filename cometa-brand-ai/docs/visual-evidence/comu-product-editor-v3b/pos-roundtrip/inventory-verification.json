@@ -1,0 +1,190 @@
+{
+  "inventory": [
+    {
+      "id": "c3356cc0-c8fe-4c8e-9352-4d1a083c5d04",
+      "product_id": "46f2a3cc-7586-418a-9f05-d7717bfb5a3f",
+      "sku": "RTP001-N-M",
+      "attributes": {
+        "size": "M",
+        "color": "Negro"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 7,
+      "reserved_quantity": 0,
+      "available": 7
+    },
+    {
+      "id": "906335d4-58bc-41b6-be53-e8d27ff8d23b",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-B-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Beige"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "c2f294af-11c0-40ac-bd9a-7f25f1d713df",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-B-G",
+      "attributes": {
+        "size": "G",
+        "color": "Beige"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "0dc78e36-62cd-44be-a39c-1ca18c3cd1fd",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-B-M",
+      "attributes": {
+        "size": "M",
+        "color": "Beige"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "8e97f7f8-4a30-4822-b8ac-7da486b08661",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-B-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Beige"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "67f581fa-e342-40d2-98d4-10074ed5fd61",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-N-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Negro"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "c5db8b36-e709-47e9-8d15-3ea9700e2ac6",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-N-G",
+      "attributes": {
+        "size": "G",
+        "color": "Negro"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "8dbb9322-c467-4d04-b419-e90ebcbdaeb6",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-N-M",
+      "attributes": {
+        "size": "M",
+        "color": "Negro"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "d246d953-e75b-43d8-8daf-1e2a251ed028",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-N-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Negro"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "4de53008-6c80-4f96-92ec-40f2ad884e6d",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-R-C",
+      "attributes": {
+        "size": "CH",
+        "color": "Rosa"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "012e3b6c-63b8-4710-9ae5-3ba4f513d851",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-R-G",
+      "attributes": {
+        "size": "G",
+        "color": "Rosa"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "0bef1f1c-41e6-4db2-bd26-1ed2a67f745a",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-R-M",
+      "attributes": {
+        "size": "M",
+        "color": "Rosa"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    },
+    {
+      "id": "e6ffc6c7-2382-40c3-8e07-aa04ef4a82e0",
+      "product_id": "53eb65c9-7adf-41a1-8949-ef0a80aa188f",
+      "sku": "RTC001-R-X",
+      "attributes": {
+        "size": "XL",
+        "color": "Rosa"
+      },
+      "location_id": "837e7ab7-18ea-4fb8-9527-cc9c6db98995",
+      "quantity": 8,
+      "reserved_quantity": 0,
+      "available": 8
+    }
+  ],
+  "subscription": [
+    {
+      "plan_code": "pro",
+      "status": "active",
+      "contracted_price": 0,
+      "promotion_code": "LOCAL_TEST_ONLY"
+    }
+  ],
+  "security": [
+    {
+      "tgname": "pos_device_identity"
+    },
+    {
+      "tgname": "pos_staff_device_binding"
+    }
+  ],
+  "sellerAPreserved": true
+}

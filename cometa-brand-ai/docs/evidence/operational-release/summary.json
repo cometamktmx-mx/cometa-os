@@ -1,0 +1,238 @@
+{
+  "updatedAt": "2026-10-12T16:24:06.836Z",
+  "adminDeployment": "https://cometa-qsu0wz6ou-cometa-os-s-projects.vercel.app",
+  "storefrontDeployment": "https://magenta-controlled-preview-50w8yj3da-cometa-os-s-projects.vercel.app",
+  "applied": [
+    {
+      "file": "20260928180000_comu_buyer_experience_v1.sql",
+      "sha256": "a8278052f5ce9f1e95c0eb8e6279d3e4c38957ecd5624410f4cb8a90571de720",
+      "appliedAt": "2026-10-12T01:37:40.316Z"
+    },
+    {
+      "file": "20261002120000_pos_device_foundation_v1.sql",
+      "sha256": "aa33fe86c47c3a8ab6662446b752dfcb2597cf88febf4fa182ac5653646dc6f0",
+      "appliedAt": "2026-10-12T01:37:56.884Z"
+    },
+    {
+      "file": "20261002121000_pos_mutation_api_boundary_v1.sql",
+      "sha256": "9f51d55d5e2a8ec71dfb79c3271a0036a9497ffb1e9e1aff5c3e7bde7e30be1c",
+      "appliedAt": "2026-10-12T01:38:12.341Z"
+    },
+    {
+      "file": "20261003130000_comu_seller_approval_v1.sql",
+      "sha256": "653b67c4fc8d757eb00d842f0016ee10378780cbc4c67129c3fb95fa4d297165",
+      "appliedAt": "2026-10-12T01:38:27.690Z"
+    },
+    {
+      "file": "20261003150000_comu_seller_catalog_v1.sql",
+      "sha256": "0343f49b2cd5fb02963834858a97467dc0c58f08ce92233912c11a2577cb1944",
+      "appliedAt": "2026-10-12T01:38:43.170Z"
+    },
+    {
+      "file": "20261003170000_comu_shared_variant_contract_v1.sql",
+      "sha256": "358928e04ab9ae56cb1240fd486198aa981597f0a5e46da0d50f8d365d800aee",
+      "appliedAt": "2026-10-12T01:38:57.937Z"
+    },
+    {
+      "file": "20261005120000_comu_order_contract_state_safety_v1.sql",
+      "sha256": "f570cc116a9af89bdb768d427f5311c3b2ad0d28d7c1de90d76f1164975d18f6",
+      "appliedAt": "2026-10-12T01:39:13.988Z"
+    },
+    {
+      "file": "20261005150000_comu_notifications_v1.sql",
+      "sha256": "be9f8b7a96bc8510c51dcb4cc8538c2ca925087c1cb3d07b551959824c60a41a",
+      "appliedAt": "2026-10-12T01:39:29.401Z"
+    },
+    {
+      "file": "20261005170000_comu_buyer_order_read_privacy_v1.sql",
+      "sha256": "f018f913c452d3b0db585e450016d86b8cd36caa80bb9aa5d9d801a27bd140f3",
+      "appliedAt": "2026-10-12T01:39:44.253Z"
+    },
+    {
+      "file": "20261010120000_comu_reservation_lifecycle_m0.sql",
+      "sha256": "04fa5be57286979ccbfabcbde1a3b124487993e9722ce87172a2e443164eceb2",
+      "appliedAt": "2026-10-12T01:39:57.882Z"
+    },
+    {
+      "file": "20261010160000_brand_online_store_access_a1.sql",
+      "sha256": "12b075514065c7a6da3eb5eed84b2f4c4ec5df4ee08b1447a2cd66db15d063b2",
+      "appliedAt": "2026-10-12T01:40:11.891Z"
+    },
+    {
+      "file": "20261010180000_pos_product_sales_channels_m1.sql",
+      "sha256": "4335b7cc91ac7e7559d081cb8126bc5caffc93793ff03834183b3d9e17802e0d",
+      "appliedAt": "2026-10-12T01:40:26.445Z"
+    },
+    {
+      "file": "20261010200000_pos_product_web_content_m2.sql",
+      "sha256": "ae329d2dfa16b645bb02f460d52a708ecfb204aa8218d656d5793ab7ea6cdd33",
+      "appliedAt": "2026-10-12T01:40:41.777Z"
+    },
+    {
+      "file": "20261011100000_brand_storefront_appearance_m3.sql",
+      "sha256": "80378470377af7f340338e7ee1ecfaa8a34f0dcfaf1b06cb42042550c46b0517",
+      "appliedAt": "2026-10-12T01:40:55.625Z"
+    },
+    {
+      "file": "20261011120000_storefront_catalog_m4.sql",
+      "sha256": "3f46fad568e45bc9d764c0c664e5ae0d14b8557715cb665461725ef4c66698f3",
+      "appliedAt": "2026-10-12T01:41:09.752Z"
+    },
+    {
+      "file": "20261011140000_storefront_product_m5.sql",
+      "sha256": "b6923608565ee43e97f86655d6a6b3dbfd017b6db38e11eabebcb7c12c672967",
+      "appliedAt": "2026-10-12T01:41:23.258Z"
+    },
+    {
+      "file": "20261011160000_storefront_checkout_m6.sql",
+      "sha256": "b28b15043fb0b4ffb5cf45e1a3497e3f12852f0c0d7a877efee36dedd643dc47",
+      "appliedAt": "2026-10-12T01:41:37.042Z"
+    },
+    {
+      "file": "20261011180000_comu_seller_release_purchase_boundary.sql",
+      "sha256": "99db49cf20e2f325032af019c276e09d8e53669f32c8dac76bb0681b878f1741",
+      "appliedAt": "2026-10-12T01:41:52.066Z"
+    }
+  ],
+  "backup": {
+    "database": "cometa_m6_1791768126383",
+    "summary": "{\"users\": 24, \"brands\": 23, \"orders\": 0, \"inventory\": 50}",
+    "checkedAt": "2026-10-12T01:22:20.827Z",
+    "schemaHash": "a821f95d2bd1bdb840190dac4e3ff5017b5afa80e940d12029f59d66c807269b",
+    "dataHash": "54820ecd382daa971b04ee6f8352659950d9d9e40e82159801a73914bffb8fdf"
+  },
+  "preservation": {
+    "headUnchanged": true,
+    "indexUnchanged": true,
+    "previousFiles": 1413,
+    "missing": [],
+    "changed": [
+      "apps/magenta-storefront/next.config.ts",
+      "docs/magenta-controlled-preview.md",
+      "scripts/prepare-magenta-preview.mjs",
+      "scripts/test-brand-modules-a1-http.mjs",
+      "scripts/test-comu-reservations-m01-http.mjs",
+      "src/app/workspace/brands/[brandSlug]/brand-modules.tsx",
+      "src/lib/workspace/brand-modules.ts",
+      "next.config.ts",
+      "src/app/api/comu/checkout/route.ts",
+      "src/app/api/comu/payments/intents/route.ts",
+      "src/app/api/comu/reservations/route.ts",
+      "src/app/api/comu/shipping/quote/route.ts",
+      "src/app/comu/products/[slug]/add-to-cart.tsx",
+      "src/app/workspace/components/workspace-shell.tsx",
+      "src/proxy.ts"
+    ]
+  },
+  "httpTests": [
+    {
+      "test": "Real Auth + SSR cookies",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:09.921Z"
+    },
+    {
+      "test": "Global Workspace admin",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:12.608Z"
+    },
+    {
+      "test": "Client and anonymous cannot administer global access",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:13.356Z"
+    },
+    {
+      "test": "Application → admin approval → owner Seller access",
+      "detail": "comu-7189608567c54a62b63bd4357d5e4796",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:14.119Z"
+    },
+    {
+      "test": "Seller summary/products/orders SSR",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:16.267Z"
+    },
+    {
+      "test": "Cross-seller catalog denied",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:16.637Z"
+    },
+    {
+      "test": "Canonical product persisted",
+      "detail": "DRAFT only; no stock invented",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:17.617Z"
+    },
+    {
+      "test": "Real Storage upload + retrieval",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:27.070Z"
+    },
+    {
+      "test": "Brand modules and canonical access assignment",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:28.778Z"
+    },
+    {
+      "test": "Global admin remains separate from owner",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:29.001Z"
+    },
+    {
+      "test": "Public COMU purchases closed at deployed backend",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:50.099Z"
+    },
+    {
+      "test": "Retail owner pages/API and cross-brand isolation",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:35.990Z"
+    },
+    {
+      "test": "A1 real admin enablement independent of OS/POS/COMU; owner denied",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:38.201Z"
+    },
+    {
+      "test": "M1/M2/M3 real API + Storage: channels, photo assignment, draft, publication and reload",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:47.057Z"
+    },
+    {
+      "test": "Synthetic public store suspended; documents preserved",
+      "status": "PASS",
+      "at": "2026-10-12T01:59:49.370Z"
+    },
+    {
+      "test": "Seller product edit and reload",
+      "status": "PASS",
+      "at": "2026-10-12T02:04:18.516Z"
+    },
+    {
+      "test": "Final deployment core: Workspace navigation, separate memberships, Seller inbox, POS catalog, purchase closure",
+      "status": "PASS",
+      "at": "2026-10-12T16:23:08.668Z"
+    }
+  ],
+  "imageBoundary": {
+    "status": "NOT_CERTIFIED",
+    "observed": [
+      {
+        "origin": "https://app.cometaos.com",
+        "status": 200,
+        "redirect": null
+      },
+      {
+        "origin": "https://magenta-controlled-preview.vercel.app",
+        "status": 400,
+        "redirect": null
+      }
+    ]
+  },
+  "syntheticProfilesRetired": true,
+  "limits": [
+    "MAGENTA identity selection pending",
+    "No real payment/shipping/email/WhatsApp certification",
+    "No full manual desktop/mobile session",
+    "Dependency security remediation pending"
+  ]
+}

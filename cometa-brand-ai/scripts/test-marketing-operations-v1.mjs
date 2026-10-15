@@ -1,0 +1,33 @@
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+
+const client = readFileSync("src/lib/marketing/client-marketing.ts", "utf8");
+const strategy = readFileSync("src/lib/marketing/strategy.ts", "utf8");
+const migration = readFileSync("supabase/migrations/20260901140000_cometa_marketing_operations_v1.sql", "utf8");
+const overview = readFileSync("src/app/brand/[brandSlug]/os/marketing/page.tsx", "utf8");
+const content = readFileSync("src/app/brand/[brandSlug]/os/marketing/content/page.tsx", "utf8");
+const admin = readFileSync("src/app/api/admin/brands/[brandSlug]/strategy/route.ts", "utf8");
+
+assert.match(client, /requireBrandOsAccess/);
+assert.match(client, /isClientContentVisible/);
+assert.match(client, /weekItems/);
+assert.match(client, /published/);
+assert.doesNotMatch(client, /updated_at.*publish_date/);
+assert.match(strategy, /cometa_marketing_strategies/);
+assert.doesNotMatch(strategy, /strategy_publications/);
+assert.doesNotMatch(strategy, /cosmos_memory/);
+assert.match(migration, /brand_id uuid not null references public\.brands\(id\)/i);
+assert.match(migration, /status in \('draft','published','superseded'\)/i);
+assert.match(migration, /one_published/);
+assert.match(migration, /cometa_marketing_strategy_publish_v1/);
+assert.match(migration, /set search_path = public/);
+assert.match(migration, /revoke all on function/);
+assert.match(overview, /getClientMarketingOverview/);
+assert.match(overview, /Publicado recientemente/);
+assert.match(content, /getClientMarketingContent/);
+assert.doesNotMatch(content, /Sin piezas en este estado/);
+assert.match(admin, /requireAdminWorkspace/);
+assert.match(admin, /generate_ai/);
+assert.match(admin, /source: "ai"/);
+assert.match(admin, /publish/);
+console.log("Marketing Operations V1 contract: PASS");

@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({ reset }: { reset: () => void }) { return <main className="mx-auto max-w-3xl px-5 py-24"><p className="comu-eyebrow">Volvamos a intentarlo</p><h1 className="comu-title mt-5">Esta página necesita un momento.</h1><p className="mt-6 leading-7 text-[#72675e]">No pudimos cargar la información. Tu selección y tus pedidos no se modificaron.</p><button className="comu-button mt-8" onClick={reset}>Reintentar</button></main>; }

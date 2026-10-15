@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+const headers = { "Cache-Control": "private, no-store" };
+import { cancelBuyerOrder } from "@/lib/comu/orders";
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { try { const body = await request.json().catch(() => ({})) as { restock?: unknown }; return NextResponse.json({ ok: true, order: await cancelBuyerOrder((await params).id, body.restock === true) }, { headers }); } catch (error) { const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) || 500 : 500; return NextResponse.json({ ok: false, code: "COMU_ORDER_CANCEL_FAILED", error: error instanceof Error ? error.message : "No se pudo cancelar la orden." }, { status, headers }); } }

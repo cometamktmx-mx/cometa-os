@@ -1,0 +1,88 @@
+apply plugin: 'com.android.application'
+
+def releaseManifest = new groovy.json.JsonSlurper().parse(file('../../release.json'))
+def posChannel = System.getenv('COMETA_POS_CHANNEL') ?: 'development'
+if (!(posChannel in ['development', 'beta'])) throw new GradleException('Unknown or disabled POS channel')
+def posVersion = releaseManifest[posChannel]
+def signingNames = ['COMETA_POS_KEYSTORE_PATH','COMETA_POS_KEY_ALIAS','COMETA_POS_KEYSTORE_PASSWORD','COMETA_POS_KEY_PASSWORD']
+def signingValues = signingNames.collectEntries { [(it): System.getenv(it)] }
+def hasSigning = signingValues.values().every { it?.trim() }
+
+android {
+    namespace = "com.cometaos.pos"
+    compileSdk = rootProject.ext.compileSdkVersion
+    buildToolsVersion "36.0.0"
+    defaultConfig {
+        applicationId "com.cometaos.pos"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode posVersion.versionCode
+        versionName posVersion.versionName
+        manifestPlaceholders = [posAppLinkHost: posChannel == 'beta' ? 'pos-beta.cometaos.com' : 'links-disabled.invalid']
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                storeFile file(signingValues.COMETA_POS_KEYSTORE_PATH)
+                storePassword signingValues.COMETA_POS_KEYSTORE_PASSWORD
+                keyAlias signingValues.COMETA_POS_KEY_ALIAS
+                keyPassword signingValues.COMETA_POS_KEY_PASSWORD
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            debuggable false
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }) {
+        if (posChannel != 'beta') throw new GradleException('Only authorized Beta release preparation is available')
+        if (!releaseManifest.beta.distributionHistoryConfirmed) throw new GradleException('Confirm versionCode distribution history before release')
+        if (!hasSigning || !file(signingValues.COMETA_POS_KEYSTORE_PATH).isFile()) throw new GradleException('All four external signing inputs are required')
+        def stampFile = file('src/main/assets/public/mobile-build.json')
+        if (!stampFile.isFile()) throw new GradleException('Missing mobile build provenance; build and sync Beta first')
+        def stamp = new groovy.json.JsonSlurper().parse(stampFile)
+        if (stamp.channel != 'beta' || stamp.versionCode != posVersion.versionCode || stamp.versionName != posVersion.versionName) throw new GradleException('Native/web release profile mismatch')
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

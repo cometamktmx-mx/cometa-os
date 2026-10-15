@@ -33,7 +33,10 @@ const webhookAppSecret =
   process.env.FACEBOOK_APP_SECRET?.trim() ||
   "";
 
+// Production webhooks fail closed even if the opt-in flag was omitted. Local
+// development may keep the existing optional behavior for setup/testing.
 const enforceWebhookSignature =
+  process.env.NODE_ENV === "production" ||
   process.env.WHATSAPP_ENFORCE_SIGNATURE === "true";
 
 const automaticMinConfidence = normalizeEnvNumber(

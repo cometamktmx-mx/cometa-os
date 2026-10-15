@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "quantityBefore": 8,
+  "quantityAfter": 9,
+  "quantityAfterRetry": 9,
+  "restored": 8,
+  "reserved": 0,
+  "availableAfter": 9,
+  "staleExpectedQuantityStatus": 409
+}

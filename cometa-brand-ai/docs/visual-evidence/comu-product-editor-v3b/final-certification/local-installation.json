@@ -1,0 +1,542 @@
+{
+  "supabase": "http://127.0.0.1:54321",
+  "postgres": "127.0.0.1:54322",
+  "project": "zhtagqrzyovsrmsicaot",
+  "dependencies": [
+    "20260928180000",
+    "20261002121000",
+    "20261003130000",
+    "20261003150000"
+  ],
+  "applied": "20261003170000",
+  "securityBefore": {
+    "grants": [
+      {
+        "product_write": false,
+        "stock_write": false,
+        "anon_catalog": false,
+        "member_catalog": true
+      }
+    ],
+    "rls": [
+      {
+        "relname": "comu_catalog_commands",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_inventory",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_product_variants",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_products",
+        "relrowsecurity": true
+      }
+    ],
+    "constraints": [
+      {
+        "conname": "pos_inventory_location_id_fkey",
+        "definition": "FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_inventory_location_id_variant_id_key",
+        "definition": "UNIQUE (location_id, variant_id)"
+      },
+      {
+        "conname": "pos_inventory_minimum_quantity_check",
+        "definition": "CHECK ((minimum_quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_inventory_quantity_check",
+        "definition": "CHECK ((quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_reserved_le_quantity_check",
+        "definition": "CHECK ((reserved_quantity <= quantity))"
+      },
+      {
+        "conname": "pos_inventory_reserved_quantity_check",
+        "definition": "CHECK ((reserved_quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_variant_id_fkey",
+        "definition": "FOREIGN KEY (variant_id) REFERENCES pos_product_variants(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_product_variants_attributes_object_check",
+        "definition": "CHECK ((jsonb_typeof(attributes) = 'object'::text))"
+      },
+      {
+        "conname": "pos_product_variants_configuration_object_check",
+        "definition": "CHECK ((jsonb_typeof(configuration) = 'object'::text))"
+      },
+      {
+        "conname": "pos_product_variants_cost_check",
+        "definition": "CHECK ((cost >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_product_variants_created_by_fkey",
+        "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_product_variants_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_product_variants_price_check",
+        "definition": "CHECK ((price >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_product_variants_product_id_fkey",
+        "definition": "FOREIGN KEY (product_id) REFERENCES pos_products(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_product_variants_unit_code_fkey",
+        "definition": "FOREIGN KEY (unit_code) REFERENCES pos_units(code) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "pos_products_category_id_fkey",
+        "definition": "FOREIGN KEY (category_id) REFERENCES pos_categories(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_products_configuration_object_check",
+        "definition": "CHECK ((jsonb_typeof(configuration) = 'object'::text))"
+      },
+      {
+        "conname": "pos_products_created_by_fkey",
+        "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_products_default_unit_code_fkey",
+        "definition": "FOREIGN KEY (default_unit_code) REFERENCES pos_units(code) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "pos_products_inventory_mode_check",
+        "definition": "CHECK ((inventory_mode = ANY (ARRAY['direct'::text, 'none'::text, 'component'::text, 'recipe'::text, 'batch'::text])))"
+      },
+      {
+        "conname": "pos_products_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_products_product_type_check",
+        "definition": "CHECK ((product_type = ANY (ARRAY['physical'::text, 'service'::text, 'combo'::text, 'prepared'::text, 'ingredient'::text, 'batch_product'::text])))"
+      },
+      {
+        "conname": "pos_products_tax_rate_check",
+        "definition": "CHECK (((tax_rate >= (0)::numeric) AND (tax_rate <= (100)::numeric)))"
+      }
+    ],
+    "policies": [
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_product_attribute_definitions",
+        "policyname": "pos_product_attribute_definitions_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_product_attribute_definitions.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)"
+      }
+    ]
+  },
+  "securityAfter": {
+    "grants": [
+      {
+        "product_write": false,
+        "stock_write": false,
+        "anon_catalog": false,
+        "member_catalog": true
+      }
+    ],
+    "rls": [
+      {
+        "relname": "comu_catalog_commands",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_inventory",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_product_variants",
+        "relrowsecurity": true
+      },
+      {
+        "relname": "pos_products",
+        "relrowsecurity": true
+      }
+    ],
+    "constraints": [
+      {
+        "conname": "pos_inventory_location_id_fkey",
+        "definition": "FOREIGN KEY (location_id) REFERENCES pos_locations(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_inventory_location_id_variant_id_key",
+        "definition": "UNIQUE (location_id, variant_id)"
+      },
+      {
+        "conname": "pos_inventory_minimum_quantity_check",
+        "definition": "CHECK ((minimum_quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_inventory_quantity_check",
+        "definition": "CHECK ((quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_reserved_le_quantity_check",
+        "definition": "CHECK ((reserved_quantity <= quantity))"
+      },
+      {
+        "conname": "pos_inventory_reserved_quantity_check",
+        "definition": "CHECK ((reserved_quantity >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_inventory_variant_id_fkey",
+        "definition": "FOREIGN KEY (variant_id) REFERENCES pos_product_variants(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_product_variants_attributes_object_check",
+        "definition": "CHECK ((jsonb_typeof(attributes) = 'object'::text))"
+      },
+      {
+        "conname": "pos_product_variants_configuration_object_check",
+        "definition": "CHECK ((jsonb_typeof(configuration) = 'object'::text))"
+      },
+      {
+        "conname": "pos_product_variants_cost_check",
+        "definition": "CHECK ((cost >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_product_variants_created_by_fkey",
+        "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_product_variants_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_product_variants_price_check",
+        "definition": "CHECK ((price >= (0)::numeric))"
+      },
+      {
+        "conname": "pos_product_variants_product_id_fkey",
+        "definition": "FOREIGN KEY (product_id) REFERENCES pos_products(id) ON DELETE CASCADE"
+      },
+      {
+        "conname": "pos_product_variants_unit_code_fkey",
+        "definition": "FOREIGN KEY (unit_code) REFERENCES pos_units(code) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "pos_products_category_id_fkey",
+        "definition": "FOREIGN KEY (category_id) REFERENCES pos_categories(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_products_configuration_object_check",
+        "definition": "CHECK ((jsonb_typeof(configuration) = 'object'::text))"
+      },
+      {
+        "conname": "pos_products_created_by_fkey",
+        "definition": "FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "pos_products_default_unit_code_fkey",
+        "definition": "FOREIGN KEY (default_unit_code) REFERENCES pos_units(code) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "pos_products_inventory_mode_check",
+        "definition": "CHECK ((inventory_mode = ANY (ARRAY['direct'::text, 'none'::text, 'component'::text, 'recipe'::text, 'batch'::text])))"
+      },
+      {
+        "conname": "pos_products_pkey",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "conname": "pos_products_product_type_check",
+        "definition": "CHECK ((product_type = ANY (ARRAY['physical'::text, 'service'::text, 'combo'::text, 'prepared'::text, 'ingredient'::text, 'batch_product'::text])))"
+      },
+      {
+        "conname": "pos_products_tax_rate_check",
+        "definition": "CHECK (((tax_rate >= (0)::numeric) AND (tax_rate <= (100)::numeric)))"
+      }
+    ],
+    "policies": [
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_inventory",
+        "policyname": "pos_inventory_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_inventory.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_product_attribute_definitions",
+        "policyname": "pos_product_attribute_definitions_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_product_attribute_definitions.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_product_variants",
+        "policyname": "pos_product_variants_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_product_variants.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_delete_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "DELETE",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_insert_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "INSERT",
+        "qual": null,
+        "with_check": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)"
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_select_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "SELECT",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": null
+      },
+      {
+        "tablename": "pos_products",
+        "policyname": "pos_products_update_brand",
+        "roles": [
+          "authenticated"
+        ],
+        "cmd": "UPDATE",
+        "qual": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)",
+        "with_check": "( SELECT pos_can_access_brand(pos_products.brand_slug) AS pos_can_access_brand)"
+      }
+    ]
+  },
+  "functions": [
+    {
+      "proname": "comu_catalog_read_v1",
+      "prosecdef": true,
+      "exposes_definitions": true,
+      "exposes_contract": true
+    },
+    {
+      "proname": "comu_catalog_save_v1",
+      "prosecdef": true,
+      "exposes_definitions": false,
+      "exposes_contract": false
+    }
+  ]
+}

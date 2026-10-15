@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import assert from 'node:assert/strict';
+const context={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/comu/buyer-notification-presentation.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
+const {buyerNotificationTitle:title,buyerNotificationLink:link}=context.exports;
+const n={id:'00000000-0000-4000-8000-000000000001',audience:'BUYER',deep_link:'/comu/account/orders/00000000-0000-4000-8000-000000000002?view=detail',title:'Pedido entregado',event_kind:'DELIVERED',metadata:{scope:'SUBORDER'}};
+assert.equal(title(n),'Una parte de tu pedido fue entregada');
+assert.equal(title({...n,metadata:{scope:'MASTER'}}),'Pedido entregado');
+for(const kind of ['PREPARING','READY_FOR_HUB','READY_TO_SHIP','IN_TRANSIT','ISSUE'])assert.match(title({...n,event_kind:kind}),/parte de tu pedido/);
+assert.equal(title({...n,event_kind:'UNSUPPORTED'}),'Actualización de una parte de tu pedido');
+assert.equal(link(n),n.deep_link+'&notificationId='+n.id);
+for(const path of ['https://evil.test','//evil.test','javascript:alert(1)',n.deep_link+'&token=secret',n.deep_link.replace('view=detail','view=confirmation'),'/comu/seller/a/orders?selected=x'])assert.equal(link({...n,deep_link:path}),null);
+assert.equal(link({...n,audience:'SELLER'}),null);assert.equal(link({...n,id:'not-an-id'}),null);
+console.log('Buyer Notifications Node PASS: real N1 scope titles; master/suborder distinction; canonical link + safe notification reference; external/private/invalid links rejected');

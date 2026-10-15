@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { resolveBrandFromSupabase, slugifyBrand } from "@/lib/brand-resolver";
+import {
+  BrandOsGuardError,
+  requireBrandOsAccess,
+} from "@/lib/brand-os/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE!;
@@ -17,93 +17,48 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 type RiskLevel = "Bajo" | "Medio" | "Alto";
 type UserRole = "admin" | "client";
+type CountResult = {
+  value: number;
+  available: boolean;
+};
 
 export async function GET(req: Request) {
   try {
-    const userContext = await getUserContext();
-
-    if (!userContext.userId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "No autorizado. Inicia sesión para ver esta marca.",
-        },
-        { status: 401 }
-      );
-    }
-
     const url = new URL(req.url);
 
-    let requestedBrandSlug =
+    const requestedBrandSlug =
       url.searchParams.get("brandSlug") ||
       url.searchParams.get("slug") ||
       "";
-
-    const requestedBrandName = url.searchParams.get("brandName");
-
-    if (!requestedBrandSlug && userContext.role === "client") {
-      requestedBrandSlug = userContext.allowedBrandSlugs[0] || "";
-    }
-
-    if (!requestedBrandSlug && userContext.role === "admin") {
-      requestedBrandSlug = "mar-cosmetic";
-    }
 
     if (!requestedBrandSlug) {
       return NextResponse.json(
         {
           ok: false,
+          code: "BRAND_OS_BRAND_REQUIRED",
           error: "No se recibió una marca válida.",
         },
         { status: 400 }
       );
     }
 
-    const resolvedBrand = await resolveBrandFromSupabase(supabase, {
-      brandSlug: requestedBrandSlug,
-      brandName: requestedBrandName,
-    });
-
-    const brandSlug = resolvedBrand.slug;
-    const brandName = resolvedBrand.name;
-    const industry = resolvedBrand.industry || "Sistema comercial";
-
-    const accessValidation = validateBrandAccess({
-      userContext,
-      brandSlug,
-    });
-
-    if (!accessValidation.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: accessValidation.error,
-          user: {
-            id: userContext.userId,
-            email: userContext.email,
-            role: userContext.role,
-            isAdmin: userContext.role === "admin",
-          },
-          requestedBrand: {
-            slug: brandSlug,
-            name: brandName,
-          },
-        },
-        { status: 403 }
-      );
-    }
+    const osContext = await requireBrandOsAccess(requestedBrandSlug);
+    const brandSlug = osContext.brand.slug;
+    const brandName = osContext.brand.name;
+    const industry = osContext.brand.industry;
+    const userRole: UserRole = osContext.isPlatformAdmin ? "admin" : "client";
 
     const [
       playbook,
       latestRun,
-      leadCount,
-      readyRepliesCount,
-      knowledgeSourcesCount,
-      catalogCount,
-      rulesCount,
-      faqsCount,
-      pendingSuggestionsCount,
-      appliedSuggestionsCount,
+      leadCountResult,
+      readyRepliesCountResult,
+      knowledgeSourcesCountResult,
+      catalogCountResult,
+      rulesCountResult,
+      faqsCountResult,
+      pendingSuggestionsCountResult,
+      appliedSuggestionsCountResult,
     ] = await Promise.all([
       getActivePlaybook(brandName),
       getLatestAgentRun(brandName),
@@ -123,6 +78,30 @@ export async function GET(req: Request) {
         ["status", "applied"],
       ]),
     ]);
+
+    const leadCount = leadCountResult.value;
+    const readyRepliesCount = readyRepliesCountResult.value;
+    const knowledgeSourcesCount = knowledgeSourcesCountResult.value;
+    const catalogCount = catalogCountResult.value;
+    const rulesCount = rulesCountResult.value;
+    const faqsCount = faqsCountResult.value;
+    const pendingSuggestionsCount = pendingSuggestionsCountResult.value;
+    const appliedSuggestionsCount = appliedSuggestionsCountResult.value;
+    const knowledgeAvailable = [
+      knowledgeSourcesCountResult,
+      catalogCountResult,
+      rulesCountResult,
+      faqsCountResult,
+    ].every((result) => result.available);
+    const readinessAvailable = [
+      leadCountResult,
+      readyRepliesCountResult,
+      knowledgeSourcesCountResult,
+      catalogCountResult,
+      rulesCountResult,
+      faqsCountResult,
+      pendingSuggestionsCountResult,
+    ].every((result) => result.available);
 
     const knowledge = calculateKnowledgeScore({
       knowledgeSourcesCount,
@@ -191,20 +170,20 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       user: {
-        id: userContext.userId,
-        email: userContext.email,
-        role: userContext.role,
-        isAdmin: userContext.role === "admin",
-        allowedBrandSlugs: userContext.allowedBrandSlugs,
+        id: osContext.user.userId,
+        email: osContext.user.email,
+        role: userRole,
+        isAdmin: osContext.isPlatformAdmin,
+        allowedBrandSlugs: osContext.activeBrandSlugs,
       },
-      permissions: getClientPermissions(userContext.role),
+      permissions: getClientPermissions(userRole),
       brand: {
         slug: brandSlug,
         name: brandName,
         industry,
-        brandId: resolvedBrand.id,
-        brandSource: resolvedBrand.sourceTable,
-        brandExists: resolvedBrand.exists,
+        brandId: osContext.brand.id,
+        brandSource: "brands",
+        brandExists: true,
         headline,
         description,
         agentStatus,
@@ -314,6 +293,25 @@ export async function GET(req: Request) {
         pendingInternalAlerts: pendingSuggestionsCount,
         appliedInternalAlerts: appliedSuggestionsCount,
       },
+      dataAvailability: {
+        counts: {
+          leads: leadCountResult.available,
+          readyReplies: readyRepliesCountResult.available,
+          knowledgeSources: knowledgeSourcesCountResult.available,
+          catalogItems: catalogCountResult.available,
+          businessRules: rulesCountResult.available,
+          faqs: faqsCountResult.available,
+          pendingInternalAlerts: pendingSuggestionsCountResult.available,
+          appliedInternalAlerts: appliedSuggestionsCountResult.available,
+        },
+        derived: {
+          knowledge: knowledgeAvailable,
+          readiness: readinessAvailable,
+          autonomy: readinessAvailable,
+          risk: readinessAvailable,
+          nextAction: readinessAvailable,
+        },
+      },
       latestRun,
       playbook: playbook
         ? {
@@ -324,140 +322,29 @@ export async function GET(req: Request) {
           }
         : null,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof BrandOsGuardError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: error.code,
+          error: error.message,
+        },
+        { status: error.status }
+      );
+    }
+
     console.error("brand-dashboard error:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: "Error cargando Brand Dashboard",
-        details: error?.message || String(error),
+        code: "BRAND_OS_DASHBOARD_FAILED",
+        error: "No se pudo cargar Cometa OS.",
       },
       { status: 500 }
     );
   }
-}
-
-async function getUserContext(): Promise<{
-  userId: string | null;
-  email: string | null;
-  role: UserRole;
-  allowedBrandSlugs: string[];
-}> {
-  const cookieStore = await cookies();
-
-  const supabaseAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        } catch {
-          // Next puede impedir setear cookies en ciertos contextos.
-        }
-      },
-    },
-  });
-
-  const {
-    data: { user },
-    error,
-  } = await supabaseAuth.auth.getUser();
-
-  if (error || !user) {
-    return {
-      userId: null,
-      email: null,
-      role: "client",
-      allowedBrandSlugs: [],
-    };
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("user_id,email,role,status")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.warn("brand-dashboard profile error:", profileError.message);
-  }
-
-  const role: UserRole =
-    profile?.role === "admin" && profile?.status === "active"
-      ? "admin"
-      : "client";
-
-  if (role === "admin") {
-    return {
-      userId: user.id,
-      email: user.email || profile?.email || null,
-      role,
-      allowedBrandSlugs: [],
-    };
-  }
-
-  const { data: accessRows, error: accessError } = await supabase
-    .from("user_brand_access")
-    .select("brand_slug,status")
-    .eq("user_id", user.id)
-    .eq("status", "active");
-
-  if (accessError) {
-    console.warn("brand-dashboard access error:", accessError.message);
-  }
-
-  const allowedBrandSlugs = Array.from(
-    new Set(
-      (accessRows || [])
-        .map((row: any) => slugifyBrand(row.brand_slug || ""))
-        .filter(Boolean)
-    )
-  );
-
-  return {
-    userId: user.id,
-    email: user.email || profile?.email || null,
-    role,
-    allowedBrandSlugs,
-  };
-}
-
-function validateBrandAccess({
-  userContext,
-  brandSlug,
-}: {
-  userContext: {
-    role: UserRole;
-    allowedBrandSlugs: string[];
-  };
-  brandSlug: string;
-}) {
-  if (userContext.role === "admin") {
-    return {
-      ok: true,
-      error: null,
-    };
-  }
-
-  const normalizedBrandSlug = slugifyBrand(brandSlug);
-
-  if (userContext.allowedBrandSlugs.includes(normalizedBrandSlug)) {
-    return {
-      ok: true,
-      error: null,
-    };
-  }
-
-  return {
-    ok: false,
-    error:
-      "No tienes permiso para visualizar esta marca. Esta marca no está asignada a tu usuario.",
-  };
 }
 
 function getClientPermissions(role: UserRole) {
@@ -522,7 +409,7 @@ async function safeCount(
   tableName: string,
   brandName: string,
   filters: [string, string | number | boolean][] = []
-) {
+): Promise<CountResult> {
   try {
     let query = supabase
       .from(tableName)
@@ -537,13 +424,14 @@ async function safeCount(
 
     if (error) {
       console.warn(`safeCount ${tableName} error:`, error.message);
-      return 0;
+      return { value: 0, available: false };
     }
 
-    return count || 0;
-  } catch (error: any) {
-    console.warn(`safeCount ${tableName} exception:`, error?.message);
-    return 0;
+    return { value: count || 0, available: true };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(`safeCount ${tableName} exception:`, message);
+    return { value: 0, available: false };
   }
 }
 

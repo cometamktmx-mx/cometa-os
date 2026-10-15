@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/client";
 
 const ADMIN_EMAILS = ["cometa.mktmx@gmail.com"];
 
@@ -96,11 +96,20 @@ function getAccessClasses(type?: AccessType) {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const supabase = createClient();
 
   const [brandSlug, setBrandSlug] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true);
   const [currentHash, setCurrentHash] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    await supabase.auth.signOut();
+    window.location.assign("/login");
+  }
 
   useEffect(() => {
     async function checkAdmin() {
@@ -477,6 +486,14 @@ export default function Sidebar() {
               </p>
             </div>
           ) : null}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-xs font-black text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-wait disabled:opacity-60"
+          >
+            {loggingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+          </button>
         </div>
       </div>
     </aside>

@@ -1,0 +1,14 @@
+.comu-market { --comu-ink:#252d28; --comu-muted:#72675e; --comu-paper:#f8f5f0; --comu-line:#d9cfc4; color:var(--comu-ink); background:var(--comu-paper); }
+.comu-market :is(a,button,input,select,textarea):focus-visible { outline:2px solid #795d48; outline-offset:4px; }
+.comu-market button:not(:disabled),.comu-market summary { cursor:pointer; }
+.comu-market button:disabled { opacity:.5; cursor:not-allowed; }
+.comu-button { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:.85rem 1.4rem; background:#252d28; color:#fffdf9; font-size:.875rem; font-weight:650; }
+.comu-secondary { background:transparent; border:1px solid #d9cfc4; color:#252d28; }
+.comu-field { display:block; width:100%; min-height:46px; margin-top:.4rem; border:1px solid #d9cfc4; border-radius:12px; background:#fffdf9; padding:.75rem; color:#252d28; }
+.comu-eyebrow { color:#795d48; font-size:.7rem; text-transform:uppercase; letter-spacing:.2em; font-weight:700; }
+.comu-title { font-size:clamp(2rem,5vw,3.6rem); line-height:1.06; letter-spacing:-.055em; font-weight:750; }
+.comu-modal { border:0; border-radius:24px; background:#fffdf9; color:#252d28; width:min(92vw,640px); max-height:88dvh; padding:1.5rem; margin:auto; }
+.comu-modal::backdrop { background:rgb(25 32 28 / .45); backdrop-filter:blur(3px); }
+.comu-drawer { margin:0 0 0 auto; height:100dvh; max-height:100dvh; width:min(100vw,440px); max-width:100vw; border:0; padding:1.5rem; background:#fffdf9; color:#252d28; }
+.comu-drawer::backdrop { background:rgb(25 32 28 / .35); }
+@media (prefers-reduced-motion:reduce) { .comu-market *, .comu-market *::before, .comu-market *::after { scroll-behavior:auto!important; animation-duration:.01ms!important; transition-duration:.01ms!important; } }

@@ -1,0 +1,22 @@
+{
+  "url": "http://127.0.0.1:54321",
+  "postgres": "127.0.0.1:54322",
+  "project": "zhtagqrzyovsrmsicaot",
+  "dependencies": {
+    "brands": "brands",
+    "locations": "pos_locations",
+    "staff": "pos_staff",
+    "sessions": "pos_staff_sessions",
+    "profiles": "pos_business_profiles",
+    "actor": "pos_food_actor_v1(text,uuid,uuid)"
+  },
+  "applied": "20261002120000",
+  "proof": [
+    {
+      "rls": true,
+      "authenticated_insert": false,
+      "authenticated_revoke": false
+    }
+  ],
+  "sellerAPreserved": true
+}

@@ -1,0 +1,16 @@
+{
+  "canonicalRead": "PASS",
+  "variantCount": 12,
+  "adminRole": "admin",
+  "get": {
+    "status": 503,
+    "code": "POS_DEVICE_LOOKUP_FAILED"
+  },
+  "patch": {
+    "status": 503,
+    "code": "POS_DEVICE_LOOKUP_FAILED"
+  },
+  "subscriptionCount": 0,
+  "roundTrip": "BLOCKED",
+  "noPOSWriteExecuted": true
+}

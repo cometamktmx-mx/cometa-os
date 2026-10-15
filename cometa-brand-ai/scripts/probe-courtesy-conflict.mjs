@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import {createClient} from '@supabase/supabase-js';
+import assert from 'node:assert/strict';
+const dir='.next/release-private-20261011',b=fs.readFileSync(dir+'/api-keys.private.json');
+const keys=JSON.parse(b.toString(b[0]===255?'utf16le':'utf8').replace(/^\uFEFF/,''));
+const db=createClient('https://zhtagqrzyovsrmsicaot.supabase.co',keys.find(k=>k.name==='service_role').api_key,{auth:{persistSession:false,autoRefreshToken:false},global:{fetch:(u,i)=>fetch(u,{...i,signal:AbortSignal.timeout(20000)})}});
+const slug=JSON.parse(fs.readFileSync(dir+'/http-fixtures.private.json','utf8')).retail.brand.slug;assert.ok(slug.startsWith('release-test-'));
+const row=await db.from('pos_commercial_grants').select('id,plan_code').eq('brand_slug',slug).eq('status','active');assert.ok(!row.error&&row.data.length);
+const start=Date.now();const r=await db.rpc('pos_manage_complimentary_v1',{p_brand:slug,p_actor:'c7f07107-180b-4019-859b-33bdbe9a6445',p_expected:null,p_action:'save',p_plan:row.data[0].plan_code,p_end:null,p_reason:'Conflict probe must not mutate'});
+console.log(JSON.stringify({elapsed:Date.now()-start,code:r.error?.code,message:r.error?.message,status:r.status}));assert.ok(r.error);

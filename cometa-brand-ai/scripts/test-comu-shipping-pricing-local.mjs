@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { allocateShipping, chooseServices, estimateTextilePackage } from "../src/lib/comu/shipping-pricing.ts";
+const eq=(a,b,m)=>assert.equal(Number(a.toFixed(2)),Number(b.toFixed(2)),m);
+const migration=await readFile("supabase/migrations/20260924150000_comu_shipping_pricing_core_v1.sql","utf8");
+assert.match(migration,/shipping_snapshot/); assert.match(migration,/shipping_quote_id/); assert.match(migration,/unique\(provider, provider_event_id\)/); assert.match(migration,/comu_shipping_quotes/);
+let x=allocateShipping(180,180,500,{}); eq(x.buyerShippingCharge,180,"buyer pays all"); eq(x.sellerShippingSubsidy,0,"seller zero");
+x=allocateShipping(180,180,1200,{freeShippingThreshold:1000}); eq(x.buyerShippingCharge,0,"free baseline"); eq(x.sellerShippingSubsidy,180,"free seller");
+x=allocateShipping(450,450,1200,{freeShippingThreshold:1000,sellerMaxSubsidy:200}); eq(x.buyerShippingCharge,250,"cap buyer");
+x=allocateShipping(1000,1000,100,{sellerSubsidyPercent:50}); eq(x.buyerShippingCharge,500,"wholesale split");
+x=allocateShipping(360,180,1200,{freeShippingThreshold:1000}); eq(x.buyerShippingCharge,180,"fast upgrade"); eq(x.sellerShippingSubsidy,180,"baseline subsidy");
+const services=chooseServices([{provider:"LOCAL_TEST",serviceCode:"S",etaDays:7,cost:178,package:{weightKg:1,lengthCm:30,widthCm:25,heightCm:8,itemCount:1,preset:"TEXTILE_S"}},{provider:"LOCAL_TEST",serviceCode:"F",etaDays:2,cost:361,package:{weightKg:1,lengthCm:30,widthCm:25,heightCm:8,itemCount:1,preset:"TEXTILE_S"}}]); assert.equal(services.standard.serviceCode,"S"); assert.equal(services.fast.serviceCode,"F");
+assert.equal(estimateTextilePackage({itemCount:50,totalWeightG:20000}).length,4); assert.equal(estimateTextilePackage({itemCount:1,totalWeightG:100,overrideWeightG:6000}).length,2);
+console.log("COMU SHIPPING PRICING POSTGRESQL CONTRACT CERTIFICATION PASS");

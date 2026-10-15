@@ -1,0 +1,55 @@
+{
+  "results": [
+    {
+      "name": "Real API variantContract + attributeDefinitions",
+      "status": "PASS"
+    },
+    {
+      "name": "Reopen IDs/SKU and global price + exception persisted",
+      "status": "PASS"
+    },
+    {
+      "name": "Real Storage image / preview / persistence / reopen",
+      "status": "PASS"
+    },
+    {
+      "name": "Wholesale persisted/reopened",
+      "status": "PASS"
+    },
+    {
+      "name": "Stock physical/reserved/available/expectedQuantity + idempotent retry",
+      "status": "PASS"
+    },
+    {
+      "name": "Retire: active false persists, no DELETE, IDs/SKU/barcode intact",
+      "status": "PASS"
+    },
+    {
+      "name": "Same combination reactivated: same variant ID/SKU, no duplicate",
+      "status": "PASS"
+    },
+    {
+      "name": "Draft -> publish -> reopen; storefront not auto-activated",
+      "status": "PASS"
+    },
+    {
+      "name": "Responsive 1536 / product-editor-variants-12-desktop",
+      "status": "PASS"
+    },
+    {
+      "name": "Responsive 834 / product-editor-variants-12-tablet",
+      "status": "PASS"
+    },
+    {
+      "name": "Responsive 390 / product-editor-variants-12-phone",
+      "status": "PASS"
+    },
+    {
+      "name": "COMU seller still denied POS surface",
+      "status": "PASS"
+    }
+  ],
+  "productId": "384d8030-43dc-4dfd-97ed-766c89786bd4",
+  "listingId": "507c816b-975b-4a5d-bc01-f12a7a3481b3",
+  "variantCount": 12
+}

@@ -1,0 +1,29 @@
+// Temporary synthetic settings edits, restored with CAS; no orders, charges or messages created.
+import {execFileSync} from 'node:child_process';import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import {createServerClient} from '@supabase/ssr';import {createClient} from '@supabase/supabase-js';
+const dir=path.resolve('.next/magenta-functional/ephmrsjnpkcgddulvckj'),read=n=>JSON.parse(fs.readFileSync(path.join(dir,n+'.json'),'utf8'));
+const env=read('environment'),origins=read('origins'),access=read('access'),ids=env.fixture.ids;assert.equal(env.projectRef,'ephmrsjnpkcgddulvckj');assert.equal(env.url,'https://ephmrsjnpkcgddulvckj.supabase.co');
+const db=createClient(env.url,env.service,{auth:{persistSession:false,autoRefreshToken:false}}),jar=new Map();const auth=createServerClient(env.url,env.anon,{cookies:{getAll:()=>[...jar].map(([name,value])=>({name,value})),setAll:rows=>rows.forEach(c=>jar.set(c.name,c.value))}});assert.equal((await auth.auth.signInWithPassword({email:access.email,password:access.password})).error,null);
+const route='/api/pos/online-store/operations?brandSlug=magenta-preview',proof=[];
+async function http(app,route,body,expected=200){const headers={origin:origins[app],'x-vercel-protection-bypass':read(app==='admin'?'admin-automation':'automation').secret,'content-type':'application/json',...(app==='admin'?{cookie:[...jar].map(([n,v])=>n+'='+v).join('; ')}:{})};const r=await fetch(origins[app]+route,{headers,method:body?'POST':'GET',body:body?JSON.stringify(body):undefined});const text=await r.text();let data;try{data=JSON.parse(text);}catch{data=text;}proof.push({app,route,status:r.status});assert.equal(r.status,expected,JSON.stringify(data).slice(0,400));return data;}
+const before=await http('admin',route);const savedDocument=structuredClone(before.document);fs.writeFileSync(path.join(dir,'settings-roundtrip-original.json'),JSON.stringify(before));
+const snapshot=async()=>{const s=await db.from('pos_inventory').select('quantity,reserved_quantity').eq('variant_id',ids.variant).eq('location_id',ids.location).single();const o=await db.from('store_orders').select('id,status,total_cents,operation_revision').eq('brand_id',ids.brand).order('id');assert.equal(s.error,null);assert.equal(o.error,null);return {stock:s.data,orders:o.data};};const original=await snapshot();
+const invalid=await http('admin',route,{action:'settings',revision:before.revision,document:{...savedDocument,whatsapp:'',payments:{...savedDocument.payments,whatsapp:true},tiers:[{productId:'',minQuantity:0,mode:'PERCENT_OFF',value:100}]}},400);
+assert.ok(invalid.details.fields.whatsapp);assert.ok(invalid.details.fields['tiers.0.minQuantity']);assert.ok(invalid.details.fields['tiers.0.value']);assert.equal((await http('admin',route)).revision,before.revision);
+let changed=false,revision=before.revision;
+try{
+ assert.equal(before.domain.url,origins.storefront);assert.ok(before.recipientDetails.some(p=>p.id===access.actor&&p.email&&p.role));
+ const document={...savedDocument,name:'Magenta · configuración de prueba',whatsapp:'+1 (202) 555-0100',payments:{...savedDocument.payments,whatsapp:true},mixProducts:true,tiers:[{productId:'',minQuantity:2,mode:'PERCENT_OFF',value:10}],pickup:{...savedDocument.pickup,instructions:'Instrucciones sintéticas verificadas por API'},shipping:{...savedDocument.shipping,enabled:true,country:'MX',postalPrefixes:['00'],feeCents:2551,freeFromCents:100010},policies:{privacy:'Privacidad sintética de prueba.',returns:'Devoluciones sintéticas de prueba.',terms:'Términos sintéticos de prueba.'},recipients:[access.actor]};
+ const saved=await http('admin',route,{action:'settings',revision,document});revision=saved.result.revision;changed=true;
+ const reload=await http('admin',route);assert.equal(reload.revision,revision);assert.equal(reload.document.whatsapp,'12025550100');assert.deepEqual(reload.document,{...document,whatsapp:'12025550100'});assert.equal(reload.domain.url,before.domain.url);
+ const publicData=await http('storefront','/api/store-settings');assert.equal(publicData.settings.whatsapp,'12025550100');assert.equal(publicData.settings.pickup.instructions,document.pickup.instructions);assert.equal(publicData.settings.recipients,undefined);
+ const contact={email:'buyer@example.test',name:'Synthetic quote',phone:'2025550100',line1:'SYNTHETIC',line2:'',city:'TEST',state:'TEST',postalCode:'00000',country:'MX'};
+ const quote=await http('storefront','/api/checkout',{action:'quote',lines:[{productId:ids.product,variantId:ids.variant,quantity:2}],contact,delivery:'SHIPPING',method:'WHATSAPP'});assert.equal(quote.ready,true);assert.equal(quote.subtotalCents,18000);assert.equal(quote.shippingCents,2551);assert.equal(quote.totalCents,20551);
+ assert.deepEqual(publicData.settings.policies,document.policies);assert.equal(publicData.settings.name,document.name);
+ console.log('PASS seven-section settings HTTP: 400 field errors/no write; save 200; reload exact document; read-only hosted domain; recipient identity; public redaction; server quote 18000 + 2551 = 20551 cents; no purchase/message.');
+}finally{
+ if(changed){const current=await http('admin',route);assert.equal(current.revision,revision,'Concurrent edit detected: refusing to overwrite it');await http('admin',route,{action:'settings',revision,document:savedDocument});assert.deepEqual((await http('admin',route)).document,savedDocument);}
+ assert.deepEqual(await snapshot(),original);
+}
+execFileSync(process.execPath,['scripts/test-atelier-functional-preview.mjs'],{stdio:'inherit'});
+fs.writeFileSync(path.join(dir,'settings-preview-proof.json'),JSON.stringify({at:new Date().toISOString(),proof,settingsRestored:true,stockAndOrdersUnchanged:true,atelierHTTPVerified:true,visualReview:false}));
+console.log('PASS original settings restored; orders and inventory unchanged; current approved Atelier HTTP regression suite passed.');

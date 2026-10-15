@@ -1,0 +1,102 @@
+﻿ M scripts/test-comu-buyer-visual-local.mjs
+ M scripts/test-comu-seller-catalog-local.mjs
+ M scripts/test-comu-stripe-checkout-e2e-testmode.mjs
+ M scripts/test-comu-stripe-dispute-testmode.mjs
+ M scripts/test-pos-food-access-server-v1.mjs
+ M scripts/test-pos-food-configurator-v1.mjs
+ M scripts/test-pos-food-modifiers-v1.mjs
+ M scripts/test-pos-food-operations-v1.mjs
+ M scripts/test-pos-food-pilot-hardening-v1.mjs
+ M scripts/test-pos-mobile-m1.mjs
+ M scripts/test-pos-multirole-cash-v1.mjs
+ M src/app/api/comu/buyer/experience/route.ts
+ M src/app/api/pos/devices/route.ts
+ M src/app/brand/[brandSlug]/components/pos-food-modifiers.tsx
+ M src/app/brand/[brandSlug]/components/pos-food-operations.tsx
+ M src/app/brand/[brandSlug]/components/pos-food-receipt.tsx
+ M src/app/comu/account/buyer/buyer-account.tsx
+ M src/app/comu/account/buyer/page.tsx
+ M src/app/comu/account/page.tsx
+ M src/app/comu/cart/page.tsx
+ M src/app/comu/components/auth-boundary.tsx
+ M src/app/comu/components/commerce.tsx
+ M src/app/comu/page.tsx
+ M src/app/comu/products/[slug]/add-to-cart.tsx
+ M src/app/comu/seller/finance/page.tsx
+ M src/app/comu/seller/product-editor.tsx
+ M src/app/comu/seller/seller-dashboard.tsx
+ M src/lib/comu/buyer-experience.ts
+ M src/lib/comu/buyers.ts
+ M src/lib/comu/public-routes.ts
+ M src/lib/pos/device-server.ts
+ M src/lib/pos/server.ts
+ M src/lib/pos/staff-server.ts
+ M src/proxy.ts
+ M tsconfig.json
+?? apps/
+?? config/
+?? docs/cometa-pos-mobile-m1-5-certification.md
+?? docs/cometa-pos-mobile-m2-5.md
+?? docs/cometa-pos-mobile-m2-6-1.md
+?? docs/cometa-pos-mobile-m2-6.md
+?? docs/cometa-pos-mobile-m2-7b.md
+?? docs/cometa-pos-mobile-m2-scope.json
+?? docs/cometa-pos-mobile-m2.md
+?? docs/comu-buyer-auth-v1.md
+?? docs/comu-product-editor-v3b-final-certification.md
+?? docs/comu-product-editor-v3b-git-status.txt
+?? docs/comu-product-editor-v3b.md
+?? docs/comu-seller-certification-final-local.md
+?? docs/comu-seller-certification-git-status.txt
+?? docs/comu-seller-certification-local.md
+?? docs/visual-evidence/comu-product-editor-v3b/
+?? docs/visual-references/
+?? public/comu/
+?? scripts/certify-comu-seller-final-local.mjs
+?? scripts/certify-comu-sellers-http-local.mjs
+?? scripts/certify-comu-v3b-browser-local.mjs
+?? scripts/certify-comu-v3b-legacy-browser-local.mjs
+?? scripts/certify-comu-v3b-local-setup.mjs
+?? scripts/certify-comu-v3b-regressions-local.mjs
+?? scripts/certify-comu-v3b-roundtrip-local.mjs
+?? scripts/pos-beta-download-preview.mjs
+?? scripts/prepare-pos-beta-schema.mjs
+?? scripts/test-comu-account-capabilities-http-local.mjs
+?? scripts/test-comu-auth-local.mjs
+?? scripts/test-comu-finance-lifecycle-local.mjs
+?? scripts/test-comu-product-editor-http-v3b.mjs
+?? scripts/test-comu-product-editor-regressions-v3b.mjs
+?? scripts/test-comu-product-editor-v3b.mjs
+?? scripts/test-comu-product-editor-visual-v3b.mjs
+?? scripts/test-comu-product-media-v3b.mjs
+?? scripts/test-pos-mobile-m2-http-local.mjs
+?? src/app/android/
+?? src/app/api/comu/admin/finance/
+?? src/app/api/pos/mobile/
+?? src/app/brand/admin/comu/finance/
+?? src/app/comu/account/buyer/account-icon.tsx
+?? src/app/comu/account/buyer/buyer-account.css
+?? src/app/comu/auth/
+?? src/app/comu/components/auth-editorial.tsx
+?? src/app/comu/components/auth-entry.tsx
+?? src/app/comu/components/auth-form.tsx
+?? src/app/comu/components/home-image.tsx
+?? src/app/comu/forgot-password/
+?? src/app/comu/home.css
+?? src/app/comu/login/
+?? src/app/comu/register/
+?? src/app/comu/reset-password/
+?? src/app/comu/seller/finance/connect-card.tsx
+?? src/app/comu/seller/product-editor-media.tsx
+?? src/app/comu/seller/product-editor.css
+?? src/app/dev/
+?? src/app/mobile/
+?? src/components/pos-mobile-download.tsx
+?? src/lib/comu/account-access.ts
+?? src/lib/comu/auth-navigation.ts
+?? src/lib/pos/beta-policy.ts
+?? src/lib/pos/beta-release.ts
+?? src/lib/pos/client-transport.tsx
+?? src/lib/pos/transport-server.ts
+?? supabase/.branches/
+?? ../cometa-hotfix-recovery/

@@ -1,0 +1,14 @@
+﻿import fs from "node:fs";
+import assert from "node:assert/strict";
+const migration = fs.readFileSync("supabase/migrations/20260918140000_pos_food_customer_loyalty_memory_v1.sql", "utf8");
+const shared = fs.readFileSync("src/lib/pos/food-shared.ts", "utf8");
+const server = fs.readFileSync("src/lib/pos/food-server.ts", "utf8");
+const api = fs.readFileSync("src/app/api/pos/food/customer-memory/route.ts", "utf8");
+assert.match(migration, /add column if not exists customer_id uuid/);
+assert.match(migration, /pos_customer_food_profiles/);
+assert.match(migration, /pos_complete_sale_with_staff_v1\([^;]*c\.customer_id/);
+assert.match(migration, /customer_set/);
+assert.match(shared, /customer_set: "POS_ACCESS"/);
+assert.match(server, /POS_CUSTOMER_NOT_FOUND/);
+assert.match(api, /pos_sales/);
+console.log("Food Loyalty/Memory static contract PASS");

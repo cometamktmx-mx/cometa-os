@@ -1,11 +1,30 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { updateSession } from "./lib/supabase/middleware";
+import { copySupabaseCookies, updateSession } from "./lib/supabase/middleware";
+import { posReturnTo } from "./lib/pos/navigation";
+import { requirePosPageAccess } from "./lib/pos/admin-access";
+import { PosApiError } from "./lib/pos/server";
+import { isPublicComuRoute } from "./lib/comu/public-routes";
+import { comuLoginHref, isComuBuyerPrivatePath } from "./lib/comu/auth-navigation";
+import { assertBetaBackend, betaPublicPath } from "./lib/pos/beta-policy";
+import { isClosedComuPurchaseRequest } from "./lib/comu/purchase-access";
 
-const publicRoutes = ["/", "/login"];
+const publicRoutes = [
+  "/manifest.json",
+  "/sw.js",
+  "/",
+  "/login",
+  "/signup",
+  "/confirm-signup",
+  "/forgot-password",
+  "/reset-password",
+  "/auth/callback",
+  "/auth/confirm",
+];
 
 const protectedAdminPages = [
   "/workspace/admin",
+  "/workspace/brands",
   "/sales-ai/settings",
   "/sales-ai/admin",
 ];
@@ -16,7 +35,7 @@ const protectedAdminApis = [
 ];
 
 function isPublicRoute(pathname: string) {
-  return publicRoutes.includes(pathname);
+  return publicRoutes.includes(pathname) || isPublicComuRoute(pathname);
 }
 
 function isProtectedAdminPage(pathname: string) {
@@ -29,39 +48,6 @@ function isProtectedAdminApi(pathname: string) {
   return protectedAdminApis.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
-}
-
-function parseCsv(value?: string | null) {
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isCometaAdmin(
-  user: {
-    id?: string;
-    email?: string | null;
-  } | null
-) {
-  if (!user) return false;
-
-  const adminEmails = parseCsv(process.env.COMETA_ADMIN_EMAILS);
-  const adminUserIds = parseCsv(process.env.COMETA_ADMIN_USER_IDS);
-
-  const userEmail = String(user.email || "")
-    .trim()
-    .toLowerCase();
-
-  const userId = String(user.id || "")
-    .trim()
-    .toLowerCase();
-
-  if (!adminEmails.length && !adminUserIds.length) {
-    return false;
-  }
-
-  return adminEmails.includes(userEmail) || adminUserIds.includes(userId);
 }
 
 async function getProxyUser(request: NextRequest) {
@@ -114,18 +100,16 @@ async function getProxyUser(request: NextRequest) {
     console.warn("PROXY AUTH WARNING:", error.message);
   }
 
-  return {
-    user,
-    response,
-  };
+  let isAdmin = false;
+  if (user) {
+    const { data: profile } = await supabase.from("user_profiles").select("role,status").eq("user_id", user.id).maybeSingle();
+    isAdmin = profile?.role === "admin" && profile.status === "active";
+  }
+  return { user, isAdmin, response };
 }
 
 function copyCookies(source: NextResponse, target: NextResponse) {
-  source.cookies.getAll().forEach((cookie) => {
-    target.cookies.set(cookie.name, cookie.value, cookie);
-  });
-
-  return target;
+  return copySupabaseCookies(source, target);
 }
 
 function redirectToLogin(
@@ -188,7 +172,24 @@ function forbiddenJson(authResponse: NextResponse) {
 }
 
 export async function proxy(request: NextRequest) {
+  if (isClosedComuPurchaseRequest(request.nextUrl.pathname, request.method)) {
+    if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ ok: false, code: "COMU_PURCHASES_CLOSED", error: "Las compras públicas todavía no están habilitadas. El acceso para vendedores sigue disponible." }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    return new NextResponse('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><title>COMU · Compras próximamente</title><body style="background:#f8f5f0;color:#173e35;font-family:system-ui;padding:8vw"><h1>Estamos preparando las compras en COMU.</h1><p>El ingreso y la operación de vendedores siguen disponibles.</p><a href="/comu/sell">Vende en COMU</a> · <a href="/comu">Volver a COMU</a></body></html>', { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store" } });
+  }
   const pathname = request.nextUrl.pathname;
+  if (process.env.COMETA_RUNTIME_ENV === "beta" || process.env.POS_MOBILE_ENV === "beta") {
+    try { assertBetaBackend(process.env); }
+    catch { return NextResponse.json({ error: "Beta no configurada" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
+    if (!betaPublicPath(pathname, request.method)) return new NextResponse(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+    // Dedicated Beta exposes only the mobile API and public distribution/link pages.
+    return NextResponse.next();
+  }
+  if (isComuBuyerPrivatePath(pathname)) {
+    const { user, response } = await getProxyUser(request);
+    if (!user) return copySupabaseCookies(response, NextResponse.redirect(new URL(comuLoginHref(pathname + request.nextUrl.search), request.url)));
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  }
 
   console.log("PROXY ACTIVO:", pathname);
 
@@ -201,13 +202,13 @@ export async function proxy(request: NextRequest) {
    * cualquier futura ruta dentro de /api/admin
    */
   if (isProtectedAdminApi(pathname)) {
-    const { user, response } = await getProxyUser(request);
+    const { user, isAdmin, response } = await getProxyUser(request);
 
     if (!user) {
       return unauthorizedJson(response);
     }
 
-    if (!isCometaAdmin(user)) {
+    if (!isAdmin) {
       return forbiddenJson(response);
     }
 
@@ -226,11 +227,52 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const posPage = pathname.match(/^\/brand\/([^/]+)\/pos(?:\/|$)/);
+  if (posPage) {
+    const response = await updateSession(request);
+    if (response.headers.has("location")) return response;
+    try {
+      await requirePosPageAccess(decodeURIComponent(posPage[1]), pathname, request.cookies);
+      // Operator-protected RSC responses must not be cached across sessions.
+      response.headers.set("Cache-Control", "private, no-store");
+      return response;
+    } catch (error) {
+      if (error instanceof PosApiError && [401, 403].includes(error.status)) {
+        const url = request.nextUrl.clone();
+        url.pathname = `/brand/${posPage[1]}/pos`;
+        url.search = "";
+        if (pathname.replace(/\/$/, "") !== url.pathname) return copyCookies(response, NextResponse.redirect(url));
+      }
+      // The root's bootstrap owns the retry UI; never render a protected child on failure.
+      if (pathname.replace(/\/$/, "") === `/brand/${posPage[1]}/pos`) return response;
+      const url = request.nextUrl.clone();
+      url.pathname = `/brand/${posPage[1]}/pos`; url.search = "";
+      return copyCookies(response, NextResponse.redirect(url));
+    }
+  }
+
   /**
    * Landing y login públicos.
    */
   if (isPublicRoute(pathname)) {
-    return NextResponse.next();
+    // Public does not mean "skip session maintenance": let the SSR client
+    // rotate valid cookies or remove an invalid/stale refresh token, while
+    // keeping the route accessible when there is no authenticated user.
+    if (pathname === "/login") return await updateSession(request);
+    const { user, response } = await getProxyUser(request);
+
+    if (pathname === "/" && user) {
+      const requestedNext = posReturnTo(request.nextUrl.searchParams.get("next"), request.nextUrl.searchParams.get("returnTo")) || "/entry";
+      const destination = requestedNext === "/" ? "/entry" : requestedNext;
+      const target = new URL(destination, request.url);
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = target.pathname;
+      redirectUrl.search = target.search;
+      redirectUrl.hash = target.hash;
+      return copySupabaseCookies(response, NextResponse.redirect(redirectUrl));
+    }
+
+    return response;
   }
 
   /**
@@ -242,13 +284,13 @@ export async function proxy(request: NextRequest) {
    * /sales-ai/admin
    */
   if (isProtectedAdminPage(pathname)) {
-    const { user, response } = await getProxyUser(request);
+    const { user, isAdmin, response } = await getProxyUser(request);
 
     if (!user) {
       return redirectToLogin(request, response);
     }
 
-    if (!isCometaAdmin(user)) {
+    if (!isAdmin) {
       return redirectToAccessDenied(request, response);
     }
 
@@ -272,6 +314,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     "/((?!_next/static|_next/image|favicon.ico|logo.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

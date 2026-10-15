@@ -24,6 +24,13 @@ type TableConfig = {
 
 const tableConfigs: TableConfig[] = [
   {
+    table: "brands",
+    slugColumns: ["slug"],
+    nameColumns: ["name"],
+    industryColumns: [],
+    cityColumns: [],
+  },
+  {
     table: "clients",
     slugColumns: ["brand_slug", "slug", "client_slug"],
     nameColumns: ["brand_name", "name", "client_name", "business_name"],

@@ -1,0 +1,171 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getConnectSettingsState, startConnectSettingsOnboarding } from "./connect-settings-actions";
+import StorefrontEditor from "./storefront-editor";
+import WholesaleManager from "./wholesale-manager";
+import ShippingSettings from "./shipping-settings";
+import ProductsManager, { type ProductManagerProduct, type ProductManagerListing } from "./products-manager";
+
+type View = "summary" | "store" | "products" | "wholesale" | "shipping" | "settings";
+type Seller = { id: string; slug: string; public_name: string; status: string; verification_status: string; verified_at?: string | null; brand_slug: string; city?: string | null; comu_storefronts?: { id: string; name: string; status?: string; headline?: string | null; description?: string | null; theme_config?: Record<string, unknown> | null }[] };
+type SellerResponse = Omit<Seller, "comu_storefronts"> & { comu_storefronts?: Seller["comu_storefronts"] | NonNullable<Seller["comu_storefronts"]>[number] };
+type Product = ProductManagerProduct;
+type Listing = ProductManagerListing;
+
+export default function SellerDashboard({ brandSlug, view = "summary", basePath }: { brandSlug: string; view?: View; basePath?: string }) {
+  const [sellers, setSellers] = useState<Seller[]>([]); const [sellerId, setSellerId] = useState(""); const [products, setProducts] = useState<Product[]>([]); const [listings, setListings] = useState<Listing[]>([]); const [message, setMessage] = useState("");
+  const base = basePath || `/brand/${encodeURIComponent(brandSlug)}/comu`;
+  const load = useCallback(async () => { try { const response = await fetch("/api/comu/sellers?mine=1"); const data = await response.json() as { sellers?: SellerResponse[] }; if (!response.ok) throw new Error("No se pudo cargar tu tienda."); const next = (data.sellers || []).filter((seller) => seller.brand_slug === brandSlug).map(seller => ({ ...seller, comu_storefronts: Array.isArray(seller.comu_storefronts) ? seller.comu_storefronts : seller.comu_storefronts ? [seller.comu_storefronts] : [] })); setSellers(next); const selected = sellerId || next[0]?.id || ""; setSellerId(selected); if (!selected) return; const catalog = await fetch(`/api/comu/catalog?scope=eligible&sellerId=${encodeURIComponent(selected)}`); if (!catalog.ok) throw new Error("No se pudo cargar tu catalogo."); const catalogData = await catalog.json() as { products?: Product[]; existing?: Listing[]; variants?: Array<{ product_id: string; sku?: string | null; price?: number | null; image_url?: string | null }>; inventory?: Record<string, number> }; const variants = catalogData.variants || []; const productsWithDetails = (catalogData.products || []).map((product) => { const variant = variants.find((item) => item.product_id === product.id); return { ...product, sku: variant?.sku || null, price: variant?.price ?? null, image_url: product.image_url || variant?.image_url || null, available_quantity: catalogData.inventory?.[product.id] || 0 }; }); setProducts(productsWithDetails); setListings(catalogData.existing || []); } catch { setMessage("No se pudo cargar la tienda o su catalogo. Actualiza para reintentar."); } }, [brandSlug, sellerId]);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  async function publish(productId: string) {
+    const existing = listings.find(item => item.product_id === productId);
+    if (existing) { await changeStatus(existing.id, "PUBLISHED"); return; }
+    const selectedSeller = sellers.find(item => item.id === sellerId);
+    const storefrontId = selectedSeller?.comu_storefronts?.[0]?.id;
+    if (!selectedSeller || !storefrontId) { setMessage("Configura primero tu tienda."); return; }
+    try {
+      const response = await fetch("/api/comu/listings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId, storefrontId, productId }) });
+      const data = await response.json() as { ok?: boolean; listing?: { id: string }; error?: string };
+      if (!response.ok || !data.ok || !data.listing) { setMessage(data.error || "No se pudo preparar el producto."); return; }
+      await changeStatus(data.listing.id, "PUBLISHED");
+    } catch { setMessage("No se pudo preparar el producto. Actualiza antes de reintentar."); }
+  }
+  async function changeStatus(listingId: string, status: string) { const response = await fetch("/api/comu/listings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sellerId, listingId, status }) }); const data = await response.json() as { ok?: boolean; error?: string }; setMessage(data.ok ? "Visibilidad actualizada." : data.error || "No se pudo actualizar."); void load(); }
+  async function uploadMedia(listingId: string, file: File) { const form = new FormData(); form.set("sellerId", sellerId); form.set("listingId", listingId); form.set("file", file); const response = await fetch("/api/comu/media", { method: "POST", body: form }); const data = await response.json() as { ok?: boolean; error?: string }; setMessage(data.ok ? "Imagen actualizada." : data.error || "No se pudo cargar la imagen."); if (data.ok) await load(); }
+  const seller = sellers.find((item) => item.id === sellerId); const storefrontId = seller?.comu_storefronts?.[0]?.id || "";
+  if (!sellerId || !seller) return <p className="rounded-2xl border border-white/10 bg-white/[.04] p-5 text-sm text-slate-300">{message || "Cargando tu tienda…"}</p>;
+  if (view === "store") return <section><StorefrontEditor sellerId={sellerId} brandSlug={brandSlug} sellerSlug={seller.slug} verified={seller.verification_status === "VERIFIED"} listingCount={listings.filter((item) => item.status === "PUBLISHED").length} /></section>; if (view === "shipping") return <section className="max-w-6xl"><ShippingSettings sellerId={sellerId} sellerSlug={seller.slug} storefrontId={storefrontId} products={products} listings={listings} /></section>;
+  if (view === "wholesale") return <section><WholesaleManager brandSlug={brandSlug} sellerId={sellerId} storefrontId={storefrontId} products={products} listings={listings} /></section>;
+  if (view === "products") return <section>{message && <p role="status" className="my-4 text-amber-800">{message}</p>}<ProductsManager sellerStatus={seller.status} brandSlug={brandSlug} products={products} listings={listings} publish={publish} changeStatus={changeStatus} uploadMedia={uploadMedia} refresh={load} sellerId={sellerId} /></section>;
+  if (view === "settings") return <SettingsPanel basePath={basePath} brandSlug={brandSlug} seller={seller} storefrontId={storefrontId} products={products} listings={listings} />;
+  return <section><div className="grid gap-8 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,.75fr)]"><div><PageIntro title="Resumen" copy="Gestiona toda la operación de tu tienda COMU desde un solo lugar. Productos, pedidos, envíos, mayoreo y más." /><p className="mt-7 text-xs font-black uppercase tracking-[.2em] text-emerald-300">COMU SELLER</p><h2 className="mt-3 max-w-2xl text-4xl font-black leading-[.98] tracking-[-.06em] text-white sm:text-5xl">Vende con claridad. Opera con control.</h2><p className="mt-5 max-w-xl text-base leading-7 text-slate-400">Tu catálogo POS ya está conectado a COMU para que publiques, atiendas pedidos y mantengas tu inventario sincronizado.</p></div><div className="relative overflow-hidden rounded-[1.75rem] border border-emerald-300/20 bg-[radial-gradient(circle_at_80%_15%,rgba(93,255,180,.2),transparent_35%),linear-gradient(145deg,#10291e,#08120d)] p-6 shadow-[0_0_55px_rgba(74,255,164,.08)]"><div className="absolute -right-8 -top-10 h-40 w-40 rounded-full border border-emerald-200/20 bg-emerald-300/10 blur-2xl" /><div className="relative"><span className="inline-flex rounded-full border border-emerald-200/25 bg-emerald-300/10 px-3 py-1 text-xs font-bold text-emerald-100">Sincronizado</span><h2 className="mt-8 text-2xl font-black tracking-[-.04em]">Inventario sincronizado con COMETA POS</h2><p className="mt-3 text-sm leading-6 text-slate-300">Productos, stock y precios se mantienen actualizados en tus canales.</p><div className="mt-8 flex items-center gap-3 text-sm font-semibold text-emerald-100"><span className="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-200/20 bg-emerald-300/10 text-xl">▧</span> Operación compartida</div></div></div></div>{message ? <p className="mt-6 rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm font-semibold text-emerald-100">{message}</p> : null}<div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Kpi icon="◈" label="Estado de la tienda" value={seller.status === "ACTIVE" ? "Activa" : "En preparación"} accent /><Kpi icon="◇" label="Productos publicados" value={String(listings.length)} /><Kpi icon="●" label="Menudeo" value="Activo" accent /><Kpi icon="◆" label="Mayoreo" value={listings.some((item) => item.status === "PUBLISHED") ? "Disponible" : "Pendiente"} /><Kpi icon="↗" label="Pedidos recientes" value="0" /></div><div className="mt-5 flex flex-wrap gap-3"><Link href={`/comu/sellers/${seller.slug}`} className="rounded-xl bg-emerald-300 px-5 py-3 text-sm font-black text-[#06100b] shadow-[0_0_28px_rgba(110,255,187,.12)] transition hover:bg-emerald-200">Ver tienda pública <span className="ml-2">↗</span></Link><Link href={`${base}/products`} className="rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-white transition hover:border-emerald-300/40 hover:bg-white/[.05]">Agregar productos</Link><Link href={base.startsWith("/comu/seller/") ? "/comu/seller/orders" : `${base}/orders`} className="rounded-xl border border-white/15 px-5 py-3 text-sm font-bold text-white transition hover:border-emerald-300/40 hover:bg-white/[.05]">Ver pedidos</Link></div><div className="mt-8 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]"><div className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-7"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Estado de operación</p><h2 className="mt-2 text-2xl font-black tracking-[-.04em]">Rendimiento de tu tienda</h2><p className="mt-1 text-sm text-slate-400">Resumen de actividad en los últimos 7 días.</p></div><span className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300">Últimos 7 días⌄</span></div><div className="mt-6 grid gap-3 sm:grid-cols-4"><MiniMetric label="Ventas totales" value="$0" /><MiniMetric label="Pedidos" value="0" /><MiniMetric label="Visitas a la tienda" value="0" /><MiniMetric label="Conversión" value="0%" /></div><div className="mt-7 h-44 rounded-2xl border border-white/[.06] bg-[#07110c] p-4"><div className="flex h-full items-end gap-2">{[18,26,20,34,24,40,30,48,28,42,36,52,44,58].map((height, index) => <span key={index} className="flex-1 rounded-t-md bg-gradient-to-t from-emerald-300/20 to-emerald-300/70" style={{ height: `${height}%` }} />)}</div></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500"><span>20 nov&nbsp;&nbsp; 21 nov&nbsp;&nbsp; 22 nov&nbsp;&nbsp; 23 nov&nbsp;&nbsp; 24 nov&nbsp;&nbsp; 25 nov&nbsp;&nbsp; 26 nov</span><span className="text-emerald-200">● Ventas y pedidos</span></div></div><div className="space-y-5"><div className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Progreso</p><h2 className="mt-2 text-xl font-black">Próximos pasos</h2><p className="mt-1 text-sm text-slate-400">Completa estos pasos para hacer crecer tu tienda.</p></div><span className="text-xs font-bold text-emerald-200">1 de 4</span></div><div className="mt-5 space-y-3"><Step done title="Configura tu tienda" copy={seller.status === "ACTIVE" ? "Tu tienda está activa." : "Tu tienda está en preparación."} /><Step title="Agrega más productos" copy="Publica más productos para atraer clientes." /><Step title="Configura precios de mayoreo" copy="Ofrece precios especiales a mayoristas." /><Step title="Conecta con COMETA POS" copy="Sincroniza inventario, pedidos y más." /></div></div><div className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Actividad</p><div className="mt-2 flex items-center justify-between gap-3"><h2 className="text-xl font-black">Pedidos recientes</h2><Link href={base.startsWith("/comu/seller/") ? "/comu/seller/orders" : `${base}/orders`} className="text-xs font-bold text-emerald-200">Ver todos →</Link></div><div className="mt-5 rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center"><div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-emerald-300/10 text-xl text-emerald-200">□</div><p className="mt-3 text-sm font-bold text-white">Aún no hay pedidos recientes</p><p className="mt-1 text-xs leading-5 text-slate-500">Cuando recibas pedidos o realices cambios importantes, los verás aquí.</p></div></div></div></div></section>;
+}
+function Kpi({ icon, label, value, accent = false }: { icon: string; label: string; value: string; accent?: boolean }) { return <div className="rounded-2xl border border-white/10 bg-white/[.035] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.03)]"><span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-300/10 text-emerald-200">{icon}</span><p className="mt-4 text-xs font-semibold text-slate-400">{label}</p><p className={`mt-1 text-lg font-black ${accent ? "text-emerald-200" : "text-white"}`}>{value}</p></div>; }
+function MiniMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-white/[.07] bg-[#0b1712] p-3"><p className="text-[11px] text-slate-500">{label}</p><p className="mt-2 text-lg font-black text-white">{value}</p></div>; }
+function Step({ title, copy, done = false }: { title: string; copy: string; done?: boolean }) { return <div className="flex gap-3"><span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[10px] ${done ? "border-emerald-300 bg-emerald-300 text-[#06100b]" : "border-white/25 text-transparent"}`}>✓</span><div><p className="text-sm font-bold text-white">{title}</p><p className="mt-0.5 text-xs leading-5 text-slate-500">{copy}</p></div></div>; }
+function PageIntro({ title, copy }: { title: string; copy: string }) { return <header className="mb-6"><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-300">COMU seller</p><h1 className="mt-2 text-3xl font-black tracking-[-.05em] text-white sm:text-4xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{copy}</p></header>; }
+type SettingsStorefront = { status?: string | null; name?: string | null; headline?: string | null; description?: string | null; theme_config?: Record<string, unknown> | null };
+type SettingsPolicy = { mode?: string; buyer_pays_percent?: number | null; free_shipping_threshold?: number | null };
+type SettingsWholesale = { enabled?: boolean | null };
+
+function verificationLabel(status: string) {
+  if (status === "VERIFIED") return "Verificada";
+  if (status === "PENDING") return "En revisión";
+  if (status === "REJECTED") return "Requiere atención";
+  return "Sin verificar";
+}
+
+function statusTone(status: "ready" | "pending" | "attention" | "neutral") {
+  if (status === "ready") return "border-emerald-300/20 bg-emerald-300/10 text-emerald-100";
+  if (status === "attention") return "border-rose-300/20 bg-rose-300/10 text-rose-100";
+  if (status === "pending") return "border-amber-300/20 bg-amber-300/10 text-amber-100";
+  return "border-white/10 bg-white/[.04] text-slate-300";
+}
+
+function SettingStatus({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "ready" | "pending" | "attention" | "neutral" }) {
+  return <div className="flex items-center justify-between gap-4 border-b border-white/[.06] py-3 last:border-0"><span className="text-sm text-slate-300">{label}</span><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(tone)}`}>{value}</span></div>;
+}
+
+function SettingsPanel({ brandSlug, seller, storefrontId, products, listings, basePath }: { basePath?: string; brandSlug: string; seller: Seller; storefrontId: string; products: Product[]; listings: Listing[] }) {
+  const [storefront, setStorefront] = useState<SettingsStorefront | null>(seller.comu_storefronts?.[0] || null);
+  const [policies, setPolicies] = useState<SettingsPolicy[]>([]);
+  const [wholesale, setWholesale] = useState<SettingsWholesale | null>(null);
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      const requests = await Promise.allSettled([
+        fetch(`/api/comu/storefronts?sellerId=${encodeURIComponent(seller.id)}`).then((response) => response.json() as Promise<{ storefront?: SettingsStorefront | null }>),
+        storefrontId ? fetch(`/api/comu/shipping/policy?sellerId=${encodeURIComponent(seller.id)}&storefrontId=${encodeURIComponent(storefrontId)}`).then((response) => response.json() as Promise<{ policies?: SettingsPolicy[] }>) : Promise.resolve({ policies: [] }),
+        storefrontId ? fetch(`/api/comu/wholesale?sellerId=${encodeURIComponent(seller.id)}&storefrontId=${encodeURIComponent(storefrontId)}`).then((response) => response.json() as Promise<{ policy?: SettingsWholesale | null }>) : Promise.resolve({ policy: null }),
+      ]);
+      if (!active) return;
+      const detail = requests[0].status === "fulfilled" ? requests[0].value.storefront : undefined;
+      const shipping = requests[1].status === "fulfilled" ? requests[1].value.policies || [] : [];
+      const wholesalePolicy = requests[2].status === "fulfilled" ? requests[2].value.policy || null : null;
+      if (detail) setStorefront(detail);
+      setPolicies(shipping);
+      setWholesale(wholesalePolicy);
+    }
+    void loadSettings();
+    return () => { active = false; };
+  }, [seller.id, storefrontId]);
+
+  const theme = storefront?.theme_config || {};
+  const published = listings.filter((listing) => listing.status === "PUBLISHED").length;
+  const hidden = listings.filter((listing) => listing.status !== "PUBLISHED").length;
+  const verified = seller.verification_status === "VERIFIED";
+  const storefrontActive = storefront?.status === "ACTIVE" || storefront?.status === "PUBLISHED" || seller.status === "ACTIVE";
+  const storeInfoReady = Boolean((storefront?.name || seller.public_name) && (storefront?.headline || storefront?.description) && (theme.whatsapp || seller.city || theme.address));
+  const posConnected = products.length > 0 || listings.length > 0;
+  const shippingLabel = policies.length >= 2 ? "Configurados" : policies.length === 1 ? "Parciales" : "No configurados";
+  const shippingTone = policies.length >= 2 ? "ready" : policies.length === 1 ? "pending" : "neutral";
+  const wholesaleActive = wholesale?.enabled === true || listings.some((listing) => listing.status === "PUBLISHED" && listing.wholesale_enabled === true);
+  const requirements = [storefrontActive, verified, published > 0, policies.length >= 1, storeInfoReady];
+  const complete = requirements.filter(Boolean).length;
+  const missing = [!storefrontActive ? "Activa tu tienda" : "", !verified ? "Verificación COMU" : "", published === 0 ? "Publica al menos un producto" : "", policies.length === 0 ? "Configura tus envíos" : "", !storeInfoReady ? "Completa la información pública" : ""].filter(Boolean);
+  const base = basePath || `/brand/${encodeURIComponent(brandSlug)}/comu`;
+  const publicHref = `/comu/sellers/${encodeURIComponent(seller.slug)}`;
+  const verificationTone = seller.verification_status === "REJECTED" ? "attention" : seller.verification_status === "VERIFIED" ? "ready" : "pending";
+  return <section className="space-y-7">
+    <PageIntro title="Configuración" copy="Administra el estado de tu tienda, sus conexiones y preferencias operativas." />
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
+      <div className="space-y-6">
+        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,.03)] sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Estado operativo</p><h2 className="mt-2 text-2xl font-black tracking-[-.04em] text-white">Salud de la tienda</h2><p className="mt-1 text-sm text-slate-400">Una lectura clara de lo que mantiene tu operación lista.</p></div><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${complete === requirements.length ? statusTone("ready") : statusTone("pending")}`}>{complete} de {requirements.length} listas</span></div><div className="mt-5"><SettingStatus label="Estado de la tienda" value={seller.status === "ACTIVE" ? "Activa" : seller.status === "PENDING_VERIFICATION" ? "Pendiente" : seller.status} tone={seller.status === "ACTIVE" ? "ready" : "pending"} /><SettingStatus label="Verificación" value={verificationLabel(seller.verification_status)} tone={verificationTone} /><SettingStatus label="Inventario" value={posConnected ? "Conectado al POS" : "Pendiente"} tone={posConnected ? "ready" : "pending"} /><SettingStatus label="Catálogo COMU" value={`${published} publicados · ${hidden} ocultos`} tone={published > 0 ? "ready" : "pending"} /><SettingStatus label="Mayoreo" value={wholesaleActive ? "Activo" : "No configurado"} tone={wholesaleActive ? "ready" : "neutral"} /><SettingStatus label="Envíos" value={shippingLabel} tone={shippingTone} /></div></section>
+        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-2xl font-black tracking-[-.04em] text-white">Conexiones</h2><p className="mt-1 text-sm text-slate-400">Revisa las herramientas que mantienen tu operación conectada.</p><div className="mt-5 grid gap-3 md:grid-cols-2"><Connection title="COMETA POS" value={posConnected ? "Conectado" : "Pendiente"} copy="Productos e inventario sincronizados con tu punto de venta." href={`/brand/${encodeURIComponent(brandSlug)}/pos`} ready={posConnected} /><Connection title="Envíos" value={shippingLabel} copy="Define cómo quieres manejar tus entregas." href={`${base}/shipping`} ready={policies.length >= 1} /><Connection title="Mayoreo" value={wholesaleActive ? "Activo" : "No configurado"} copy="Configura condiciones especiales por volumen." href={`${base}/wholesale`} ready={wholesaleActive} /><PaymentConnection key={brandSlug} brandSlug={brandSlug} /></div></section>
+        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-2xl font-black tracking-[-.04em] text-white">Verificación COMU</h2><p className="mt-1 text-sm text-slate-400">COMETA valida a los vendedores para generar confianza dentro de la plataforma.</p><div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/[.08] bg-[#0b1712] p-4"><div><p className="text-sm font-bold text-white">Estado actual</p><p className="mt-1 text-xs text-slate-500">La verificación es gestionada directamente por COMETA.</p></div><span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${statusTone(verificationTone)}`}>{verificationLabel(seller.verification_status)}</span></div>{seller.verified_at && verified ? <p className="mt-3 text-xs text-slate-500">Verificada el {new Intl.DateTimeFormat("es-MX", { dateStyle: "long" }).format(new Date(seller.verified_at))}.</p> : null}</section>
+        <section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-black text-white">Información de la tienda</h2><p className="mt-1 text-sm text-slate-400">{storeInfoReady ? "Tu información pública está completa." : "Completa los datos que verán tus compradores."}</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(storeInfoReady ? "ready" : "pending")}`}>{storeInfoReady ? "Completa" : "Información pendiente"}</span></div><Link href={`${base}/store`} className="mt-4 inline-flex rounded-xl border border-white/15 px-3 py-2 text-xs font-bold text-slate-200 hover:border-emerald-300/40">Administrar tienda</Link></section>
+      </div>
+      <aside className="space-y-6"><section className={`rounded-[1.5rem] border p-5 sm:p-6 ${complete === requirements.length ? "border-emerald-300/20 bg-emerald-300/[.06]" : "border-amber-300/20 bg-amber-300/[.05]"}`}><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Estado general</p><h2 className="mt-2 text-2xl font-black text-white">{complete === requirements.length ? "Tu tienda está lista" : "Requiere atención"}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{complete === requirements.length ? "Tu operación COMU cumple con los requisitos principales." : "Completa estos puntos para mantener tu tienda preparada."}</p>{missing.length ? <ul className="mt-5 space-y-2 text-sm text-amber-100">{missing.map((item) => <li key={item} className="flex gap-2"><span className="text-amber-300">•</span>{item}</li>)}</ul> : null}</section><section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-xl font-black text-white">Publicaciones</h2><div className="mt-4 grid grid-cols-2 gap-3"><InfoMini label="Publicados" value={published} /><InfoMini label="Ocultos" value={hidden} /></div><Link href={`${base}/products`} className="mt-4 inline-flex text-sm font-bold text-emerald-200">Administrar productos →</Link></section><section className="rounded-[1.5rem] border border-white/10 bg-white/[.035] p-5 sm:p-6"><h2 className="text-xl font-black text-white">Acciones rápidas</h2><div className="mt-3 space-y-1"><QuickLink href={`${base}/store`} label="Editar información de la tienda" /><QuickLink href={`${base}/products`} label="Administrar productos" /><QuickLink href={`${base}/wholesale`} label="Configurar mayoreo" /><QuickLink href={`${base}/shipping`} label="Configurar envíos" /><QuickLink href={base.startsWith("/comu/seller/") ? "/comu/seller/orders" : `${base}/orders`} label="Ver pedidos" /><QuickLink href={publicHref} label="Ver tienda pública" /></div></section><section className="rounded-[1.5rem] border border-emerald-300/15 bg-emerald-300/[.05] p-5"><p className="text-xs font-black uppercase tracking-[.16em] text-emerald-300">Consejo operativo</p><p className="mt-3 text-sm leading-6 text-slate-300">Mantén actualizada la información de tu tienda y revisa periódicamente tus productos, envíos y reglas de mayoreo.</p></section></aside>
+    </div>
+  </section>;
+}
+
+export function PaymentConnection({ brandSlug }: { brandSlug: string }) {
+  const [state, setState] = useState<Awaited<ReturnType<typeof getConnectSettingsState>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const pending = useRef(false);
+  useEffect(() => {
+    let active = true;
+    void getConnectSettingsState(brandSlug).then((result) => { if (active) setState(result); })
+      .catch(() => { if (active) setState({ ok: false, error: "No pudimos consultar tus pagos. Inténtalo nuevamente." }); });
+    return () => { active = false; };
+  }, [brandSlug]);
+  async function refresh() {
+    if (pending.current) return;
+    pending.current = true; setBusy(true); setMessage("");
+    try { setState(await getConnectSettingsState(brandSlug)); }
+    catch { setState({ ok: false, error: "No pudimos consultar tus pagos. Inténtalo nuevamente." }); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  async function configure() {
+    if (pending.current || !state?.ok || state.suspended || !["NOT_STARTED", "PENDING", "RESTRICTED"].includes(state.status)) return;
+    pending.current = true; setBusy(true); setMessage("");
+    let redirected = false;
+    try {
+      const result = await startConnectSettingsOnboarding(brandSlug);
+      if (!result.ok) { setMessage(result.error); return; }
+      const url = new URL(result.url);
+      if (url.protocol !== "https:" || url.hostname !== "connect.stripe.com") throw new Error("INVALID_ONBOARDING_URL");
+      window.location.assign(url.href);
+      redirected = true;
+    } catch { setMessage("No pudimos abrir la configuración de pagos. Actualiza el estado antes de reintentar."); }
+    finally { if (!redirected) { pending.current = false; setBusy(false); } }
+  }
+  const status = state?.ok ? state.status : null;
+  const labels = { NOT_STARTED: "Pendiente", PENDING: "Configuración pendiente", REVIEW: "En revisión", COMPLETE: "Pagos configurados", RESTRICTED: "Requiere atención" };
+  const suspended = state?.ok && state.suspended;
+  const canConfigure = !!status && !suspended && ["NOT_STARTED", "PENDING", "RESTRICTED"].includes(status);
+  return <div className="rounded-2xl border border-white/[.08] bg-[#0b1712] p-4">
+    <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">Pagos y depósitos</p><p className="mt-1 text-xs leading-5 text-slate-500">Configura tus datos de cobro de forma segura. La configuración no activa liquidaciones.</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(suspended || status === "RESTRICTED" ? "attention" : status === "COMPLETE" ? "ready" : "pending")}`}>{suspended ? "En revisión" : status ? labels[status] : state ? "No disponible" : "Consultando…"}</span></div>
+    {canConfigure && <button type="button" disabled={busy} onClick={() => void configure()} className="mt-4 rounded-xl border border-emerald-300/30 px-3 py-2 text-xs font-bold text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Abriendo…" : status === "NOT_STARTED" ? "Configurar pagos" : status === "RESTRICTED" ? "Resolver requisitos" : "Continuar configuración"}</button>}
+    <button type="button" disabled={busy || !state} onClick={() => void refresh()} className="mt-4 ml-3 text-xs font-bold text-slate-300 disabled:opacity-50">Actualizar estado</button>
+    {(message || (state && !state.ok)) && <p role="status" className="mt-3 text-xs text-amber-100">{message || (state && !state.ok ? state.error : "")}</p>}
+  </div>;
+}
+
+function Connection({ title, value, copy, href, ready }: { title: string; value: string; copy: string; href: string; ready: boolean }) { return <div className="rounded-2xl border border-white/[.08] bg-[#0b1712] p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-white">{title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{copy}</p></div><span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusTone(ready ? "ready" : "pending")}`}>{value}</span></div><Link href={href} className="mt-4 inline-flex text-xs font-bold text-emerald-200">Administrar →</Link></div>; }
+function InfoMini({ label, value }: { label: string; value: number }) { return <div className="rounded-xl border border-white/[.08] bg-[#0b1712] p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-2xl font-black text-white">{value}</p></div>; }
+function QuickLink({ href, label }: { href: string; label: string }) { return <Link href={href} className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/[.05] hover:text-white"><span>{label}</span><span className="text-emerald-200">→</span></Link>; }

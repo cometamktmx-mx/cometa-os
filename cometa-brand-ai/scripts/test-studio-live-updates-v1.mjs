@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+const live = await readFile("src/lib/studio/live.ts", "utf8"); const route = await readFile("src/app/api/studio/live/route.ts", "utf8"); const controller = await readFile("src/app/studio/studio-live-controller.tsx", "utf8"); const layout = await readFile("src/app/studio/layout.tsx", "utf8"); const changes = await readFile("src/lib/studio/changes.ts", "utf8");
+const item = { pieceId: "p1", status: "assigned", updatedAt: "2026-09-02T10:00:00Z", latestChangeAt: null, changeSource: null, reviewDecision: null, reviewUpdatedAt: null };
+const fingerprint = (items, counts) => createHash("sha256").update(JSON.stringify({ counts, items: [...items].sort((a, b) => a.pieceId.localeCompare(b.pieceId)).map((x) => [x.pieceId, x.status, x.latestChangeAt, x.changeSource, x.reviewDecision, x.reviewUpdatedAt]) })).digest("hex");
+const counts = { changes: 0, assigned: 1, readyForReview: 0 };
+assert.equal(fingerprint([item], counts), fingerprint([item], counts), "same state must have same fingerprint"); assert.notEqual(fingerprint([item], counts), fingerprint([{ ...item, status: "changes_requested" }], { ...counts, changes: 1 }), "relevant state must change fingerprint");
+assert.match(live, /studioLiveFingerprint/); assert.doesNotMatch(live, /asOf.*canonical/); assert.doesNotMatch(live, /randomUUID|Math\.random/);
+assert.match(route, /requireStudioAccess\(\)/); assert.doesNotMatch(route, /userId.*searchParams|userId.*request/);
+assert.match(live, /\.eq\("assigned_to", userId\)/); assert.match(live, /user_brand_access/); assert.match(live, /\.eq\("status", "active"\)/); assert.match(live, /mercury_team_assignments/); assert.match(live, /brands/);
+assert.match(changes, /classifyStudioChangeSource/); assert.match(changes, /latestClientReviewStatus === "changes_requested"/); assert.match(live, /classifyStudioChangeSource/); assert.doesNotMatch(live, /mercury_content_reviews/);
+for (const type of ["client_change", "internal_change", "new_assignment", "client_approved"]) assert.match(controller, new RegExp(type));
+assert.match(controller, /if \(!previous\) return/); assert.match(controller, /previous\.fingerprint === current\.fingerprint/); assert.match(controller, /old\?\.status !== "changes_requested"/); assert.match(controller, /old\.status !== "approved_client"/);
+assert.match(controller, /document\.visibilityState !== "visible"/); assert.match(controller, /navigator\.onLine === false/); assert.match(controller, /15_000/); assert.match(controller, /visibilitychange/); assert.match(controller, /addEventListener\("focus"/); assert.match(controller, /addEventListener\("online"/); assert.match(controller, /inFlight\.current/); assert.match(controller, /lastStartedAt\.current < 750/);
+assert.match(controller, /AUTO_REFRESH_ROUTES\.has\(pathname\)/); assert.match(controller, /setUpdateAvailable\(true\)/); assert.match(controller, /new Set\(\["\/studio", "\/studio\/changes", "\/studio\/pieces", "\/studio\/recordings", "\/studio\/resources"\]\)/); assert.doesNotMatch(controller, /new Set\([^\n]+\/studio\/operation/); assert.match(controller, /Hay información nueva disponible/);
+assert.match(layout, /StudioLiveController/); assert.match(controller, /setNotifications/); assert.match(controller, /read: false/); assert.match(controller, /markAllRead/); assert.match(controller, /Resolver cambios/); assert.match(controller, /Ver pieza/);
+for (const forbidden of ["private_notes", "raw_ai_data", "content_snapshot", "asset_snapshot", "signedUrl", "brief", "objective"]) assert.doesNotMatch(live, new RegExp(forbidden));
+assert.doesNotMatch(live + route + controller, /openai|COSMOS|chat\.completions/i); assert.doesNotMatch(live + route, /\.(insert|delete)\(/); assert.doesNotMatch(live + route, /client\.from\([^\n]+\.update\(/);
+console.log("Studio Live Updates V1 contracts: OK (read-only)");

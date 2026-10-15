@@ -99,6 +99,8 @@ export async function GET() {
       },
       totals,
       brands: sortedBrands,
+      shouldRedirectToBusinessOnboarding:
+        userContext.role === "client" && sortedBrands.length === 0,
       shouldRedirectToBrand:
         userContext.role === "client" && sortedBrands.length === 1,
       redirectBrandHref:
@@ -210,13 +212,15 @@ async function getUserContext(): Promise<{
 }
 
 async function collectBrands() {
-  const [clients, brandAnalysis, cosmosMemory] = await Promise.all([
+  const [registryBrands, clients, brandAnalysis, cosmosMemory] = await Promise.all([
+    safeSelect("brands"),
     safeSelect("clients"),
-    safeSelect("brand_analysis"),
+    safeSelect("brand_analysis", "created_at"),
     safeSelect("cosmos_memory"),
   ]);
 
   return [
+    ...registryBrands.map((row: any) => normalizeRawBrand(row, "brands")),
     ...clients.map((row: any) => normalizeRawBrand(row, "clients")),
     ...brandAnalysis.map((row: any) =>
       normalizeRawBrand(row, "brand_analysis")
@@ -225,12 +229,12 @@ async function collectBrands() {
   ].filter((brand) => brand.name || brand.slug);
 }
 
-async function safeSelect(tableName: string) {
+async function safeSelect(tableName: string, orderColumn = "updated_at") {
   try {
     const { data, error } = await supabase
       .from(tableName)
       .select("*")
-      .order("updated_at", { ascending: false })
+      .order(orderColumn, { ascending: false })
       .limit(300);
 
     if (error) {
@@ -320,6 +324,7 @@ function dedupeBrands(rawBrands: any[]) {
 }
 
 function sourcePriority(sourceTable: string) {
+  if (sourceTable === "brands") return 4;
   if (sourceTable === "clients") return 3;
   if (sourceTable === "brand_analysis") return 2;
   if (sourceTable === "cosmos_memory") return 1;

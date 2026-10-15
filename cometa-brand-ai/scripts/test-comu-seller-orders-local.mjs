@@ -1,0 +1,16 @@
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const read=file=>fs.readFileSync(file,"utf8");
+const route=read("src/app/brand/[brandSlug]/comu/orders/page.tsx");
+const page=read("src/app/comu/seller/orders-manager.tsx"),detail=read("src/app/comu/seller/orders-detail.tsx");
+assert.ok(route.includes("<SellerOrders brandSlug={brandSlug} />"));
+assert.ok(page.includes('request.set("contract", "o1")'));
+assert.ok(page.includes("Gestiona cada venta desde que se confirma hasta que llega al cliente."));
+assert.ok(page.includes("Aún no tienes pedidos."));
+assert.ok(page.includes("Conteos de los pedidos de esta página"));
+assert.ok(page.includes("Buscar por folio, producto o SKU"));
+assert.ok(detail.includes("Destinatario"));
+assert.ok(!/\b(?:supabase|admin|client)\.from\(/.test(page+detail),"O1 DTO only; no ad hoc data source");
+assert.ok(!/Ã|Â|�/.test(page+detail));
+await import("./test-comu-orders-v4-node.mjs");
+console.log("PASS Seller Orders: canonical brand context, O1 contract, V4 copy, no additional data source");
