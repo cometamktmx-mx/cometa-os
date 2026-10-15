@@ -5,7 +5,7 @@ Continuación de `a5f24e9`, rama `delivery/magenta-20261014`. Solo administraci�
 ## Entrega
 
 - URL estable: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/settings/import
-- Despliegue: https://cometa-9czxl30kc-cometa-os-s-projects.vercel.app
+- Despliegue: https://cometa-3wp1c5h14-cometa-os-s-projects.vercel.app
 - Menú: Sistema → Configuración → ¿Vienes de otro punto de venta? → Configurar importación.
 - Tarjeta compacta al principio de Configuración, icono POS y acción cyan.
 - Origen → Archivo → Revisión → Resultado. ELEVENTA único origen; productos/inventario/clientes seleccionables. Sucursal requerida para inventario.
@@ -35,3 +35,11 @@ Continuación de `a5f24e9`, rama `delivery/magenta-20261014`. Solo administraci�
 6. `docs/magenta-import-wizard-20261014.md`
 
 PNG aprobado y directorio ajeno de recuperación preservados y excluidos del commit.
+
+## Corrección del impuesto — 15 de octubre
+
+El campo de tasa estaba dentro de la ayuda plegada “Datos necesarios para crear productos”. Ahora aparece siempre en Revisión, antes de validar, para importaciones de productos. Comienza vacío; incluso una tasa cero debe indicarse explícitamente. Se explica que solo completa el impuesto ausente de productos nuevos; no modifica existentes ni reemplaza la tasa del archivo.
+
+Cambiar la tasa conserva archivo, hoja, fila de encabezados y correspondencias. Invalida únicamente la vista previa y sus decisiones para exigir nueva validación antes de escribir. No se cambió el motor, API ni SQL. En una pestaña anterior ya cargada puede desplegarse la ayuda para introducir la tasa sin recargar y perder el archivo seleccionado.
+
+Prueba de regresión del componente: respuesta “Define el impuesto para productos nuevos” → tasa explícita 0 → nueva validación sin ese error → decisiones → confirmación. Se comparan el contenido del archivo y los campos de mapeo/hoja/encabezados entre ambas peticiones. Transporte simulado, sin escritura en DB. TypeScript y lint del componente pasan. Archivos de esta corrección: `importer.tsx`, `scripts/test-import-wizard.mjs` y este informe. Production intacto.

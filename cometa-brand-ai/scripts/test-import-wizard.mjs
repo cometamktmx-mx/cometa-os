@@ -17,7 +17,8 @@ async function harness({ showTestHelp = false } = {}) {
     if (!init) return { ok: true, json: async () => url.includes('/locations') ? { ok: true, locations: [{ id: 'location', name: 'Principal' }] } : { ok: true, runs: [] } };
     const form = init.body, mode = form.get('mode'); requests.push({ mode, form });
     if (mode === 'apply' && failApply) return { ok: false, json: async () => ({ error: { message: 'No tienes permiso para importar en esta marca.' } }) };
-    return { ok: true, json: async () => mode === 'inspect' ? { ok: true, sheets: ['Hoja1'], headers: ['Código', 'Descripción'], mapping: { code: 0, name: 1 } } : mode === 'preview' ? { ok: true, preview: { rows, token: 'preview-token' } } : { ok: true, result: { status: 'done', id: 'run' } } };
+    const previewRows = rows.map(row => row.rowNumber === 2 && !form.get('creationTax') ? { ...row, errors: ['Define el impuesto para productos nuevos.'] } : row);
+    return { ok: true, json: async () => mode === 'inspect' ? { ok: true, sheets: ['Hoja1'], headers: ['Código', 'Descripción'], mapping: { code: 0, name: 1 } } : mode === 'preview' ? { ok: true, preview: { rows: previewRows, token: 'preview-token' } } : { ok: true, result: { status: 'done', id: 'run' } } };
   };
   const module = { exports: {} };
   vm.runInNewContext(transpile('src/app/brand/[brandSlug]/pos/settings/import/importer.tsx'), { module, exports: module.exports, File, FormData, crypto, require: name => name === 'react' ? hooks : name.endsWith('.module.css') ? { default: new Proxy({}, { get: (_, key) => key }) } : name.includes('client-transport') ? { usePosFetch: () => request } : name.includes('eleventa-import') ? contract.exports : name.includes('pos-shell') ? {} : name.includes('pos-icons') ? { PosIcon: () => null } : name === 'next/link' ? { default: 'a' } : require(name) });
@@ -39,7 +40,21 @@ assert.ok(h.text().includes('hasta 5 MB')); assert.equal(h.requests.length, 0);
 upload().props.onChange({ target: { files: [new File(['Código,Descripción\n00001,Sintético'], 'sintetico.csv')], value: '' } }); await h.settle();
 assert.equal(h.requests[0].mode, 'inspect'); assert.equal(h.requests[0].form.get('headerRow'), '1');
 h.button('Revisar correspondencias ').props.onClick(); h.render();
+const taxInput = () => h.nodes().find(n => n.type === 'input' && n.props['aria-describedby'] === 'creation-tax-help');
+assert.equal(taxInput().props.value, ''); // Never choose a tax silently.
 h.button('Validar y ver vista previa').props.onClick(); await h.settle();
+assert.ok(h.text().includes('Define el impuesto para productos nuevos.'));
+const beforeTax = h.requests.at(-1).form;
+taxInput().props.onChange({ target: { value: '0' } }); h.render();
+assert.equal(h.button('Confirmar importación').props.disabled, true); // Must revalidate changed input.
+h.button('Validar y ver vista previa').props.onClick(); await h.settle();
+const afterTax = h.requests.at(-1).form;
+assert.equal(afterTax.get('creationTax'), '0');
+assert.equal(afterTax.get('mapping'), beforeTax.get('mapping'));
+assert.equal(afterTax.get('sheet'), beforeTax.get('sheet'));
+assert.equal(afterTax.get('headerRow'), beforeTax.get('headerRow'));
+assert.equal(await afterTax.get('file').text(), await beforeTax.get('file').text());
+assert.ok(!h.text().includes('Define el impuesto para productos nuevos.'));
 assert.equal(h.button('Confirmar importación').props.disabled, true);
 for (const [row, value] of [[2, 'create'], [3, 'update'], [4, 'skip']]) { h.nodes().find(n => n.props['aria-label'] === `Decisión fila ${row}`).props.onChange({ target: { value } }); h.render(); }
 assert.equal(h.button('Confirmar importación').props.disabled, false);
