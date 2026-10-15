@@ -1,7 +1,6 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { getBusinessDocumentProfile } from "@/lib/pos/business-document-profile";
 import { getBrandSlugFromUrl, handlePosError, ok, optionalText, readJsonBody, requirePosContext, type PosRequestContext } from "@/lib/pos/server";
-import { requirePosPermission } from "@/lib/pos/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +16,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const context = requireSettings(await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "settings.manage" }));
+    const context = await requirePosMutationAccess({ brandSlug: getBrandSlugFromUrl(request), operation: "settings.manage" });
     const body = await readJsonBody<Record<string, unknown>>(request);
     const payload = {
       display_name: optionalText(body.commercialName, 140),
@@ -55,7 +54,6 @@ export async function PUT(request: Request) {
   } catch (error) { return handlePosError(error); }
 }
 
-function requireSettings(context: PosRequestContext): PosRequestContext { requirePosPermission(context, "pos.settings.manage"); return context; }
 function normalizeUpper(value: unknown, max: number) { const text = optionalText(value, max); return text ? text.toUpperCase() : null; }
 function normalizeColor(value: unknown, context: PosRequestContext) { void context; const color = optionalText(value, 7); if (!color) return undefined; if (!HEX.test(color)) throw new Error("El color debe utilizar el formato #RGB o #RRGGBB."); const normalized = color.length === 4 ? color.replace(/([0-9a-f])/gi, "$1$1") : color; return normalized.toUpperCase(); }
 function normalizeThemeMode(value: unknown) { const mode = optionalText(value, 10) || "dark"; if (!["dark", "light", "system"].includes(mode)) throw new Error("El tema debe ser dark, light o system."); return mode; }
