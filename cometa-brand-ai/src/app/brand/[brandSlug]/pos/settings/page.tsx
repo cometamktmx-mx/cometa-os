@@ -311,10 +311,12 @@ export default function PosSettingsPage() {
     "unconfigured";
 
   return (
-    <section data-pos-settings className="grid gap-5">
-      <Link href={`/brand/${brand.slug}/pos/settings/import`} className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-5 text-cyan-100">
-        <strong>Importar información</strong><span className="mt-1 block">¿Vienes de ELEVENTA? → Productos / Inventario / Clientes</span>
-      </Link>
+    <section data-pos-settings className="grid min-w-0 grid-cols-1 gap-5">
+      <aside className="grid min-w-0 grid-cols-[44px_minmax(0,1fr)] items-center gap-4 rounded-2xl border border-cyan-300/25 bg-[#0c2236] p-5 sm:grid-cols-[44px_minmax(0,1fr)_auto]">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-200"><PosIcon name="upload" /></span>
+        <div className="min-w-0 flex-1"><h2 className="text-base font-bold text-white">¿Vienes de otro punto de venta?</h2><p className="mt-1 text-sm text-slate-300">Trae tus productos, existencias y clientes a COMETA.</p></div>
+        <Link href={`/brand/${brand.slug}/pos/settings/import`} className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-4 py-3 text-sm font-bold text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-200 sm:col-span-1">Configurar importación<PosIcon name="arrow" className="h-4 w-4" /></Link>
+      </aside>
       <header className="relative overflow-hidden rounded-[30px] border border-white/[0.08] bg-[#081524] p-6 shadow-[0_30px_100px_rgba(0,0,0,0.2)] md:p-8">
         <div
           className="absolute right-[-100px] top-[-120px] h-80 w-80 rounded-full blur-[100px]"
