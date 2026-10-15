@@ -1,21 +1,48 @@
 # Magenta: lanzamiento autorizado - 15 de octubre de 2026
 
-## Lanzamiento autorizado en ejecución
+## Resultado vigente del lanzamiento
 
 El usuario autorizó explícitamente merge, las cinco migraciones revisadas y despliegues Production, sin cambios de dominio/DNS, sin cobros reales y con tienda cerrada. Candidato funcional: `dbd075e`, que incluye `ca7b86d` (impuesto explícito) y `dbd075e` (existencias iniciales/absolutas). La aceptación manual del importador y la revisión visual ya están cerradas. Los registros inferiores son históricos y no revocan esta autorización.
 
 - Destinos renovados: Supabase `zhtagqrzyovsrmsicaot`, marca `magenta-fitwear` (`70880b54-b6fe-4775-bb39-c9ff19c47c39`); Vercel `cometa-os` y `magenta-controlled-preview`. No confundir con las otras marcas ni con Preview.
 - Respaldo fresco 15/10 14:19 UTC: instantánea única SQL de esquema/datos, roles/propietarios, 26 objetos Storage. Restauración privada sin puertos publicados, descarga HTTP con 26 hashes iguales y cinco migraciones ensayadas: PASS. Custodia local privada; no se afirma PITR ni copia externa. Evidencia `.next/magenta-launch-audit/recovery-result.json`.
 - Cinco migraciones aplicadas y registradas atómicamente; ledger 81 -> 86. Hashes iguales a la tabla revisada. Marcas, usuarios, accesos, productos e inventario conservaron sus huellas. Evidencia `production-migrations.json` y `production-preservation.json` en el mismo directorio privado de evidencia.
-- Instalado `magenta-store-expiry` mediante el instalador autorizado, autenticación PostgreSQL/service_role, exclusivamente Magenta. Verificación de ejecuciones en curso.
+- Instalado `magenta-store-expiry` mediante el instalador autorizado, autenticación PostgreSQL/service_role, exclusivamente Magenta. Dos ejecuciones comprobadas: 14:33 y 14:34 UTC, ambas `succeeded`. No se cambiaron otros trabajos.
 - Sin configuración comercial guardada ni cuenta Connect para la marca: la ausencia de configuración mantiene la tienda cerrada. No se sembraron datos ni se importaron muestras en producción.
 - Pendientes concretos de Stripe: `STOREFRONT_STRIPE_LIVE_SECRET_KEY` y `STOREFRONT_STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` en Production de ambas aplicaciones. Las claves locales son test; las claves sensibles existentes de otras integraciones no son recuperables ni se reutilizan por su nombre. Pau todavía debe completar y activar su cuenta live. POS no depende de ello.
 - Endpoint previsto: `https://magenta-controlled-preview.vercel.app/api/stripe/connect-webhook`, eventos de cuentas conectadas `account.updated`, `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`. Sin clave live no se ha creado el endpoint externo ni se afirma recepción live. No crear dos receptores para el mismo flujo.
-- Publicación y comprobaciones de acceso todavía en ejecución; no declarar POS publicado hasta confirmar READY/Production y rutas.
+- Publicado el candidato `4e4cc0b74e6ac009f55e9a68ae9b80658c504669` mediante [PR #1](https://github.com/cometamktmx-mx/cometa-os/pull/1), merge `74ef7bf66bc826614d2a79369e94415007d5c66c`. Contiene `dbd075e`; los cambios posteriores a ese commit son ejecutores y documentación, sin cambios al diseño o motor comercial.
+- Administración: `https://cometa-n9dpqh97b-cometa-os-s-projects.vercel.app`; storefront: `https://magenta-controlled-preview-f8mmltn45-cometa-os-s-projects.vercel.app`. Ambos **READY / Production**, promovidos a los dominios existentes. Los dos builds comprobaron el backend real y modo live antes de compilar. No se modificaron dominios ni DNS.
+- TypeScript sin emisión, lint dirigido al importador, pruebas del asistente y gates de publicación: PASS. Compilación de ambas aplicaciones: PASS. Sin advertencia standalone en estos builds; los despliegues Vercel funcionan. No se repitió el pago Connect test ni hubo cobros reales.
+- Home, catálogo y bolsa: HTTP 200, un solo footer, sin referencias demo/test en el contenido renderizado. Navegador comprobó el producto real existente; sin fotos comerciales cargadas, se muestra su placeholder, sin sustituirlo por una fotografía demo. Las secciones editoriales necesitan contenido real para completar la presentación pública. No se declara tienda comercial lista.
+- API pública: modo `live`, tarjeta no disponible. Prueba de solo lectura en PostgreSQL confirmó rechazo `STORE_CONFIGURATION_REQUIRED`. Cero pedidos, cero importaciones y cero cuentas Connect en la marca real; ledger 86. Las RPC internas del importador no son ejecutables por `anon` ni `authenticated`; la operación pública del servidor conserva su autorización. Solicitud anónima válida al historial: HTTP 401.
+- Variables Production separadas de las compartidas conservando los identificadores y ramas de Preview. Preview funcional consultada mediante su acceso automatizado existente: modo `test`. Storage conserva los mismos 26 IDs/versiones que la instantánea canónica respaldada.
+- POS publicado y acceso comercial efectivo habilitado por la cortesía Pro existente; un owner activo y sucursal/caja existentes. **Login dentro de la sesión, navegación autenticada y guardado/recarga de configuración productiva pendientes**: el navegador llegó al login real y se solicitó al usuario entrar; no se crearon usuarios, enlaces de suplantación ni sesiones de prueba. No confundir redirección al login con verificación autenticada.
+
+### URLs operativas
+
+- POS: https://app.cometaos.com/brand/magenta-fitwear/pos
+- Importar información: https://app.cometaos.com/brand/magenta-fitwear/pos/settings/import
+- Configuración: https://app.cometaos.com/brand/magenta-fitwear/pos/online-store
+- Pagos: https://app.cometaos.com/brand/magenta-fitwear/pos/online-store?section=payments
+- Atelier (Production, nombre histórico del proyecto): https://magenta-controlled-preview.vercel.app
+
+### Pendientes para abrir ventas web
+
+1. Responsable técnico: suministrar privadamente la clave live de la plataforma correcta en `STOREFRONT_STRIPE_LIVE_SECRET_KEY` para Production de ambas aplicaciones. Configurar el endpoint de eventos Connect indicado arriba y su secreto en `STOREFRONT_STRIPE_LIVE_CONNECT_WEBHOOK_SECRET`, también en ambas. Redeploy para cargar variables. No reutilizar credenciales/IDs test ni cambiar branding global de COMU.
+2. Pau/titular: iniciar sesión con su acceso real, completar onboarding live desde Pagos una vez disponible, consultar estado y activar únicamente su cuenta habilitada. Ningún cargo real está autorizado por este lanzamiento.
+3. Pau: archivos ELEVENTA reales, impuestos, códigos, existencias por sucursal, precios, fotos y contenido comercial autorizado; contacto, entrega/recolección y políticas. Importar tras revisar correspondencias y vista previa; mantener estado CLOSED hasta confirmar los datos. Compatibilidad con archivos reales y hardware se verifica con esos archivos/dispositivos, sin declararla probada por las muestras.
+4. Verificar acceso autenticado y persistencia de las siete secciones con configuración real. El importador/POS no dependen del onboarding online. No abrir la tienda ni habilitar tarjeta mientras persistan los requisitos anteriores.
+
+### Recuperación vigente
+
+Conservar la copia privada fresca y los despliegues anteriores registrados en `admin-before-deploy.json` y `storefront-before-deploy.json`. Ante incidente, bloquear nuevas compras y evaluar promoción del despliegue compatible anterior; mantener cron/webhook para conciliar operaciones en tránsito. No deshacer las cinco migraciones ni restaurar datos automáticamente: cualquier escritura posterior, usuarios y otras marcas requieren evaluación previa. El rollback de código no revierte DB ni Storage.
+
+## Registro histórico previo al lanzamiento (no es el estado vigente)
 
 Estado actualizado desde `df05a0a`. Candidato de aplicación: **`816883d`**. Implementación y evidencia detalladas en [Cierre ejecutado](magenta-closure-20261014.md), que prevalece sobre los registros históricos de abajo. Production intacto; no merge, migraciones, variables live, dominios ni despliegue productivo.
 
-## Estado vigente para decidir el lanzamiento
+## Estado previo usado para decidir el lanzamiento
 
 - Implementados y publicados en Preview: acceso visible a ELEVENTA y CSV; Atelier independiente de Preview con demos restringidas a test; bloqueo de tarjeta sin Connect listo; activación explícita; alta POS con publicación web inicial/galería; corrección del paso de conteo de caja.
 - Verificados por interfaz: alta de producto y aparición en catálogo/ficha, bolsa/cotización por $80, venta POS por $75 con descuento de una unidad, cierre $275/diferencia cero y apertura nueva $100, aviso leído y activación de sonido. Connect test aprobado se conserva sin otro pago.
