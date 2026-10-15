@@ -106,6 +106,8 @@ Archivos de esta revisión (sin archivos de Atelier ni migraciones):
 
 ## Ajuste al mockup de configuración recibido
 
+Estado posterior: el usuario aprobó la configuración visual. La revisión descrita abajo queda aprobada; Atelier conserva su aprobación previa.
+
 Se abrió `referencias-magenta/configuracion-tienda-aprobada.png` antes de modificar. Diferencias corregidas respecto a la primera versión: cabecera con título/ayuda/acciones en una fila; franja independiente de identidad y disponibilidad guardada; navegación vertical con indicador lateral; campos en filas con etiquetas alineadas; disponibilidad en tarjeta separada; panel derecho ampliado para Atelier y revisión de pendientes. El lenguaje de paneles, controles y espaciado aplica a las siete secciones. Se conserva el shell real POS y sus condiciones, incluido cualquier aviso de suscripción que corresponda; no se copia la navegación ficticia del mockup.
 
 La vista embebida resultó bloqueada en el navegador y se retiró sin eludir protecciones. La miniatura usa una copia intacta de `apps/magenta-storefront/public/atelier/hero-demo.jpg`, identificada como referencia editorial de pruebas y enlazada al storefront configurado. No se rediseñó Atelier ni se publicaron las imágenes ilustrativas del mockup. La disponibilidad se toma del documento guardado, el distintivo test de la respuesta de pagos, y los pendientes de las validaciones existentes; no se muestran comprobaciones ficticias de dominio o pagos.
@@ -115,3 +117,15 @@ Archivos de este ajuste: `src/app/brand/[brandSlug]/pos/online-store/operations.
 Validación: TypeScript sin emisión, ESLint dirigido y prueba de formulario (siete secciones, conversión monetaria, errores, borradores y guardado/recarga) pasaron. Build administrativo READY / Preview: https://cometa-n69z6wiet-cometa-os-s-projects.vercel.app. Alias actualizado: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store. Se verificaron destinos Production sin cambios. Storefront aprobado conservado, sin nuevo despliegue: https://magenta-controlled-preview-test-delivery-cometa-os-s-projects.vercel.app.
 
 El navegador permitió comprobar la composición de escritorio y recorrer las siete secciones a 390 px, esperando su encabezado visible: ningún campo desbordó y el documento no presentó desbordamiento horizontal. La imagen editorial cargó correctamente. Se restauró el tamaño normal del navegador. La aprobación visual del usuario sigue pendiente. No hubo migraciones, cambios de configuración remota, pedidos ni pagos nuevos por este ajuste visual.
+
+## Cierre de Connect test — pedido 17D591A9
+
+Verificado el 15 de octubre de 2026 a las 01:41 UTC. Se satisfizo `individual.verification.document` mediante el simulador oficial alojado de Stripe: Iniciar verificación → Simular → Verificación correcta → Enviar resultado. No se subió identificación real. Stripe terminó la revisión y habilitó cobros y depósitos, sin requisitos pendientes. Se activó únicamente la vinculación test de Magenta para nuevas compras.
+
+El usuario pagó manualmente el nuevo pedido `17d591a9-fbb4-4b4c-b91c-21be7c84836e`, por 10,000 centavos MXN. Se recuperaron sesión completa, PaymentIntent succeeded, cargo pagado y transacción de saldo dentro de la cuenta conectada vinculada a la marca, distinta de la plataforma. Es una prueba completa de pago Connect test; no reutiliza el pago anterior de plataforma ni implica depósito bancario real.
+
+El evento original `checkout.session.completed` de Stripe coincide con cuenta, sesión y PaymentIntent. Su recepción quedó persistida a las 01:37:22 UTC, antes de cualquier repetición de auditoría. Pedido PAID visible por la API POS, un evento PAYMENT_PAID, un aviso persistido para el administrador y un único efecto SALE de una unidad. Stock 5 → 4; reserva 1 → 0.
+
+Dos lecturas del pedido y dos reintentos simultáneos devolvieron el mismo pedido pagado sin nueva URL de cobro. Dos repeticiones concurrentes del evento original, con firma test generada para ensayar deduplicación, respondieron HTTP 200. La auditoría de eventos de pago, historial, avisos y efectos de inventario quedó idéntica; stock final 4 y reserva 0. Estas repeticiones prueban idempotencia y se distinguen de la entrega original de Stripe y del pago manual completo.
+
+Evidencia detallada privada: `.next/magenta-functional/ephmrsjnpkcgddulvckj/connect-payment-proof.json`. No se cambió código de aplicación, no se creó otro cobro, no hubo migración ni despliegue. Production permanece intacto. El onboarding y el pago Connect test dejan de ser pendientes; las dependencias y autorización finales de lanzamiento live continúan vigentes.
