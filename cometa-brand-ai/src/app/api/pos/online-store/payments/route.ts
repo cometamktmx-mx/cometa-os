@@ -32,6 +32,6 @@ export async function POST(request:Request){try{
  const origin=process.env.STOREFRONT_ADMIN_ORIGIN;let u:URL;try{u=new URL(origin??'');}catch{throw new PosApiError(503,'POS_WEB_SAVE_FAILED','Falta el origen administrativo autorizado.');}
  if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw new PosApiError(503,'POS_WEB_SAVE_FAILED','Origen administrativo inválido.');
  const returnPath='/brand/'+encodeURIComponent(c.brand.slug)+'/pos/online-store';
- const link=await stripe.accountLinks.create({account:state.account.id,type:'account_onboarding',return_url:u.origin+returnPath+'?connect=return',refresh_url:u.origin+returnPath+'?connect=refresh'});
+ const link=await stripe.accountLinks.create({account:state.account.id,type:'account_onboarding',return_url:u.origin+returnPath+'?section=payments&connect=return',refresh_url:u.origin+returnPath+'?section=payments&connect=refresh'});
  return reply({url:link.url,expiresAt:link.expires_at});
 }catch(e){return handlePosError(e);}}

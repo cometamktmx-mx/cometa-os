@@ -8,7 +8,7 @@ const context={brand:{id:'brand',slug:'fixture'},user:{userId:'actor'},admin:{rp
 const guard=async args=>{if(denied)throw new ApiError(denied,'DENIED','Denied');if(args.brandSlug!=='fixture')throw new ApiError(403,'DENIED','Denied');return context;};
 const state=async()=>({runtime:{mode:'test'},binding:binding(),account,ready:enabled});
 const deps={
- 'stripe':class{accounts={create:async(payload,options)=>{created.push({payload,options});return account;}};accountLinks={create:async payload=>{links++;assert.equal(payload.return_url,'https://admin.example.test/brand/fixture/pos/online-store?connect=return');return {url:'https://connect.stripe.com/fixture',expires_at:1};}};},
+ 'stripe':class{accounts={create:async(payload,options)=>{created.push({payload,options});return account;}};accountLinks={create:async payload=>{links++;assert.equal(payload.return_url,'https://admin.example.test/brand/fixture/pos/online-store?section=payments&connect=return');assert.equal(payload.refresh_url,'https://admin.example.test/brand/fixture/pos/online-store?section=payments&connect=refresh');return {url:'https://connect.stripe.com/fixture',expires_at:1};}};},
  '@/lib/pos/mutation-access':{requirePosMutationAccess:async args=>{assert.equal(args.operation,'settings.manage');return guard(args);}},
  '@/lib/pos/access':{requirePosOperationalAccess:guard},'@/lib/pos/product-web':{assertWebAdministrator:()=>{}},'@/lib/pos/staff-server':{getPosMode:async()=>mode},
  '@/lib/pos/server':{PosApiError:ApiError,getBrandSlugFromUrl:r=>new URL(r.url).searchParams.get('brandSlug'),handlePosError:e=>Response.json({error:e.message},{status:e.status??500})},

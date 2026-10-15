@@ -4,7 +4,7 @@ Estado vigente: **diseño aprobado por el usuario, incluida la eliminación del 
 
 ## Requisitos manuales indispensables
 
-1. Diseño cerrado y aprobado: ninguna acción visual pendiente para el usuario.
+1. Atelier cerrado y aprobado. El nuevo rediseño de configuración POS requiere revisión del usuario; no modifica Atelier. No se recibió el mockup adjunto en este turno: se implementó la estructura detallada en el pedido.
 2. Completar **Stripe Connect test desde la interfaz**: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/online-store?section=payments → **Completar configuración**. El control obtiene un enlace nuevo, autenticado; si vence, el retorno `connect=refresh` genera otro sin cambiar de cuenta. No usar enlaces antiguos del archivo privado ni compartir enlaces Stripe. No introducir datos bancarios o identidad reales en esta cuenta sintética. Al regresar, pulsar **Consultar estado**. La consulta real del 14/10/2026 23:55 UTC mostró `charges_enabled=false`, `payouts_enabled=false`, `details_submitted=false`: faltan descripción/teléfono/URL del negocio, cuenta receptora y aceptación de condiciones dentro de Stripe test. Después debe probarse un pago Connect test nuevo: el pago anterior fue a la plataforma y no se repetirá ni contará como Connect.
 3. Confirmar dominio definitivo/registrador y entregar contenido autorizado: imágenes reales por SKU/variante, textos, políticas, contacto, dirección/horarios, cobertura/tarifas y stock real por ubicación. No copiar fixtures ni usuarios de prueba. Confirmar el responsable que operará pedidos y atenderá devoluciones/disputas.
 4. Para live, el titular de Magenta debe completar su identidad y cuenta bancaria **dentro de Stripe**, y aprobar el modelo Standard/direct charges y responsabilidades económicas. Credenciales live y secretos de webhook se suministran solo en Vercel, nunca en chat ni formularios de tienda. El país legal se confirma antes de crear la cuenta, no se infiere del país de pruebas.
@@ -72,3 +72,34 @@ Administración conserva su backend productivo y `APP_ORIGIN`; ampliar `OWN_STOR
 8. Abrir ventas de Magenta únicamente con aceptación visual y operativa, datos reales, destino/capacidades confirmados y todos los controles anteriores en verde. Monitorizar webhook/reintentos, cron, reservas, stock y pedido/aviso en POS. Ante fallo, cerrar nuevas compras y aplicar la recuperación descrita sin perder eventos en tránsito.
 
 Este documento es un procedimiento para aprobar, **no autorización ni certificado de producción lista**.
+
+## Configuración POS e identidad Stripe — 14 de octubre, hora México
+
+La configuración conserva el shell POS y sus permisos. Las siete secciones usan navegación interna, panel central y pendientes derivados de datos; una URL alojada basta y no se exige dominio propio. Envío se edita en pesos y se convierte a centavos enteros al guardar; mayoreo ya usa pesos en el contrato y no se multiplica de nuevo. Las identidades de notificaciones se consultan solo para el actor y administradores activos de la marca autorizada; no se muestran UUID. No hay migraciones nuevas.
+
+Auditoría Stripe test del 15/10/2026 00:18 UTC: la plataforma expone `settings.dashboard.display_name = Cometa POS`, nombre público nulo, icono configurado y logo no configurado. La cuenta Standard sintética tiene nombre público, logo e icono sin configurar. El navegador mostró realmente **COMU / Volver a COMU** en el onboarding. El Account Link no incluye nombre/logo: corresponde a la personalización de plataforma Connect, distinta del nombre interno del Dashboard. El Dashboard de personalización exige iniciar sesión, por lo que no se inspeccionaron ni cambiaron esos campos privados. El formulario Stripe además mostró un error de credenciales de una cuenta existente; lo debe resolver el titular con acceso Stripe, no con el usuario/contraseña POS.
+
+Propuesta concreta, **no aplicada**: Dashboard de la plataforma → Settings → Connect → Branding (acceso directo https://dashboard.stripe.com/account/applications/settings), revisar el modo test y cambiar el nombre mostrado **COMU → COMETA POS**, logo al COMETA existente `public/logo.png`, color principal **#1A4F85**. Mantener titular legal y nombre comercial de la cuenta Magenta independientes. El nombre/icono del onboarding son compartidos por todas las cuentas conectadas de esa plataforma: cambiarlo también cambia la presentación de COMU. No guardar hasta aprobar ese impacto; si Dashboard indica alcance compartido con live, detenerse. El icono debe ser un recurso COMETA aprobado y legible en formato cuadrado; no convertir el logo Magenta en identidad de plataforma ni subir un recorte improvisado.
+
+Para la identidad del cobro directo de Magenta, la cuenta conectada puede personalizar su propio perfil público y branding desde su Dashboard (Settings → Business → Public details / Branding). Propuesta para la cuenta test exclusivamente: nombre público **Magenta · pruebas**, logo original Atelier y URL alojada de la tienda test; no modificar titular legal ni inventar información. Esta personalización no sustituye el nombre de plataforma en el onboarding. La cuenta Standard ya inició onboarding: su titular debe completar los datos y confirmar cambios dentro de Stripe; no se intenta sobrescribir KYC por API. [Onboarding Standard y personalización de plataforma](https://docs.stripe.com/connect/standard-accounts).
+
+Los callbacks ahora incluyen `?section=payments&connect=return` y `?section=payments&connect=refresh`, bajo la marca resuelta por autorización y un origen HTTPS de servidor. Un retorno o refresco consulta Stripe y nunca activa cobros por sí solo. A las 00:14 UTC seguían pendientes descripción/teléfono/URL del negocio, cuenta receptora y aceptación de condiciones; cobros/depósitos/detalles y activación eran falsos. **No se creó ni cobró otro checkout; la prueba Connect completa sigue pendiente del alta test.** El pago anterior a plataforma permanece separado.
+
+Despliegues de esta revisión: administración https://cometa-djuj6oyw4-cometa-os-s-projects.vercel.app y storefront https://magenta-controlled-preview-radk7j256-cometa-os-s-projects.vercel.app, ambos **READY / Preview**, con sus alias test habituales. El verificador confirmó builds y destinos Production sin cambios. TypeScript sin emisión, lint dirigido, pruebas de formulario/conversión/errores, permisos de API e identidad de destinatarios y callbacks de onboarding pasaron. La consulta remota de las 00:29 UTC confirmó controles desplegados y renovación real de dos enlaces distintos sin cambiar cuenta; capacidades test seguían deshabilitadas.
+
+El navegador permitió revisar escritorio en Pagos, General y Envíos; se observó el importe incompleto `1.` retenido, error en español y diálogo de confirmación al salir. Después el control del navegador dejó de responder al intentar recuperar el foco. **Móvil, revisión visual del resto de secciones y aprobación del usuario siguen pendientes**; no se eludió el bloqueo. El ensayo HTTP de las siete secciones verificó guardado/recarga exactos, identidades, URL alojada, privacidad pública y cotización de 18,000 + 2,551 = 20,551 centavos. Los valores originales se restauraron y pedidos/stock permanecieron iguales. Se actualizaron expectativas antiguas del ensayo que aún buscaban elementos de una home previa; el diseño Atelier no se cambió.
+
+Archivos de esta revisión (sin archivos de Atelier ni migraciones):
+
+- `src/app/brand/[brandSlug]/pos/online-store/operations.tsx`
+- `src/app/brand/[brandSlug]/pos/online-store/payment-onboarding.tsx`
+- `src/app/brand/[brandSlug]/pos/online-store/settings.module.css`
+- `src/app/api/pos/online-store/operations/route.ts`
+- `src/app/api/pos/online-store/payments/route.ts`
+- `packages/own-storefront/settings-presentation.ts`
+- `scripts/test-store-settings-ui.mjs`
+- `scripts/test-store-operations-api.mjs`
+- `scripts/test-store-payment-onboarding.mjs`
+- `scripts/test-store-payments-api.mjs`
+- `scripts/test-magenta-settings-preview.mjs`
+- `docs/magenta-production-launch.md`

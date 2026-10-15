@@ -30,7 +30,17 @@ export async function GET(request:Request){try{const c=await context(request),qu
  c.admin.from('store_settings').select('revision,document').eq('brand_id',c.brand.id).maybeSingle(),c.admin.from('pos_locations').select('id,name,currency').eq('brand_slug',c.brand.slug).eq('active',true),c.admin.from('pos_products').select('id,name').eq('brand_slug',c.brand.slug).order('name').limit(500),c.admin.from('user_brand_access').select('user_id,access_role').eq('brand_slug',c.brand.slug).eq('status','active').in('access_role',['owner','admin']),stripeState(c)]);
  if(settings.error||locations.error||products.error||members.error)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','Configuración no disponible. Comprueba las migraciones.');
  let url:string|null=null;try{const mapping:unknown=JSON.parse(process.env.OWN_STOREFRONT_URLS??'{}');if(mapping&&typeof mapping==='object'){const v=(mapping as Record<string,unknown>)[c.brand.slug];if(typeof v==='string'){const u=new URL(v);if(u.protocol==='https:'&&!u.username&&!u.password)url=u.origin;}}}catch{/* no configured URL */}
- return reply({revision:settings.data?.revision??0,document:settings.data?.document??emptyStoreSettings(),locations:locations.data,products:products.data,recipients:[...new Set([c.user.userId,...(members.data??[]).map(m=>m.user_id)])],payment,domain:{url,status:url?'CONFIGURED_NOT_VERIFIED':'NOT_CONFIGURED'}});
+ // Resolve only the actor and active administrators of the already-authorized brand.
+ const recipients=[...new Set([c.user.userId,...(members.data??[]).map(m=>m.user_id)])];
+ const profiles=await c.admin.from('user_profiles').select('user_id,email,full_name').in('user_id',recipients);
+ if(profiles.error)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','No se pudieron consultar los responsables de esta marca.');
+ const recipientDetails=await Promise.all(recipients.map(async id=>{
+  const profile=profiles.data?.find(p=>p.user_id===id);
+  let name=typeof profile?.full_name==='string'?profile.full_name.trim():null,email=typeof profile?.email==='string'?profile.email.trim():null;
+  if(!email){const result=await c.admin.auth.admin.getUserById(id);if(result.error||!result.data.user)throw new PosApiError(503,'POS_WEB_LOOKUP_FAILED','No se pudo consultar un responsable de esta marca.');email=result.data.user.email??null;const fullName:unknown=result.data.user.user_metadata?.full_name;if(!name&&typeof fullName==='string')name=fullName.trim();}
+  return {id,name,email,role:members.data?.find(m=>m.user_id===id)?.access_role??'admin'};
+ }));
+ return reply({revision:settings.data?.revision??0,document:settings.data?.document??emptyStoreSettings(),locations:locations.data,products:products.data,recipients,recipientDetails,payment,domain:{url,status:url?'CONFIGURED_NOT_VERIFIED':'NOT_CONFIGURED'}});
  }catch(e){return failure(e);}}
 export async function POST(request:Request){try{const c=await context(request,true);const raw=await request.text();if(raw.length>65000)throw new PosApiError(400,'POS_VALIDATION_ERROR','Solicitud demasiado grande.');let value:unknown;try{value=JSON.parse(raw);}catch{throw new PosApiError(400,'POS_VALIDATION_ERROR','Solicitud inválida.');}if(!value||typeof value!=='object'||Array.isArray(value))throw new PosApiError(400,'POS_VALIDATION_ERROR','Solicitud inválida.');const b=value as Record<string,unknown>;let result;
  if(b.action==='settings'){
