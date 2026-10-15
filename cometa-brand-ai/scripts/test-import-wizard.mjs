@@ -17,8 +17,9 @@ async function harness({ showTestHelp = false } = {}) {
     if (!init) return { ok: true, json: async () => url.includes('/locations') ? { ok: true, locations: [{ id: 'location', name: 'Principal' }] } : { ok: true, runs: [] } };
     const form = init.body, mode = form.get('mode'); requests.push({ mode, form });
     if (mode === 'apply' && failApply) return { ok: false, json: async () => ({ error: { message: 'No tienes permiso para importar en esta marca.' } }) };
-    const previewRows = rows.map(row => row.rowNumber === 2 && !form.get('creationTax') ? { ...row, errors: ['Define el impuesto para productos nuevos.'] } : row);
-    return { ok: true, json: async () => mode === 'inspect' ? { ok: true, sheets: ['Hoja1'], headers: ['Código', 'Descripción'], mapping: { code: 0, name: 1 } } : mode === 'preview' ? { ok: true, preview: { rows: previewRows, token: 'preview-token' } } : { ok: true, result: { status: 'done', id: 'run' } } };
+    const inventory = form.get('kind') === 'inventory';
+    const previewRows = inventory ? rows.map(row => ({ ...row, values: { code: row.values.code, quantity: 10 }, matches: ['existing-variant'], inventoryExists: row.rowNumber === 3 })) : rows.map(row => row.rowNumber === 2 && !form.get('creationTax') ? { ...row, errors: ['Define el impuesto para productos nuevos.'] } : row);
+    return { ok: true, json: async () => mode === 'inspect' ? { ok: true, sheets: ['Hoja1'], headers: inventory ? ['Código', 'Existencia'] : ['Código', 'Descripción'], mapping: inventory ? { code: 0, quantity: 1 } : { code: 0, name: 1 } } : mode === 'preview' ? { ok: true, preview: { rows: previewRows, token: 'preview-token' } } : { ok: true, result: { status: 'done', id: 'run' } } };
   };
   const module = { exports: {} };
   vm.runInNewContext(transpile('src/app/brand/[brandSlug]/pos/settings/import/importer.tsx'), { module, exports: module.exports, File, FormData, crypto, require: name => name === 'react' ? hooks : name.endsWith('.module.css') ? { default: new Proxy({}, { get: (_, key) => key }) } : name.includes('client-transport') ? { usePosFetch: () => request } : name.includes('eleventa-import') ? contract.exports : name.includes('pos-shell') ? {} : name.includes('pos-icons') ? { PosIcon: () => null } : name === 'next/link' ? { default: 'a' } : require(name) });
@@ -71,6 +72,29 @@ assert.ok(h.text().includes('1Creados1Actualizados1Rechazados por errores'));
 assert.ok(h.text().includes('Código duplicado.'));
 h.button('Importar inventario').props.onClick(); h.render();
 assert.ok(h.text().includes('Sucursal de destino')); assert.equal(h.button('Continuar ').props.disabled, true);
+h.nodes().find(n=>n.type==='select').props.onChange({target:{value:'location'}});h.render();
+h.button('Continuar ').props.onClick();h.render();
+upload().props.onChange({target:{files:[new File(['Código,Existencia\n00001,10\n00002,10'],'existencias.csv')],value:''}});await h.settle();
+h.button('Revisar correspondencias ').props.onClick();h.render();
+assert.equal(taxInput(),undefined);assert.ok(!h.text().includes('Precio de venta'));assert.ok(!h.text().includes('Precio de costo'));
+h.button('Validar y ver vista previa').props.onClick();await h.settle();
+const inventoryPreview=h.requests.at(-1).form;
+for(const [row,expected] of [[2,'create'],[3,'update']]){
+ const selector=h.nodes().find(n=>n.props['aria-label']===`Decisión fila ${row}`);
+ const options=selector.props.children.flat(Infinity).filter(Boolean);
+ const action=options.find(n=>n.props?.children==='Actualizar existencias');assert.equal(action.props.value,expected);
+ assert.ok(!options.some(n=>n.props?.children==='Crear'));
+ selector.props.onChange({target:{value:action.props.value}});h.render();
+}
+const invalidSelector=h.nodes().find(n=>n.props['aria-label']==='Decisión fila 4');
+assert.ok(!invalidSelector.props.children.flat(Infinity).some(n=>n?.props?.children==='Actualizar existencias'));
+invalidSelector.props.onChange({target:{value:'skip'}});h.render();
+h.button('Confirmar importación').props.onClick();await h.settle();
+const inventoryApply=h.requests.at(-1).form;
+assert.equal(inventoryApply.get('kind'),'inventory');assert.equal(inventoryApply.get('creationTax'),'');
+assert.equal(inventoryApply.get('mapping'),inventoryPreview.get('mapping'));assert.equal(await inventoryApply.get('file').text(),await inventoryPreview.get('file').text());
+assert.deepEqual(JSON.parse(inventoryApply.get('decisions')),{'2':'create','3':'update','4':'skip'});
+assert.ok(h.text().includes('1Existencias inicializadas1Existencias actualizadas'));
 const preview = await harness({ showTestHelp: true }); assert.ok(preview.text().includes('Ayuda para pruebas'));
 for (const [environment, mode, expected] of [['production', 'test', false], ['production', 'live', false], ['preview', 'live', false], ['preview', 'test', true]]) {
   const page = { exports: {} };

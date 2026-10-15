@@ -5,7 +5,7 @@ Continuación de `a5f24e9`, rama `delivery/magenta-20261014`. Solo administraci�
 ## Entrega
 
 - URL estable: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/settings/import
-- Despliegue: https://cometa-3wp1c5h14-cometa-os-s-projects.vercel.app
+- Despliegue: https://cometa-ccmlyjgky-cometa-os-s-projects.vercel.app
 - Menú: Sistema → Configuración → ¿Vienes de otro punto de venta? → Configurar importación.
 - Tarjeta compacta al principio de Configuración, icono POS y acción cyan.
 - Origen → Archivo → Revisión → Resultado. ELEVENTA único origen; productos/inventario/clientes seleccionables. Sucursal requerida para inventario.
@@ -43,3 +43,20 @@ El campo de tasa estaba dentro de la ayuda plegada “Datos necesarios para crea
 Cambiar la tasa conserva archivo, hoja, fila de encabezados y correspondencias. Invalida únicamente la vista previa y sus decisiones para exigir nueva validación antes de escribir. No se cambió el motor, API ni SQL. En una pestaña anterior ya cargada puede desplegarse la ayuda para introducir la tasa sin recargar y perder el archivo seleccionado.
 
 Prueba de regresión del componente: respuesta “Define el impuesto para productos nuevos” → tasa explícita 0 → nueva validación sin ese error → decisiones → confirmación. Se comparan el contenido del archivo y los campos de mapeo/hoja/encabezados entre ambas peticiones. Transporte simulado, sin escritura en DB. TypeScript y lint del componente pasan. Archivos de esta corrección: `importer.tsx`, `scripts/test-import-wizard.mjs` y este informe. Production intacto.
+
+## Corrección de existencias — 15 de octubre
+
+Reproducción en la API real de Preview: los códigos `0000123` y `0000456` encuentran exactamente una variante cada uno, sin errores, pero ambos devuelven `inventoryExists=false` para la sucursal elegida. Enviar `update` devuelve HTTP 409 / conflicto; la comparación de productos, variantes e inventario antes/después confirma que la petición rechazada no escribió nada. La RPC distingue correctamente entre un producto encontrado y un registro de existencias todavía inexistente. El error estaba en ofrecer indistintamente Crear/Actualizar para inventario.
+
+La interfaz ahora ofrece **Actualizar existencias**: envía `create` solo para inicializar el registro de inventario ausente, o `update` si ya existe, según la vista previa autorizada. No crea productos. No ofrece aplicar a filas ambiguas/con errores ni inventa el estado de inventario si falta en la respuesta. Sigue exigiendo decisión explícita y conserva el token de concurrencia. El resumen distingue existencias inicializadas y actualizadas. Archivo y correspondencias no se reinician al elegir la acción.
+
+Verificación ejecutada:
+
+- Componente: una fila sin inventario y otra con inventario eligen la misma acción visible y envían decisiones correctas; archivo/mapeo idénticos, sin campo de impuesto, precio ni costo. Filas con errores solo pueden omitirse. TypeScript y lint pasan.
+- PostgreSQL local desechable: reproduce el conflicto anterior, demuestra ausencia de escritura, inicialización correcta, reexportación con los mismos valores sin suma, una sola fila de inventario, reintentos, reversión y restricciones posteriores. Pruebas existentes pasan; base temporal retirada, sin reinicializar instancias existentes.
+- API HTTP real, backend `ephmrsjnpkcgddulvckj`, marca `magenta-preview`: importación aplicada a los dos productos ya existentes. Existencias finales **10 y 0**, una fila por variante/sucursal. Productos y variantes idénticos antes/después; inventario ajeno al lote idéntico.
+- Dos reintentos concurrentes: HTTP 200, mismo lote, sin cambios adicionales. Repetir exactamente el archivo con otra clave: HTTP 409 por archivo ya aplicado, sin modificaciones. Una nueva exportación con iguales cantidades: HTTP 200, cantidades siguen **10 y 0**, sin nuevos productos ni filas duplicadas. Quedan dos lotes auditados (inicialización y comprobación de nueva exportación); no son duplicados de catálogo/stock.
+
+Evidencia: `.next/magenta-functional/ephmrsjnpkcgddulvckj/import-inventory-proof.json`. No se recargó ni manipuló la pestaña del usuario. El recorrido remoto se verificó por API autenticada; no se presenta como una nueva prueba de carga de archivos por navegador.
+
+Archivos de este ajuste: `src/app/brand/[brandSlug]/pos/settings/import/importer.tsx`, `scripts/test-import-wizard.mjs`, `scripts/test-pos-eleventa-local.mjs`, `scripts/test-magenta-import-inventory.mjs` y este informe. API/parser/RPC y las cinco migraciones permanecen sin cambios. Production intacto.

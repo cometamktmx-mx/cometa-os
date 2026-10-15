@@ -98,7 +98,17 @@ try {
  assert.equal(await sql("select name from pos_products where brand_slug='synthetic-import-a'"),'SYNTHETIC PRODUCT');
  const inventory = rows([{code:'000123',quantity:10}]);
  const ip = await call('inventory','preview',inventory); assert.equal(ip.rows[0].inventoryExists,false);
+ assert.equal(ip.rows[0].matches.length,1);assert.deepEqual(ip.rows[0].errors,[],'stock only needs code and quantity');
+ await assert.rejects(()=>call('inventory','apply',inventory.map(r=>({...r,decision:'update'})),{request:randomUUID(),hash:hash('wrong-inventory-decision'),token:ip.token}),/POS_IMPORT_CONFLICT/);
+ assert.equal(await sql(`select count(*) from pos_inventory where variant_id='${variant}'`),'0','rejected update must not create records');
  await call('inventory','apply',inventory.map(r=>({...r,decision:'create'})),{request:randomUUID(),hash:hash('inventory'),token:ip.token});
+ const again=await call('inventory','preview',inventory);
+ const againOptions={request:randomUUID(),hash:hash('same-absolute-values-new-export'),token:again.token};
+ const againRows=inventory.map(r=>({...r,decision:'update'}));
+ const againResult=await call('inventory','apply',againRows,againOptions);
+ assert.equal((await call('inventory','apply',againRows,againOptions)).id,againResult.id);
+ assert.equal(await sql(`select quantity from pos_inventory where variant_id='${variant}'`),'10.000','reimport replaces, never adds');
+ assert.equal(await sql(`select count(*) from pos_inventory where variant_id='${variant}'`),'1');
  const replace = rows([{code:'000123',quantity:4}]);
  const rp = await call('inventory','preview',replace); assert.equal(rp.rows[0].inventoryExists,true);
  const replacement = await call('inventory','apply',replace.map(r=>({...r,decision:'update'})),{request:randomUUID(),hash:hash('inventory-absolute'),token:rp.token});
