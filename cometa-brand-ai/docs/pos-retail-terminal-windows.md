@@ -53,3 +53,61 @@ Pruebas automatizadas: `node scripts/test-pos-retail-terminal.mjs`, `node script
 Pendiente físico: instalación PWA en Windows 10 Pro del cliente; permisos de red local; impresión real 58/80 mm; perfil/pin del cajón; desconexión USB; suspensión y reanudación de ese equipo. No se autoriza una venta ficticia en producción para estas pruebas.
 
 Los permisos de cancelación, devolución y cambio de precio no crean un motor nuevo para esas acciones: solo deben habilitarse cuando exista un recorrido operativo soportado y validado. No presentar una casilla como una operación comercial terminada.
+
+## Evidencia de esta entrega (16 de octubre)
+
+- Build administrativo aislado y build Vercel Preview completados; guardia de build confirmó backend `ephmrsjnpkcgddulvckj` y Stripe test. Producción y storefront no se desplegaron.
+- TypeScript sin errores; lint dirigido sin errores. Suite de terminal: casos de efectivo/tarjeta/transferencia/mixto, reimpresión, firma real RSA del mensaje QZ, deduplicación, fallo/resultado incierto y permisos. Son pruebas de software, sin impresora ni ventas reales.
+- Regresión: 9 pruebas de servidor y 17 de shell aprobadas, más contratos de staff. Incluyen FOOD y conservación del componente/carrito al bloquear/cambiar operador.
+- PostgreSQL real de pruebas: ensayo transaccional con ROLLBACK aprobado; último administrador, bootstrap con operador anterior conservado, PIN, expiración, marca, grants y deduplicación. Dos migraciones aplicadas solo a `magenta-preview-test`; hashes de ambas coinciden con el historial. No aplicadas a producción.
+- Pendiente: recorrido autenticado del nuevo administrador PIN en Preview; instalación PWA real y hardware. La firma QZ no está configurada. No declarar impresión/cajón listos físicamente.
+
+### Archivos del cambio
+
+- `.gitignore`
+- `docs/pos-retail-terminal-windows.md`
+- `next.config.ts`
+- `package-lock.json`
+- `package.json`
+- `public/manifest.json`
+- `public/pos-icon-192.png`
+- `public/pos-icon-512.png`
+- `public/sw.js`
+- `scripts/prepare-magenta-preview.mjs`
+- `scripts/test-pos-food-access-server-v1.mjs`
+- `scripts/test-pos-food-shell-v1.mjs`
+- `scripts/test-pos-retail-terminal.mjs`
+- `scripts/test-pos-retail-terminal.sql`
+- `scripts/test-pos-staff-foundation-v1.mjs`
+- `scripts/windows/configure-qz-pos.ps1`
+- `src/app/api/pos/billing/checkout/route.ts`
+- `src/app/api/pos/billing/portal/route.ts`
+- `src/app/api/pos/bootstrap/route.ts`
+- `src/app/api/pos/cash-sessions/route.ts`
+- `src/app/api/pos/imports/route.ts`
+- `src/app/api/pos/online-store/operations/route.ts`
+- `src/app/api/pos/online-store/payments/route.ts`
+- `src/app/api/pos/operator-session/route.ts`
+- `src/app/api/pos/sales/route.ts`
+- `src/app/api/pos/staff/route.ts`
+- `src/app/api/pos/subscription/route.ts`
+- `src/app/api/pos/terminal-print/route.ts`
+- `src/app/brand/[brandSlug]/components/pos-connection-status.tsx`
+- `src/app/brand/[brandSlug]/components/pos-operator-gate.tsx`
+- `src/app/brand/[brandSlug]/components/pos-shell.tsx`
+- `src/app/brand/[brandSlug]/components/pos-sidebar.tsx`
+- `src/app/brand/[brandSlug]/components/pos-topbar.tsx`
+- `src/app/brand/[brandSlug]/pos/register/page.tsx`
+- `src/app/brand/[brandSlug]/pos/sales/page.tsx`
+- `src/app/brand/[brandSlug]/pos/settings/page.tsx`
+- `src/app/brand/[brandSlug]/pos/settings/terminal/page.tsx`
+- `src/app/brand/[brandSlug]/pos/staff/page.tsx`
+- `src/lib/pos/access.ts`
+- `src/lib/pos/mutation-access.ts`
+- `src/lib/pos/retail-permissions.ts`
+- `src/lib/pos/staff-server.ts`
+- `src/lib/pos/thermal-client.ts`
+- `src/lib/pos/thermal.ts`
+- `src/types/qz-tray.d.ts`
+- `supabase/migrations/20261016090000_pos_retail_operators_v1.sql`
+- `supabase/migrations/20261016091000_pos_terminal_print_jobs_v1.sql`

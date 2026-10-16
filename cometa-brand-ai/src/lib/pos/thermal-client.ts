@@ -21,12 +21,13 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
   const task=queue.then(async()=>{
     const prepared=await terminalRequest(brand,body);
     if(!prepared.jobs?.length)return "Sin nuevas órdenes de impresión/cajón.";
+    const failPending=async()=>{for(const job of prepared.jobs||[])await terminalRequest(brand,{action:"result",jobId:job.id,status:"failed"}).catch(()=>undefined);};
     const settings=await terminalRequest(brand);
-    if(!settings.ready||!settings.certificate)throw new Error("Venta conservada. Falta configurar el certificado de impresión de esta instalación.");
+    if(!settings.ready||!settings.certificate){await failPending();throw new Error("Venta conservada. Falta configurar el certificado de impresión de esta instalación.");}
     const qz=(await import("qz-tray")).default;
     qz.security.setCertificatePromise((resolve:(certificate:string)=>void)=>resolve(settings.certificate||""));
     qz.security.setSignatureAlgorithm("SHA512");
-    if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});
+    try{if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});}catch(error){await failPending();throw error;}
     let signedMessage="";
     qz.api.setSha256Type(async(message:string)=>{
       signedMessage=message;
@@ -35,16 +36,15 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
     });
     const failures:string[]=[];
     for(const job of prepared.jobs){
-      let signed=false;
       qz.security.setSignaturePromise((digest:string)=>(resolve:(signature:string)=>void,reject:(error:unknown)=>void)=>{
-        void terminalRequest(brand,{action:"sign",jobId:job.id,message:signedMessage,digest}).then(result=>{signed=true;resolve(result.signature||"");}).catch(reject);
+        void terminalRequest(brand,{action:"sign",jobId:job.id,message:signedMessage,digest}).then(result=>{resolve(result.signature||"");}).catch(reject);
       });
       try {
         const config=qz.configs.create(job.payload.printer,qzPrintOptions(job.payload.width));
         await qz.print(config,job.payload.data);
         await terminalRequest(brand,{action:"result",jobId:job.id,status:"spooled"});
       }catch(error){
-        if(signed)await terminalRequest(brand,{action:"result",jobId:job.id,status:job.kind==="drawer"?"uncertain":"failed"}).catch(()=>undefined);
+        await terminalRequest(brand,{action:"result",jobId:job.id,status:"failed"}).catch(()=>undefined);
         failures.push(job.kind==="drawer"?"Cajón: resultado incierto; no se reintentará automáticamente.":`Ticket: ${error instanceof Error?error.message:"no se pudo enviar"}. Puedes reimprimir sin cobrar.`);
       }
     }

@@ -64,8 +64,9 @@ export async function POST(request:Request) {
     const job=result.data;
     if(body.action === "result") {
       if(!["spooled","failed","uncertain"].includes(String(body.status)))throw new PosApiError(400,"POS_VALIDATION_ERROR","Resultado inválido.");
-      const state=job.kind==="drawer" && body.status!=="spooled"?"uncertain":body.status;
-      const saved=await c.admin.from("pos_terminal_print_jobs").update({status:state,completed_at:new Date().toISOString()}).eq("id",job.id).eq("status","dispatched");
+      if(!["requested","dispatched"].includes(job.status) || job.status==="requested" && body.status!=="failed")throw new PosApiError(409,"POS_WEB_CONFLICT","La solicitud no admite ese resultado.");
+      const state=job.status==="requested"?"failed":job.kind==="drawer" && body.status!=="spooled"?"uncertain":body.status;
+      const saved=await c.admin.from("pos_terminal_print_jobs").update({status:state,completed_at:new Date().toISOString()}).eq("id",job.id).eq("status",job.status);
       if(saved.error)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","No se pudo registrar el resultado.");
       return ok({recorded:true,physicalConfirmation:false});
     }

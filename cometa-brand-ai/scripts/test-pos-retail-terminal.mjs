@@ -42,5 +42,8 @@ assert.equal((await post({action:'result',jobId:job.id,status:'failed'})).status
 assert.equal((await post({action:'automatic',saleId:sale.id})).status,200);assert.equal(tables.pos_terminal_print_jobs.filter(j=>j.kind==='drawer').length,1,'uncertain drawer not resent');
 assert.equal(sale.status,'completed');assert.equal(tables.pos_sales.length,1,'printing failure cannot create or modify a sale');
 const bad=JSON.stringify({call:'file.write',params:{},timestamp:Date.now()});assert.equal((await post({action:'sign',jobId:reprint.id,message:bad,digest:crypto.createHash('sha256').update(bad).digest('hex')})).status,403,'no arbitrary bridge operations');
+assert.equal((await post({action:'result',jobId:reprint.id,status:'spooled'})).status,409,'not dispatched cannot claim spooled');
+assert.equal((await post({action:'result',jobId:reprint.id,status:'failed'})).status,200);assert.equal(tables.pos_terminal_print_jobs.find(j=>j.id===reprint.id).status,'failed','disconnected bridge recorded without dispatch');
+assert.equal((await post({action:'sign',jobId:reprint.id,message,digest})).status,403);
 delete process.env.POS_QZ_PRIVATE_KEY;delete process.env.POS_QZ_CERTIFICATE;
 console.log('PASS software only: cash/card/transfer/mixed, one-shot jobs, reprint isolation, uncertain drawer, safe HTML, signature validation, server permission denial, admin expiry and non-admin inactivity. No hardware or real sales.');
