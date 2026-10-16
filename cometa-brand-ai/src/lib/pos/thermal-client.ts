@@ -54,3 +54,33 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
   pending.set(key,task);
   queue=task.then(()=>{pending.delete(key);},()=>{pending.delete(key);});return task;
 }
+
+// Discovery shares the print queue to preserve each job's signing callback.
+export function discoverPrinters(brand:string):Promise<string[]> {
+ const task=queue.then(async()=>{
+  const settings=await terminalRequest(brand);
+  if(!settings.ready||!settings.certificate)throw new Error("COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
+  const qz=(await import("qz-tray")).default;
+  qz.security.setCertificatePromise(resolve=>resolve(settings.certificate||""));
+  qz.security.setSignatureAlgorithm("SHA512");
+  let message="";
+  qz.api.setSha256Type(async value=>{
+   message=value;
+   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+   return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+  });
+  qz.security.setSignaturePromise(digest=>(resolve,reject)=>{
+   void terminalRequest(brand,{action:"discover-sign",message,digest}).then(r=>resolve(r.signature||"")).catch(reject);
+  });
+  try {
+   if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});
+   const printers=await qz.printers.find();
+   if(!Array.isArray(printers)||printers.some(p=>typeof p!=="string"))throw new Error("Respuesta inválida.");
+   return [...new Set(printers)].sort();
+  } catch {
+   throw new Error("No se pudieron consultar las impresoras. Abre QZ Tray, permite la conexión local y comprueba la autorización de COMETA. Instala el controlador de tu impresora en Windows si no aparece.");
+  }
+ });
+ queue=task.then(()=>undefined,()=>undefined);
+ return task;
+}

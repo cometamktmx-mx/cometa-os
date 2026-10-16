@@ -11,7 +11,7 @@ Migraciones, en orden (sin seeds ni cambios de catálogo):
 
 No basta revertir código para deshacer las migraciones. Si hay que retirar esta versión, conservar columnas y registros de auditoría, detener impresión automática y restaurar la versión anterior de aplicación. No eliminar datos con escrituras posteriores. La revocación de ejecución pública de la RPC financiera debe conservarse.
 
-Dependencia web: `qz-tray@2.2.5` fijada en lockfile. Puente de escritorio recomendado: QZ Tray **2.3 o posterior compatible**, por las restricciones de origen y red. No se instala Electron ni un servidor propio.
+Dependencia web: `qz-tray@2.2.5` fijada en lockfile. Puente de escritorio recomendado: QZ Tray **2.3.0**, por las restricciones de origen y red. No se instala Electron ni un servidor propio.
 
 Variables **solo servidor**, separadas por entorno:
 
@@ -27,11 +27,14 @@ La API firma únicamente el hash SHA-256 de una orden de impresión autorizada, 
 1. Obtener marca/modelo exactos, ancho de papel, controlador Windows y manual del conector del cajón. Conectar impresora USB y cajón **al puerto indicado por el fabricante**. Instalar el controlador oficial y comprobar primero una página de prueba de Windows.
 2. En preferencias del controlador, **desactivar cualquier apertura automática del cajón al imprimir**. Dejarla activa haría que una reimpresión pudiera abrirlo, fuera del control de COMETA.
 3. Descargar el instalador oficial de [QZ Tray](https://qz.io/download/), con su runtime incluido, e instalarlo. La [FAQ oficial](https://qz.io/docs/faq) describe OpenJDK incluido y requisitos. No hace falta instalar Node.js en la caja.
-4. Ejecutar en PowerShell `scripts/windows/configure-qz-pos.ps1 -Origin "https://ORIGEN-EXACTO-A-PROBAR"`, usando el origen real de Preview o producción, sin rutas. El script configura únicamente QZ para el usuario Windows: escucha en `127.0.0.1`, WSS, origen explícito y sin File IO ni impresión a archivos/hosts. Conserva opciones existentes si detecta conflicto. Cerrar QZ y volver a abrirlo. Verificar que sus puertos no escuchan en interfaces de red; no abrir el firewall para otras computadoras. Opciones respaldadas por la [documentación oficial](https://qz.io/docs/command-line).
-5. Configurar confianza y firma. Para un ensayo en ese equipo: QZ → **Advanced → Site Manager → + → Create New**, siguiendo [Signing](https://qz.io/docs/signing). Sus claves de demostración solo sirven en la instalación que las genera. Entregar los archivos al responsable técnico por un medio privado para configurar las variables de **Preview**, nunca pegarlos al chat. Para operación estable, usar certificado QZ o una raíz propia administrada. QZ es gratuito; su certificado/soporte comercial tiene costo. No se ha contratado licencia ni se promete impresión silenciosa sin confianza configurada. Véase [licencias y avisos](https://qz.io/docs/faq).
+4. Abrir Configuración → Impresora y cajón → **Conectar y buscar impresoras**. Elegir una impresora instalada, papel y perfil, guardar y probar. El cliente no ejecuta scripts, genera certificados ni entrega claves. El nombre guardado se conserva si el conector no responde.
+5. COMETA administra centralmente `POS_QZ_CERTIFICATE` y `POS_QZ_PRIVATE_KEY`, separados por entorno. La clave PKCS#8 RSA de 2048 bits queda únicamente en servidor; el certificado X.509 es público. La confianza TLS de localhost la instala QZ; es distinta del certificado que firma solicitudes. El certificado demo por computadora **no es la solución autoservicio elegida**. Para confianza distribuible, Premium Support publica US$749 por un año y renovación reducida: [oferta oficial](https://buy.qz.io/Premium-Support-_p_13.html). La página muestra también aviso de disponibilidad: confirmar disponibilidad, cobertura SaaS y condiciones con QZ antes de contratar. No se ha comprado ni activado un certificado comercial. Una raíz propia requiere distribución de confianza y mantenimiento central; no se traslada ese trabajo al cliente.
+
+   **Bloqueo de distribución:** preparar por COMETA un instalador/configuración de conector que restrinja escucha a localhost/WSS, orígenes COMETA explícitos, impresión a archivos/hosts y acceso a archivos. El script existente `scripts/windows/configure-qz-pos.ps1` es una referencia interna de soporte, no un paso del cliente. No declarar esta distribución segura y autoservicio completada hasta ensayarla en Windows; el instalador QZ estándar no incorpora nuestras restricciones por sí solo.
+
 6. Autorizar solo el certificado esperado de COMETA; no aceptar solicitudes sin firma ni de otros sitios. Si Edge/Chrome solicita acceso a red local, permitirlo exclusivamente para el origen elegido. [Restricción de acceso local del navegador](https://qz.io/docs/lna).
 7. Iniciar sesión en COMETA POS y configurar el primer administrador de comercio con **su propio PIN y confirmación**. Crear Ventas/Inventario desde **Operadores**, sin compartir PIN. El restablecimiento reemplaza el hash y revoca sesiones; nunca muestra el PIN anterior.
-8. Abrir **Configuración → Impresora y cajón de esta terminal** (`/brand/SLUG/pos/settings/terminal`). Copiar el nombre exacto de la impresora Windows, elegir 58/80 mm y guardar. Inicialmente dejar **Sin confirmar · solo imprimir con controlador Windows** y apertura automática apagada. Probar impresión y revisar acentos, recortes y cantidades.
+8. Abrir **Configuración → Impresora y cajón de esta terminal** (`/brand/SLUG/pos/settings/terminal`). Seleccionar la impresora Windows detectada, elegir 58/80 mm y guardar. Inicialmente dejar **Sin confirmar · solo imprimir con controlador Windows** y apertura automática apagada. Probar impresión y revisar acentos, recortes y cantidades.
 9. Solo si el manual confirma ESC/POS, seleccionar el pin de pulso compatible. Con turno autorizado abierto, elegir caja, escribir motivo y solicitar prueba de cajón. Si no es ESC/POS compatible, mantener apertura automática deshabilitada: hace falta el perfil del fabricante; no probar comandos arbitrarios.
 10. Activar impresión automática y, tras la prueba física, apertura por efectivo. Un pago mixto con efectivo envía apertura; tarjeta/transferencia exclusivas no. Reimprimir no genera comando de cajón. Ante resultado incierto, inspeccionar el equipo; no repetir automáticamente la apertura.
 
@@ -113,3 +116,17 @@ Los permisos de cancelación, devolución y cambio de precio no crean un motor n
 - `supabase/migrations/20261016091000_pos_terminal_print_jobs_v1.sql`
 
 FOOD conserva la reimpresión del navegador; el puente y su configuración se limitan a comercio. Editar un operador legado conserva sus permisos efectivos salvo cambio explícito. Cancelación/devolución/cambio de precio no se anuncian como acciones disponibles porque no se añadió un motor nuevo para ellas.
+
+## Continuación autoservicio
+
+- Consulta de impresoras firmada únicamente para `printers.find` sin filtros, con permiso SETTINGS, autenticación de marca, mismo origen y vencimiento de 30 segundos. Comparte la cola del cliente con impresión para evitar mezclar callbacks de firma. No permite firmar operaciones arbitrarias.
+- JS instalado: 2.2.5. Contrato print/firma contrastado con el código oficial QZ Tray 2.3.0; prueba RSA y opciones reales de la dependencia aprobadas. Conexión real JS/Tray y permisos de red local aún pendientes en Windows; no equivale a compatibilidad física verificada.
+- No se modificaron roles, PIN, PWA, motor de venta ni migraciones con este ajuste.
+- Prueba física exclusivamente en Preview: efectivo (ticket y una apertura), tarjeta/transferencia (ticket sin apertura), mixto efectivo (una apertura), reimpresión (sin apertura), USB desconectado (venta confirmada conservada, sin volver a cobrar). Windows puede aceptar y retener una cola sin USB: revisar o cancelar esa cola antes de reimprimir para no duplicar tickets al reconectar. Nunca repetir automáticamente una apertura incierta.
+- Recorrido personal pendiente: crear primer administrador con PIN propio; probar Ventas e Inventario con sus propios PIN, rechazo de permisos, administrador tras 180 segundos y regreso de suspensión; conservar carrito al bloquear/cambiar. No confundir suites de software aprobadas con este recorrido autenticado.
+
+### Enlaces de Preview
+
+- POS: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos
+- Terminal: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/settings/terminal
+- Operadores: https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/staff

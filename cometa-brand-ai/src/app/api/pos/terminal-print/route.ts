@@ -32,6 +32,18 @@ export async function POST(request:Request) {
   if(request.headers.get("origin")!==new URL(request.url).origin) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Origen no autorizado.");
   const c=await context(request),body=await readJsonBody<Record<string,unknown>>(request);
   const terminalId=uuidValue(body.terminalId,"terminalId") as string;
+  if(body.action === "discover-sign") {
+    await requireRetailPermission(c,"SETTINGS");
+    if(!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
+    if(typeof body.message!=="string" || body.message.length>1000)throw new PosApiError(400,"POS_VALIDATION_ERROR","Consulta de impresoras inválida.");
+    let message:Record<string,unknown>;
+    try {message=JSON.parse(body.message);} catch {throw new PosApiError(400,"POS_VALIDATION_ERROR","Consulta de impresoras inválida.");}
+    if(!message || message.call!=="printers.find" || JSON.stringify(message.params)!=="{}" || typeof message.timestamp!=="number" || Math.abs(Date.now()-message.timestamp)>30000 || Object.keys(message).some(k=>!["call","params","timestamp"].includes(k)))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Solo se permite consultar las impresoras instaladas.");
+    const digest=createHash("sha256").update(body.message).digest("hex");
+    if(body.digest!==digest)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Firma de consulta inválida.");
+    const signer=createSign("SHA512");signer.update(digest);signer.end();
+    return ok({signature:signer.sign(process.env.POS_QZ_PRIVATE_KEY.replaceAll("\\n","\n"),"base64")});
+  }
   if(body.action === "cash") {
     const operator=await requireRetailPermission(c,"DRAWER");
     let query=c.admin.from("pos_cash_sessions").select("id,register:pos_registers(name)").eq("brand_slug",c.brand.slug).eq("status","open");

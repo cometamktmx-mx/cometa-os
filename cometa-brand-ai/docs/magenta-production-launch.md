@@ -1,3 +1,22 @@
+## Incremento POS comercio del 16 de octubre — NO autorizado para producción todavía
+
+La publicación histórica descrita debajo no incluye este incremento. Validar primero Preview, PIN personal, PWA y hardware; certificado central y distribución segura del conector siguen pendientes. No activar impresión automática sin esas comprobaciones.
+
+Migraciones nuevas, en orden, ya ensayadas/aplicadas solo en pruebas:
+
+| Archivo | SHA-256 |
+| --- | --- |
+| 20261016090000_pos_retail_operators_v1.sql | 284f4d3391a749f8aa358a2fb60c623707cad2c40239115c424addce59c67797 |
+| 20261016091000_pos_terminal_print_jobs_v1.sql | f61f875ab13bfa98be9c2ce724e2c2fbb587e93a92fdfde8c49a04dfdc293b71 |
+
+Antes de autorización final: consultar historial de producción y comparar contenido/hash, no solo versión. No reutilizar automáticamente el instalador antiguo de cinco migraciones para estas dos. Obtener respaldo fresco DB/roles/Storage fuera de .next, verificar hashes y restaurar en destino aislado; aplicar allí estas dos migraciones y comprobar permisos de RPC, FOOD, operador existente, último administrador y auditoría. La evidencia histórica de recuperación no reemplaza este ensayo actualizado. En esta continuación no se encontró el archivo local de recovery-result ni Docker en su ruta estándar: recuperación actual pendiente, no declarada aprobada.
+
+Secuencia futura: respaldo verificado → migraciones faltantes con registro y hashes → variables de firma servidor del entorno correcto → administración candidata → smoke autenticado sin ventas ficticias → habilitación por terminal tras prueba física. No copiar certificados demo o claves Preview a live ni tocar storefront/dominios.
+
+Recuperación: detener impresión automática, preservar solicitudes y colas; una apertura incierta no se reenvía. Evaluar compatibilidad de la versión anterior con permisos antes de revertir código. Conservar columnas aditivas, auditoría y revocación de acceso directo a la RPC financiera. Restaurar DB/Storage solo tras evaluar escrituras posteriores y un plan de reconciliación: revertir código no revierte datos.
+
+---
+
 # Magenta: lanzamiento autorizado - 15 de octubre de 2026
 
 ## Resultado vigente del lanzamiento

@@ -45,5 +45,18 @@ const bad=JSON.stringify({call:'file.write',params:{},timestamp:Date.now()});ass
 assert.equal((await post({action:'result',jobId:reprint.id,status:'spooled'})).status,409,'not dispatched cannot claim spooled');
 assert.equal((await post({action:'result',jobId:reprint.id,status:'failed'})).status,200);assert.equal(tables.pos_terminal_print_jobs.find(j=>j.id===reprint.id).status,'failed','disconnected bridge recorded without dispatch');
 assert.equal((await post({action:'sign',jobId:reprint.id,message,digest})).status,403);
+
+const discovery=JSON.stringify({call:'printers.find',params:{},timestamp:Date.now()});
+const discoveryBody={action:'discover-sign',message:discovery,digest:crypto.createHash('sha256').update(discovery).digest('hex')};
+response=await post(discoveryBody);assert.equal(response.status,200);
+assert.ok(crypto.verify('SHA512',Buffer.from(discoveryBody.digest),keys.publicKey,Buffer.from((await response.json()).signature,'base64')));
+allowed=new Set(['PRODUCTS_READ']);assert.equal((await post(discoveryBody)).status,403);
+allowed=new Set(Object.keys(permissions.RETAIL_PERMISSIONS));
+for(const candidate of [{call:'print',params:{}},{call:'file.write',params:{}},{call:'printers.find',params:{query:'other'}},{call:'printers.find',params:{},timestamp:Date.now()-60000}]){
+ const message=JSON.stringify({timestamp:Date.now(),...candidate});
+ assert.equal((await post({action:'discover-sign',message,digest:crypto.createHash('sha256').update(message).digest('hex')})).status,403);
+}
+assert.equal((await post({...discoveryBody,message:'{'})).status,400);
+assert.equal((await post({...discoveryBody,digest:'wrong'})).status,403);
 delete process.env.POS_QZ_PRIVATE_KEY;delete process.env.POS_QZ_CERTIFICATE;
 console.log('PASS software only: cash/card/transfer/mixed, one-shot jobs, reprint isolation, uncertain drawer, safe HTML, signature validation, server permission denial, admin expiry and non-admin inactivity. No hardware or real sales.');
