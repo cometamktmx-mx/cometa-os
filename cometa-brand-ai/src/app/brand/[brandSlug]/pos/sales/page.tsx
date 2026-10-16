@@ -1,6 +1,6 @@
 "use client";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
-import {printOperation} from "@/lib/pos/thermal-client";
+import {printOperation,terminalRequest,manualTestSelected} from "@/lib/pos/thermal-client";
 
 import {
   useCallback,
@@ -210,6 +210,19 @@ export default function PosSalesPage() {
     string | null
   >(null);
   const pendingAutoPrintSaleId = useRef<string | null>(null);
+  const printSale = useCallback(async (sale: Sale) => {
+    try {
+      if(isFoodProfile(profileCode)){window.print();return;}
+      const terminal=await terminalRequest(brand.slug);
+      if(terminal.ready || (terminal.manualTestAvailable && manualTestSelected(brand.slug))){
+        await printOperation(brand.slug,{action:"reprint",saleId:sale.id,requestKey:crypto.randomUUID()});return;
+      }
+      const authorized=await apiRequest<SalesResponse>(`/api/pos/sales?brandSlug=${encodeURIComponent(brand.slug)}&saleId=${encodeURIComponent(sale.id)}&print=1`);
+      if(!authorized.sales?.some(row=>row.id===sale.id))throw new Error("No se pudo autorizar la impresión de esta venta.");
+      window.print();
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo reimprimir.");}
+  },[brand.slug,profileCode]);
+
 
   const loadSales =
     useCallback(async () => {
@@ -275,9 +288,9 @@ export default function PosSalesPage() {
   useEffect(() => {
     if (!selectedSale || !branding || pendingAutoPrintSaleId.current !== selectedSale.id) return;
     pendingAutoPrintSaleId.current = null;
-    const timer = window.setTimeout(() => { if(isFoodProfile(profileCode)){window.print();return;} void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir.")); }, 150);
+    const timer = window.setTimeout(() => { void printSale(selectedSale); }, 150);
     return () => window.clearTimeout(timer);
-  }, [branding, selectedSale, brand.slug, profileCode]);
+  }, [branding, selectedSale, printSale]);
 
   const filteredSales =
     useMemo(() => {
@@ -609,7 +622,7 @@ export default function PosSalesPage() {
             setSelectedSale(null)
           }
           onPrint={() =>
-            isFoodProfile(profileCode) ? window.print() : void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir."))
+            void printSale(selectedSale)
           }
         />
       ) : null}

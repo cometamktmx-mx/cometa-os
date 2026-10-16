@@ -28,12 +28,13 @@ const context={brand:{slug:brand},user:{userId:'host',isAdmin:true},membership,a
 const server={requirePosContext:async()=>context,getBrandSlugFromUrl:()=>brand,readJsonBody:r=>r.json(),uuidValue:v=>v,PosApiError:ApiError,ok:value=>Response.json({ok:true,...value}),handlePosError:e=>Response.json({error:e.message},{status:e.status||500})};
 const route=load('src/app/api/pos/terminal-print/route.ts',{'node:crypto':crypto,'@/lib/pos/server':server,'@/lib/pos/access':{requirePosCommercialAccess:async()=>{}},'@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{if(!allowed.has(permission))throw new ApiError(403,'denied','denied');return{staff,locationId:null}}},'@/lib/pos/thermal':thermal});
 const post=body=>route.POST(new Request('https://fixture.test/api/pos/terminal-print',{method:'POST',headers:{origin:'https://fixture.test','content-type':'application/json'},body:JSON.stringify({terminalId,...body})}));
+const keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
 let response=await post({action:'automatic',saleId:sale.id});assert.equal(response.status,200);assert.equal((await response.json()).jobs.length,2);
 await Promise.all([post({action:'automatic',saleId:sale.id}),post({action:'automatic',saleId:sale.id})]);assert.equal(tables.pos_terminal_print_jobs.length,2,'double click/concurrent retry produces no new jobs');
 const key=crypto.randomUUID();response=await post({action:'reprint',saleId:sale.id,requestKey:key});assert.equal(response.status,200);const reprint=(await response.json()).jobs[0];assert.equal(reprint.kind,'reprint');assert.equal(reprint.payload.data[0].type,'pixel');assert.ok(reprint.payload.data[0].data.includes('&lt;script&gt;'));
 await post({action:'reprint',saleId:sale.id,requestKey:key});assert.equal(tables.pos_terminal_print_jobs.length,3);
 allowed=new Set(['PRODUCTS_READ']);assert.equal((await post({action:'reprint',saleId:sale.id,requestKey:crypto.randomUUID()})).status,403);allowed=new Set(Object.keys(permissions.RETAIL_PERMISSIONS));
-const keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
+
 const job=tables.pos_terminal_print_jobs.find(j=>j.kind==='drawer');const options=qz.configs.create(conf.printer,{copies:1,units:'mm',size:{width:80,height:null},margins:0,scaleContent:true}).config;
 const message=JSON.stringify({call:'print',params:{printer:{name:conf.printer},options,data:job.payload.data},timestamp:Date.now()});const digest=crypto.createHash('sha256').update(message).digest('hex');
 response=await post({action:'sign',jobId:job.id,message,digest});assert.equal(response.status,200);const signature=(await response.json()).signature;assert.ok(crypto.verify('SHA512',Buffer.from(digest),keys.publicKey,Buffer.from(signature,'base64')),'QZ digest signature is valid');
@@ -59,6 +60,8 @@ for(const candidate of [{call:'print',params:{}},{call:'file.write',params:{}},{
 assert.equal((await post({...discoveryBody,message:'{'})).status,400);
 assert.equal((await post({...discoveryBody,digest:'wrong'})).status,403);
 delete process.env.POS_QZ_PRIVATE_KEY;delete process.env.POS_QZ_CERTIFICATE;
+response=await post({action:'automatic',saleId:sale.id});assert.equal(response.status,200);assert.equal((await response.json()).unavailable,true);
+assert.equal((await post({action:'configure',config:conf})).status,400,'cannot enable automatic printing without a trusted signer');
 process.env.POS_QZ_MANUAL_TEST='true';
 for(const environment of ['production','development','']){
  process.env.VERCEL_ENV=environment;
@@ -114,3 +117,23 @@ delete process.env.POS_QZ_MANUAL_TEST;delete process.env.VERCEL_ENV;
 console.log('PASS manual Preview opt-in: production denied, no silent fallback, permission and payload checks, one-shot dispatch, failure preserves sale. QZ dialogs/hardware not tested.');
 
 console.log('PASS software only: cash/card/transfer/mixed, one-shot jobs, reprint isolation, uncertain drawer, safe HTML, signature validation, server permission denial, admin expiry and non-admin inactivity. No hardware or real sales.');
+
+// Reuse the existing browser receipt, with a server permission check per request.
+let browserAllowed=true,printLocation='location';
+const rows=[sale,{...sale,id:crypto.randomUUID(),brand_slug:'other'},{...sale,id:crypto.randomUUID(),location_id:'other-location'}];
+const receiptContext={...context,admin:{from:table=>{
+ assert.equal(table,'pos_sales');let filtered=rows;
+ const query={select:()=>query,order:()=>query,range:()=>query,eq:(k,v)=>{filtered=filtered.filter(r=>r[k]===v);return query},in:(k,v)=>{filtered=filtered.filter(r=>v.includes(r[k]));return query},then:resolve=>Promise.resolve({data:filtered,error:null,count:filtered.length}).then(resolve)};return query;
+}}};
+const receiptRoute=load('src/app/api/pos/sales/route.ts',{
+ '@/lib/pos/mutation-access':{},
+ '@/lib/pos/server':{...server,getPagination:()=>({page:1,pageSize:100,from:0,to:99}),assertDatabaseResult:e=>{if(e)throw Error('db')}},
+ '@/lib/pos/access':{requirePosOperationalAccess:async()=>receiptContext},
+ '@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{assert.equal(permission,'REPRINT');if(!browserAllowed)throw new ApiError(403,'denied','denied');return{staff,locationId:printLocation}}}
+});
+const browserReceipt=id=>receiptRoute.GET(new Request('https://fixture.test/api/pos/sales?brandSlug=fixture&print=1'+(id?'&saleId='+id:'')));
+response=await browserReceipt(sale.id);assert.equal(response.status,200);assert.equal((await response.json()).sales.length,1);
+browserAllowed=false;assert.equal((await browserReceipt(sale.id)).status,403);browserAllowed=true;
+assert.equal((await browserReceipt()).status,400);
+for(const row of rows.slice(1)){response=await browserReceipt(row.id);assert.equal(response.status,200);assert.equal((await response.json()).sales.length,0);}
+assert.equal(sale.status,'completed');console.log('PASS native receipt authorization, confirmed sale and brand/location isolation. No print or drawer command executed.');

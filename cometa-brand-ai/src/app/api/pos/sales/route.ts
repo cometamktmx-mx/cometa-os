@@ -1,6 +1,7 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
+  PosApiError,
   fail,
   getBrandSlugFromUrl,
   getPagination,
@@ -63,8 +64,10 @@ const PAYMENT_METHODS = new Set([
 export async function GET(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const { admin, brand } = context;
+    const browserPrint = new URL(request.url).searchParams.get("print") === "1";
+    const printStaff = browserPrint ? await requireRetailPermission(context,"REPRINT") : null;
 
     const {
       page,
@@ -89,6 +92,7 @@ export async function GET(request: Request) {
       : null;
     const rawSaleId = url.searchParams.get("saleId");
     const saleId = rawSaleId ? uuidValue(rawSaleId, "saleId") : null;
+    if(browserPrint && !saleId) throw new PosApiError(400,"POS_VALIDATION_ERROR","Selecciona la venta confirmada para imprimir.");
 
     let query = admin
       .from("pos_sales")
@@ -143,6 +147,11 @@ export async function GET(request: Request) {
       })
       .range(from, to);
 
+    if(browserPrint){
+      query=query.in("status",["completed","partially_refunded","refunded"]);
+      if(printStaff?.locationId)query=query.eq("location_id",printStaff.locationId);
+      if(context.device?.locationId)query=query.eq("location_id",context.device.locationId);
+    }
     if (status) {
       query = query.eq(
         "status",

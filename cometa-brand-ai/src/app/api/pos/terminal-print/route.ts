@@ -63,6 +63,7 @@ export async function POST(request:Request) {
   if(body.action === "configure") {
     await requireRetailPermission(c,"SETTINGS");
     const settings=config(body.config);
+    if((settings.autoPrint||settings.autoDrawer) && !manualTest && (!process.env.POS_QZ_PRIVATE_KEY||!process.env.POS_QZ_CERTIFICATE))throw new PosApiError(400,"POS_VALIDATION_ERROR","Impresión y cajón automáticos deshabilitados: COMETA aún no dispone de firma confiable para este entorno. Puedes guardar la terminal con ambos automatismos apagados.");
     const existing=await c.admin.from("pos_terminal_print_settings").select("host_user_id,brand_slug").eq("id",terminalId).maybeSingle();
     if(existing.error || existing.data && (existing.data.brand_slug!==c.brand.slug||existing.data.host_user_id!==c.user.userId)) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Terminal no disponible.");
     const values={id:terminalId,brand_slug:c.brand.slug,host_user_id:c.user.userId,config:settings,updated_at:new Date().toISOString()};
@@ -111,6 +112,7 @@ export async function POST(request:Request) {
   if(!["automatic","reprint","test","drawer"].includes(action)) throw new PosApiError(400,"POS_VALIDATION_ERROR","Operación inválida.");
   const staff=await requireRetailPermission(c,action==="automatic"?"SELL":action==="reprint"?"REPRINT":action==="drawer"?"DRAWER":"SETTINGS");
   if(!staff) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Disponible para comercio.");
+  if(action==="automatic" && !manualTest && (!process.env.POS_QZ_PRIVATE_KEY||!process.env.POS_QZ_CERTIFICATE))return ok({jobs:[],unavailable:true});
   type ConfirmedSale=ThermalSale & {id:string;status:string;cash_session_id:string;location_id:string;cashier_staff_id:string|null};
   let sale: ConfirmedSale|null=null;
   let cashier=staff.staff.name;

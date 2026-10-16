@@ -1,7 +1,7 @@
 "use client";
 import {qzPrintOptions,type TerminalPrintConfig} from "./thermal";
 type Job={id:string;kind:string;payload:{printer:string;width:58|80;data:unknown[]}};
-type PrintResponse={ok:boolean;error?:string;jobs?:Job[];config?:TerminalPrintConfig|null;certificate?:string;ready?:boolean;manualTestAvailable?:boolean;signature?:string;sessions?:{id:string;register?:{name:string}}[]};
+type PrintResponse={ok:boolean;error?:string;unavailable?:boolean;jobs?:Job[];config?:TerminalPrintConfig|null;certificate?:string;ready?:boolean;manualTestAvailable?:boolean;signature?:string;sessions?:{id:string;register?:{name:string}}[]};
 export function manualTestSelected(brand:string){return sessionStorage.getItem(`cometa:qz-manual-test:${brand}`)==="true";}
 export function selectManualTest(brand:string,enabled:boolean){
  if(enabled)sessionStorage.setItem(`cometa:qz-manual-test:${brand}`,"true");
@@ -37,6 +37,7 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
   const current=pending.get(key);if(current)return current;
   const task=queue.then(async()=>{
     const prepared=await terminalRequest(brand,body);
+    if(prepared.unavailable)return "Venta confirmada. Impresión y cajón automáticos deshabilitados: falta la firma confiable de COMETA.";
     if(!prepared.jobs?.length)return "Sin nuevas órdenes de impresión/cajón.";
     const failPending=async()=>{for(const job of prepared.jobs||[])await terminalRequest(brand,{action:"result",jobId:job.id,status:"failed"}).catch(()=>undefined);};
     const settings=await terminalRequest(brand);

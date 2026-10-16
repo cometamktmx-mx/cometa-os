@@ -2486,8 +2486,7 @@ export default function PosRegisterPage() {
             completedCustomerName
           }
           onPrint={() => {
-            if(isFoodProfile(profileCode)){window.open(`${buildPosHref(brand.slug, "sales")}?saleId=${encodeURIComponent(completedSale.id)}&print=1`, "_blank", "noopener,noreferrer");return;}
-            void printOperation(brand.slug,{action:"reprint",saleId:completedSale.id,requestKey:crypto.randomUUID()}).then(setNotice).catch(e=>setNotice(e instanceof Error?e.message:"No se pudo reimprimir."));
+            window.open(`${buildPosHref(brand.slug, "sales")}?saleId=${encodeURIComponent(completedSale.id)}&print=1`, "_blank", "noopener,noreferrer");
           }}
           onClose={() => {
             setCompletedSale(null);

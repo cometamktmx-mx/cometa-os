@@ -3,6 +3,16 @@
 Esta entrega conserva el catálogo, precios, códigos, existencias, motor de cobro y reglas fiscales. La compatibilidad física requiere conocer y probar el modelo de impresora. No hay confirmación física del cajón: el resultado registrado describe la solicitud y la aceptación por el puente, no el movimiento mecánico.
 
 
+## Operación de producción sin certificado
+
+El modo QZ manual no se publica habilitado en producción: falta autorización limitada a marca/terminal. Impresión y apertura automáticas bloqueadas, con explicación visible y validación de servidor. La venta confirmada se conserva. Desde el botón de ticket se abre el detalle existente; si no hay firma QZ, se autoriza REPRINT en servidor y se usa el diálogo del navegador. Elegir ahí la impresora Windows. No hay solicitud de cajón ni nuevo cobro; la apertura física desde el controlador debe estar desactivada. FOOD conserva su diálogo original.
+
+- POS: https://app.cometaos.com/brand/magenta-fitwear/pos
+- Terminal: https://app.cometaos.com/brand/magenta-fitwear/pos/settings/terminal
+- Operadores: https://app.cometaos.com/brand/magenta-fitwear/pos/staff
+
+Alta personal: nombre → sucursal → PIN propio de 4–8 dígitos → confirmación → Crear primer operador → seleccionar operador → ingresar PIN. El agente no crea ni conoce ese PIN. Instalar PWA desde Edge/Chrome con el POS abierto, comprobar negocio y fijar a la barra; no se anuncia modo offline.
+
 ## Ensayo antes de contratar certificado — 16 de octubre
 
 QZ ofrece demostración gratuita con avisos: [Premium Support](https://buy.qz.io/Premium-Support-_p_13.html). No se necesita comprar ni generar certificados para este ensayo. El modo explícito implementado conserva los avisos nativos, WSS y la autorización del servidor COMETA; no instala raíces ni modifica protecciones QZ/navegador. No es impresión silenciosa ni autoservicio terminado.
