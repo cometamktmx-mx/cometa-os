@@ -27,7 +27,7 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
     const qz=(await import("qz-tray")).default;
     qz.security.setCertificatePromise((resolve:(certificate:string)=>void)=>resolve(settings.certificate||""));
     qz.security.setSignatureAlgorithm("SHA512");
-    try{if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});}catch(error){await failPending();throw error;}
+    try{if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});}catch{await failPending();throw new Error("No se pudo conectar a QZ Tray. Comprueba que esté abierto, que el certificado sea válido y que el navegador permita esta conexión local. La venta se conserva.");}
     let signedMessage="";
     qz.api.setSha256Type(async(message:string)=>{
       signedMessage=message;
