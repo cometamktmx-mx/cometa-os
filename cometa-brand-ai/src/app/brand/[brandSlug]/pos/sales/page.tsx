@@ -1,4 +1,5 @@
 "use client";
+import {isFoodProfile} from "@/lib/pos/surface-policy";
 import {printOperation} from "@/lib/pos/thermal-client";
 
 import {
@@ -178,7 +179,7 @@ const STATUS_LABELS: Record<
 };
 
 export default function PosSalesPage() {
-  const { brand } = usePosContext();
+  const { brand, profileCode } = usePosContext();
 
   const [sales, setSales] = useState<
     Sale[]
@@ -274,9 +275,9 @@ export default function PosSalesPage() {
   useEffect(() => {
     if (!selectedSale || !branding || pendingAutoPrintSaleId.current !== selectedSale.id) return;
     pendingAutoPrintSaleId.current = null;
-    const timer = window.setTimeout(() => { void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir.")); }, 150);
+    const timer = window.setTimeout(() => { if(isFoodProfile(profileCode)){window.print();return;} void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir.")); }, 150);
     return () => window.clearTimeout(timer);
-  }, [branding, selectedSale]);
+  }, [branding, selectedSale, brand.slug, profileCode]);
 
   const filteredSales =
     useMemo(() => {
@@ -608,7 +609,7 @@ export default function PosSalesPage() {
             setSelectedSale(null)
           }
           onPrint={() =>
-            void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir."))
+            isFoodProfile(profileCode) ? window.print() : void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir."))
           }
         />
       ) : null}

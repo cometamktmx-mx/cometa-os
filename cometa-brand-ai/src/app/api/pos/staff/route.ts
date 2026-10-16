@@ -94,6 +94,7 @@ async function saveStaff(context: Awaited<ReturnType<typeof requirePosContext>>,
   }
   if (body.permissions !== undefined) fields.retail_permissions=body.permissions;
   if (fields.retail_permissions !== undefined && (!Array.isArray(fields.retail_permissions) || !fields.retail_permissions.every(p=>typeof p === "string" && Object.hasOwn(RETAIL_PERMISSIONS,p)))) throw new PosApiError(400,"POS_PERMISSION_REQUIRED","Permisos inválidos.");
+  if (fields.role && fields.role!=="ADMIN" && Array.isArray(fields.retail_permissions) && fields.retail_permissions.includes("STAFF")) throw new PosApiError(400,"POS_PERMISSION_REQUIRED","Administrar usuarios requiere el rol Administrador.");
   if (body.active !== undefined) fields.active=body.active === true;
   return context.admin.rpc("pos_retail_staff_save_v1", {p_brand:args.p_brand_slug,p_host:args.p_host_user_id,p_session:args.p_session_id,p_staff:args.p_staff_id,p_fields:fields});
 }

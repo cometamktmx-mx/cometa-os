@@ -1,4 +1,5 @@
 "use client";
+import {isFoodProfile} from "@/lib/pos/surface-policy";
 import {printOperation} from "@/lib/pos/thermal-client";
 
 import Link from "next/link";
@@ -482,7 +483,7 @@ const PAYMENT_METHODS: Array<{
 ];
 
 export default function PosRegisterPage() {
-  const { brand } = usePosContext();
+  const { brand, profileCode } = usePosContext();
 
   const [locations, setLocations] = useState<
     Location[]
@@ -2001,7 +2002,7 @@ export default function PosRegisterPage() {
           }
         );
 
-      void printOperation(brand.slug,{action:"automatic",saleId:response.sale.id}).then(setNotice).catch(e=>setNotice(`Venta confirmada. ${e instanceof Error?e.message:"Revisa la impresora."}`));
+      if(!isFoodProfile(profileCode)) void printOperation(brand.slug,{action:"automatic",saleId:response.sale.id}).then(setNotice).catch(e=>setNotice(`Venta confirmada. ${e instanceof Error?e.message:"Revisa la impresora."}`));
       setCompletedCustomerName(
         selectedCustomer
           ? getCustomerName(
@@ -2485,6 +2486,7 @@ export default function PosRegisterPage() {
             completedCustomerName
           }
           onPrint={() => {
+            if(isFoodProfile(profileCode)){window.open(`${buildPosHref(brand.slug, "sales")}?saleId=${encodeURIComponent(completedSale.id)}&print=1`, "_blank", "noopener,noreferrer");return;}
             void printOperation(brand.slug,{action:"reprint",saleId:completedSale.id,requestKey:crypto.randomUUID()}).then(setNotice).catch(e=>setNotice(e instanceof Error?e.message:"No se pudo reimprimir."));
           }}
           onClose={() => {

@@ -57,7 +57,7 @@ Los permisos de cancelación, devolución y cambio de precio no crean un motor n
 ## Evidencia de esta entrega (16 de octubre)
 
 - Build administrativo aislado y build Vercel Preview completados; guardia de build confirmó backend `ephmrsjnpkcgddulvckj` y Stripe test. Producción y storefront no se desplegaron.
-- TypeScript sin errores; lint dirigido sin errores. Suite de terminal: casos de efectivo/tarjeta/transferencia/mixto, reimpresión, firma real RSA del mensaje QZ, deduplicación, fallo/resultado incierto y permisos. Son pruebas de software, sin impresora ni ventas reales.
+- TypeScript sin errores; lint de archivos nuevos y APIs sin errores. En páginas heredadas, lint conserva 7 errores y 3 advertencias preexistentes (comparados con `ede5537`); no se hizo limpieza fuera de alcance. Suite de terminal: casos de efectivo/tarjeta/transferencia/mixto, reimpresión, firma real RSA del mensaje QZ, deduplicación, fallo/resultado incierto y permisos. Son pruebas de software, sin impresora ni ventas reales.
 - Regresión: 9 pruebas de servidor y 17 de shell aprobadas, más contratos de staff. Incluyen FOOD y conservación del componente/carrito al bloquear/cambiar operador.
 - PostgreSQL real de pruebas: ensayo transaccional con ROLLBACK aprobado; último administrador, bootstrap con operador anterior conservado, PIN, expiración, marca, grants y deduplicación. Dos migraciones aplicadas solo a `magenta-preview-test`; hashes de ambas coinciden con el historial. No aplicadas a producción.
 - Pendiente: recorrido autenticado del nuevo administrador PIN en Preview; instalación PWA real y hardware. La firma QZ no está configurada. No declarar impresión/cajón listos físicamente.
@@ -111,3 +111,5 @@ Los permisos de cancelación, devolución y cambio de precio no crean un motor n
 - `src/types/qz-tray.d.ts`
 - `supabase/migrations/20261016090000_pos_retail_operators_v1.sql`
 - `supabase/migrations/20261016091000_pos_terminal_print_jobs_v1.sql`
+
+FOOD conserva la reimpresión del navegador; el puente y su configuración se limitan a comercio. Editar un operador legado conserva sus permisos efectivos salvo cambio explícito. Cancelación/devolución/cambio de precio no se anuncian como acciones disponibles porque no se añadió un motor nuevo para ellas.
