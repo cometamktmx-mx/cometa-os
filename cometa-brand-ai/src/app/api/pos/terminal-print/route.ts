@@ -6,6 +6,8 @@ import { automaticOperations, drawerCommand, thermalReceipt, samePrintOptions, t
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
+// No fallback to unsigned printing outside an explicitly enabled Preview.
+function manualTestAvailable(){return process.env.VERCEL_ENV==="preview" && process.env.POS_QZ_MANUAL_TEST==="true";}
 async function context(request:Request) {
   const c=await requirePosContext(getBrandSlugFromUrl(request));
   await requirePosCommercialAccess(c,"pos.access");
@@ -23,7 +25,7 @@ export async function GET(request:Request) {
     const id=uuidValue(new URL(request.url).searchParams.get("terminalId"),"terminalId");
     const result=await c.admin.from("pos_terminal_print_settings").select("config").eq("id",id).eq("brand_slug",c.brand.slug).eq("host_user_id",c.user.userId).maybeSingle();
     if(result.error) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","No se pudo leer la configuración de terminal.");
-    return ok({config:result.data?.config??null,certificate:process.env.POS_QZ_CERTIFICATE??null,ready:!!process.env.POS_QZ_PRIVATE_KEY&&!!process.env.POS_QZ_CERTIFICATE});
+    return ok({manualTestAvailable:manualTestAvailable(),config:result.data?.config??null,certificate:process.env.POS_QZ_CERTIFICATE??null,ready:!!process.env.POS_QZ_PRIVATE_KEY&&!!process.env.POS_QZ_CERTIFICATE});
   } catch(e){return handlePosError(e);}
 }
 export async function POST(request:Request) {
@@ -32,17 +34,22 @@ export async function POST(request:Request) {
   if(request.headers.get("origin")!==new URL(request.url).origin) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Origen no autorizado.");
   const c=await context(request),body=await readJsonBody<Record<string,unknown>>(request);
   const terminalId=uuidValue(body.terminalId,"terminalId") as string;
+  const manualTest=body.manualTest===true && manualTestAvailable();
+  if(body.manualTest===true && !manualTest)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Las autorizaciones manuales QZ solo están habilitadas en la Preview de pruebas.");
   if(body.action === "discover-sign") {
     await requireRetailPermission(c,"SETTINGS");
-    if(!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
+    if(!manualTest && (!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE)) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
     if(typeof body.message!=="string" || body.message.length>1000)throw new PosApiError(400,"POS_VALIDATION_ERROR","Consulta de impresoras inválida.");
     let message:Record<string,unknown>;
     try {message=JSON.parse(body.message);} catch {throw new PosApiError(400,"POS_VALIDATION_ERROR","Consulta de impresoras inválida.");}
     if(!message || message.call!=="printers.find" || JSON.stringify(message.params)!=="{}" || typeof message.timestamp!=="number" || Math.abs(Date.now()-message.timestamp)>30000 || Object.keys(message).some(k=>!["call","params","timestamp"].includes(k)))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Solo se permite consultar las impresoras instaladas.");
     const digest=createHash("sha256").update(body.message).digest("hex");
     if(body.digest!==digest)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Firma de consulta inválida.");
+    // Empty signature intentionally retains QZ's per-operation approval dialog.
+    // All permissions, payload validation and (for printing) atomic dispatch run first.
+    if(manualTest)return ok({signature:"",manualApprovalRequired:true});
     const signer=createSign("SHA512");signer.update(digest);signer.end();
-    return ok({signature:signer.sign(process.env.POS_QZ_PRIVATE_KEY.replaceAll("\\n","\n"),"base64")});
+    return ok({signature:signer.sign((process.env.POS_QZ_PRIVATE_KEY||"").replaceAll("\\n","\n"),"base64")});
   }
   if(body.action === "cash") {
     const operator=await requireRetailPermission(c,"DRAWER");
@@ -83,7 +90,7 @@ export async function POST(request:Request) {
       return ok({recorded:true,physicalConfirmation:false});
     }
     await requireRetailPermission(c,job.kind==="drawer" && !job.sale_id ? "DRAWER" : job.kind==="test" ? "SETTINGS" : job.kind==="reprint" ? "REPRINT" : "SELL");
-    if(!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","Falta configurar la firma del puente de impresión.");
+    if(!manualTest && (!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE)) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","Falta configurar la firma del puente de impresión.");
     if(typeof body.message!=="string" || body.message.length>250000)throw new PosApiError(400,"POS_VALIDATION_ERROR","Solicitud de impresión inválida.");
     const message=JSON.parse(body.message) as {call?:string;params?:{printer?:unknown;data?:unknown;options?:Record<string,unknown>};timestamp?:number};
     const digest=createHash("sha256").update(body.message).digest("hex");
@@ -94,8 +101,11 @@ export async function POST(request:Request) {
     // Atomic one-shot dispatch. Lost responses are uncertain, never auto retried.
     const claimed=await c.admin.from("pos_terminal_print_jobs").update({status:"dispatched",dispatched_at:new Date().toISOString()}).eq("id",job.id).eq("status","requested").select("id").maybeSingle();
     if(claimed.error||!claimed.data)throw new PosApiError(409,"POS_WEB_CONFLICT","Esta orden ya fue enviada. No se repetirá automáticamente.");
+    // Empty signature intentionally retains QZ's per-operation approval dialog.
+    // All permissions, payload validation and (for printing) atomic dispatch run first.
+    if(manualTest)return ok({signature:"",manualApprovalRequired:true});
     const signer=createSign("SHA512");signer.update(digest);signer.end();
-    return ok({signature:signer.sign(process.env.POS_QZ_PRIVATE_KEY.replaceAll("\\n","\n"),"base64")});
+    return ok({signature:signer.sign((process.env.POS_QZ_PRIVATE_KEY||"").replaceAll("\\n","\n"),"base64")});
   }
   const action=String(body.action);
   if(!["automatic","reprint","test","drawer"].includes(action)) throw new PosApiError(400,"POS_VALIDATION_ERROR","Operación inválida.");

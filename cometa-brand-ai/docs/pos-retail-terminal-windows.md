@@ -2,6 +2,54 @@
 
 Esta entrega conserva el catálogo, precios, códigos, existencias, motor de cobro y reglas fiscales. La compatibilidad física requiere conocer y probar el modelo de impresora. No hay confirmación física del cajón: el resultado registrado describe la solicitud y la aceptación por el puente, no el movimiento mecánico.
 
+
+## Ensayo antes de contratar certificado — 16 de octubre
+
+QZ ofrece demostración gratuita con avisos: [Premium Support](https://buy.qz.io/Premium-Support-_p_13.html). No se necesita comprar ni generar certificados para este ensayo. El modo explícito implementado conserva los avisos nativos, WSS y la autorización del servidor COMETA; no instala raíces ni modifica protecciones QZ/navegador. No es impresión silenciosa ni autoservicio terminado.
+
+Activación técnica ya preparada para el despliegue de pruebas: variable servidor `POS_QZ_MANUAL_TEST=true` y `VERCEL_ENV=preview`; ambas condiciones son obligatorias. El usuario debe marcar **Acepto probar con autorizaciones manuales de QZ · solo Preview**. Su decisión queda únicamente en sessionStorage de esa pestaña y marca. No se activa automáticamente por ausencia de certificado. Producción rechaza esta modalidad incluso si recibe la variable o un body manipulado.
+
+El callback QZ pide autorización al servidor: valida operador/permisos, impresora, opciones, contenido, vencimiento y despacho único antes de devolver firma vacía. QZ solicita entonces permiso al usuario. El conector no autentica criptográficamente a COMETA en este modo: cerrar otras páginas de impresión, permitir solo la solicitud recién iniciada y no otorgar confianza permanente. Si la política instalada de QZ rechaza solicitudes sin firma, detener la prueba y comunicarlo; no desactivar esa política. Un aviso TLS del navegador tampoco se omite.
+
+### Pasos personales mínimos
+
+1. Abrir [Operadores Preview](https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/staff) con la sesión autorizada de pruebas.
+2. En «Configura tu equipo para comenzar», escribir nombre, elegir sucursal, introducir PIN propio de 4–8 dígitos, confirmarlo y pulsar «Crear primer operador».
+3. Seleccionar ese administrador e ingresar su PIN. No compartirlo por chat. Crear después Ventas e Inventario con PINes personales desde Operadores.
+4. Avisar cuando la sesión esté iniciada para completar comprobaciones autenticadas. La pestaña observada mostró «Failed to fetch» y errores de renovación Supabase; mientras persista, no se considera exitoso el alta ni el login.
+
+### Windows: recorrido corto, solo Preview
+
+1. Instalar controlador oficial y hacer una página de prueba Windows. Desactivar apertura automática del cajón en el controlador. Confirmar modelo, 58/80 mm y perfil/pin del fabricante.
+2. Instalar [QZ Tray 2.3.0 oficial](https://qz.io/download/) para la arquitectura Windows de 64 bits correspondiente, con runtime incluido. Abrir QZ; no ejecutar scripts ni configurar claves. Permitir únicamente la conexión local del sitio de pruebas cuando el navegador lo solicite; no abrir puertos hacia otras computadoras.
+3. Abrir [Terminal Preview](https://cometa-os-magenta-test-delivery-cometa-os-s-projects.vercel.app/brand/magenta-preview/pos/settings/terminal), marcar el modo manual, pulsar «Conectar y buscar impresoras» y revisar/aceptar el aviso QZ de esa solicitud. Puede aparecer como sitio anónimo/no confiable porque no hay certificado comercial.
+4. Elegir impresora, papel, dejar perfil «Sin confirmar» y apertura apagada; guardar. «Probar impresión»: autorizar el aviso, comprobar ticket, acentos y recortes.
+5. Solo con perfil ESC/POS confirmado: guardar pin compatible, abrir turno de prueba, seleccionar turno y motivo; «Solicitar apertura con registro», autorizar y observar físicamente. No repetir si el resultado es incierto.
+6. Activar impresión automática y apertura por efectivo después de esas pruebas; guardar. Registrar **solo ventas sintéticas de Preview**, nunca cargos Stripe reales. Cada orden puede pedir aprobación independiente: ticket y cajón no son una sola confirmación.
+
+| Caso | Resultado físico esperado | Evidencia que debe revisarse |
+| --- | --- | --- |
+| Efectivo | Ticket + una solicitud de cajón | Una venta, ticket correcto, una apertura observada |
+| Tarjeta / transferencia | Ticket, sin cajón | Una venta, sin solicitud de cajón |
+| Mixto con efectivo | Ticket + una solicitud de cajón | Importes y cambio correctos, una apertura |
+| Reimpresión | Ticket, sin cajón | Misma venta, sin cobro nuevo |
+| USB desconectado | Puede fallar o quedar en cola | Venta sigue confirmada; no volver a cobrar |
+
+Antes de reimprimir tras desconexión, revisar/cancelar la cola retenida Windows: al reconectar puede salir el ticket pendiente. Una cola aceptada no prueba impresión física ni apertura. Denegar un aviso puede dejar el resultado de cajón incierto y no provoca reintento automático. Si el administrador supera 3 minutos durante el ensayo, desbloquear antes de continuar; la venta ya confirmada no se pierde.
+
+### Estado y licencia SaaS
+
+- Usuarios/permisos/bloqueo: suites de servidor y shell aprobadas; recorrido autenticado personal pendiente.
+- PWA: implementación conservada; instalación y suspensión/reanudación Windows pendientes. Edge → Aplicaciones → Instalar este sitio; Chrome → Instalar COMETA POS. Verificar marca al abrir y configurar esta ventana; no recargar una venta en curso para actualizar. Requiere internet.
+- Impresión/cajón manual: mecanismo de prueba implementado y validado en software; QZ real, avisos y hardware pendientes.
+- Autoservicio sin avisos repetidos: pendiente de firma central, confianza distribuida y validación Windows; no contratado.
+
+La [FAQ oficial](https://qz.io/docs/faq#licensing) declara que Premium Support no limita clientes/usuarios ni dominios. Esto respalda el uso de un certificado central para múltiples terminales; no publica una restricción por tienda. La tarifa publicada es US$749 por un año y descuento de US$100 en renovación; hay aviso de disponibilidad en la tienda. No es una cotización específica para COMETA ni confirmación contractual de nuestro SaaS. Antes de contratar, confirmar por escrito: SaaS multinegocio, terminales/clientes de terceros, certificado y clave custodiados solo por COMETA, dominios propios y Preview, precio final/impuestos, renovación y disponibilidad. No se envió mensaje ni se compró nada.
+
+No confundir con [Company Branded](https://qz.io/docs/company-branded): cambiar la identidad del ejecutable requiere producto separado. Conservamos QZ Tray original. Sus [términos específicos](https://qz.io/docs/company-branded-service-terms-of-use) no se presentan como contrato de Premium Support estándar.
+
+Archivos de esta continuación: `src/app/api/pos/terminal-print/route.ts`, `src/lib/pos/thermal-client.ts`, `src/types/qz-tray.d.ts`, `src/app/brand/[brandSlug]/pos/settings/terminal/page.tsx`, `scripts/test-pos-retail-terminal.mjs`, `docs/pos-retail-terminal-windows.md`. Sin nuevas migraciones.
+
 ## Preparación técnica
 
 Migraciones, en orden (sin seeds ni cambios de catálogo):
@@ -18,7 +66,7 @@ Variables **solo servidor**, separadas por entorno:
 - `POS_QZ_CERTIFICATE`: certificado público de firma, PEM completo.
 - `POS_QZ_PRIVATE_KEY`: clave privada de firma, PEM completo; jamás `NEXT_PUBLIC_*`, navegador, repositorio, ticket o chat.
 
-Sin ambas variables la impresión automática permanece sin capacidad de despacho. La venta confirmada no se revierte ni se vuelve a cobrar. El operador puede reimprimir una vez configurado el puente. No copiar una clave/certificado de laboratorio al despliegue operativo sin instalar y verificar su confianza.
+Fuera del modo manual de Preview descrito arriba, sin ambas variables la impresión automática permanece sin capacidad de despacho. La venta confirmada no se revierte ni se vuelve a cobrar. El operador puede reimprimir una vez configurado el puente. No copiar una clave/certificado de laboratorio al despliegue operativo sin instalar y verificar su confianza.
 
 La API firma únicamente el hash SHA-256 de una orden de impresión autorizada, con RSA SHA-512, conforme al cliente QZ. Valida origen, sesión/operador, marca, terminal, datos generados en servidor, impresora y opciones exactas, vencimiento y despacho único. No firma archivos, sockets, programas ni datos de impresión arbitrarios.
 
@@ -28,7 +76,7 @@ La API firma únicamente el hash SHA-256 de una orden de impresión autorizada, 
 2. En preferencias del controlador, **desactivar cualquier apertura automática del cajón al imprimir**. Dejarla activa haría que una reimpresión pudiera abrirlo, fuera del control de COMETA.
 3. Descargar el instalador oficial de [QZ Tray](https://qz.io/download/), con su runtime incluido, e instalarlo. La [FAQ oficial](https://qz.io/docs/faq) describe OpenJDK incluido y requisitos. No hace falta instalar Node.js en la caja.
 4. Abrir Configuración → Impresora y cajón → **Conectar y buscar impresoras**. Elegir una impresora instalada, papel y perfil, guardar y probar. El cliente no ejecuta scripts, genera certificados ni entrega claves. El nombre guardado se conserva si el conector no responde.
-5. COMETA administra centralmente `POS_QZ_CERTIFICATE` y `POS_QZ_PRIVATE_KEY`, separados por entorno. La clave PKCS#8 RSA de 2048 bits queda únicamente en servidor; el certificado X.509 es público. La confianza TLS de localhost la instala QZ; es distinta del certificado que firma solicitudes. El certificado demo por computadora **no es la solución autoservicio elegida**. Para confianza distribuible, Premium Support publica US$749 por un año y renovación reducida: [oferta oficial](https://buy.qz.io/Premium-Support-_p_13.html). La página muestra también aviso de disponibilidad: confirmar disponibilidad, cobertura SaaS y condiciones con QZ antes de contratar. No se ha comprado ni activado un certificado comercial. Una raíz propia requiere distribución de confianza y mantenimiento central; no se traslada ese trabajo al cliente.
+5. Para operación sin avisos repetidos, COMETA administra centralmente `POS_QZ_CERTIFICATE` y `POS_QZ_PRIVATE_KEY`, separados por entorno. La clave PKCS#8 RSA de 2048 bits queda únicamente en servidor; el certificado X.509 es público. La confianza TLS de localhost la instala QZ; es distinta del certificado que firma solicitudes. El certificado demo por computadora **no es la solución autoservicio elegida**. Para confianza distribuible, Premium Support publica US$749 por un año y renovación reducida: [oferta oficial](https://buy.qz.io/Premium-Support-_p_13.html). La página muestra también aviso de disponibilidad: confirmar disponibilidad, cobertura SaaS y condiciones con QZ antes de contratar. No se ha comprado ni activado un certificado comercial. Una raíz propia requiere distribución de confianza y mantenimiento central; no se traslada ese trabajo al cliente.
 
    **Bloqueo de distribución:** preparar por COMETA un instalador/configuración de conector que restrinja escucha a localhost/WSS, orígenes COMETA explícitos, impresión a archivos/hosts y acceso a archivos. El script existente `scripts/windows/configure-qz-pos.ps1` es una referencia interna de soporte, no un paso del cliente. No declarar esta distribución segura y autoservicio completada hasta ensayarla en Windows; el instalador QZ estándar no incorpora nuestras restricciones por sí solo.
 

@@ -1,14 +1,31 @@
 "use client";
 import {qzPrintOptions,type TerminalPrintConfig} from "./thermal";
 type Job={id:string;kind:string;payload:{printer:string;width:58|80;data:unknown[]}};
-type PrintResponse={ok:boolean;error?:string;jobs?:Job[];config?:TerminalPrintConfig|null;certificate?:string;ready?:boolean;signature?:string;sessions?:{id:string;register?:{name:string}}[]};
+type PrintResponse={ok:boolean;error?:string;jobs?:Job[];config?:TerminalPrintConfig|null;certificate?:string;ready?:boolean;manualTestAvailable?:boolean;signature?:string;sessions?:{id:string;register?:{name:string}}[]};
+export function manualTestSelected(brand:string){return sessionStorage.getItem(`cometa:qz-manual-test:${brand}`)==="true";}
+export function selectManualTest(brand:string,enabled:boolean){
+ if(enabled)sessionStorage.setItem(`cometa:qz-manual-test:${brand}`,"true");
+ else sessionStorage.removeItem(`cometa:qz-manual-test:${brand}`);
+}
+let connectionIdentity:string|null=null;
+async function connectQz(settings:PrintResponse,manual:boolean){
+ const qz=(await import("qz-tray")).default;
+ const certificate=manual?"":settings.certificate||"";
+ // Certificate is sent at connection time; never reuse another mode's trust.
+ if(qz.websocket.isActive() && connectionIdentity!==certificate)await qz.websocket.disconnect();
+ qz.security.setCertificatePromise(resolve=>resolve(certificate));
+ qz.security.setSignatureAlgorithm("SHA512");
+ if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});
+ connectionIdentity=certificate;
+ return qz;
+}
 export function terminalId(brand:string) {
   const key=`cometa:print-terminal:${brand}`;
   let id=localStorage.getItem(key);if(!id){id=crypto.randomUUID();localStorage.setItem(key,id);}return id;
 }
 export async function terminalRequest(brand:string,body?:Record<string,unknown>):Promise<PrintResponse> {
   const id=terminalId(brand),url=`/api/pos/terminal-print?brandSlug=${encodeURIComponent(brand)}`;
-  const response=await fetch(body?url:`${url}&terminalId=${id}`,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,terminalId:id})}:{cache:"no-store"});
+  const response=await fetch(body?url:`${url}&terminalId=${id}`,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,terminalId:id,manualTest:manualTestSelected(brand)})}:{cache:"no-store"});
   const result=await response.json() as PrintResponse;
   if(!response.ok)throw new Error(result.error||"No se pudo comunicar con la terminal.");return result;
 }
@@ -23,11 +40,10 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
     if(!prepared.jobs?.length)return "Sin nuevas órdenes de impresión/cajón.";
     const failPending=async()=>{for(const job of prepared.jobs||[])await terminalRequest(brand,{action:"result",jobId:job.id,status:"failed"}).catch(()=>undefined);};
     const settings=await terminalRequest(brand);
-    if(!settings.ready||!settings.certificate){await failPending();throw new Error("Venta conservada. Falta configurar el certificado de impresión de esta instalación.");}
-    const qz=(await import("qz-tray")).default;
-    qz.security.setCertificatePromise((resolve:(certificate:string)=>void)=>resolve(settings.certificate||""));
-    qz.security.setSignatureAlgorithm("SHA512");
-    try{if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});}catch{await failPending();throw new Error("No se pudo conectar a QZ Tray. Comprueba que esté abierto, que el certificado sea válido y que el navegador permita esta conexión local. La venta se conserva.");}
+    const manual=settings.manualTestAvailable===true && manualTestSelected(brand);
+    if(!manual && (!settings.ready||!settings.certificate)){await failPending();throw new Error("Venta conservada. Falta configurar el certificado de impresión de esta instalación.");}
+    let qz:Awaited<ReturnType<typeof connectQz>>;
+    try{qz=await connectQz(settings,manual);}catch{await failPending();throw new Error("No se pudo conectar a QZ Tray. Comprueba que esté abierto y permite la conexión local. En modo de prueba debes autorizar el aviso de QZ; no omitas advertencias de seguridad del navegador. La venta se conserva.");}
     let signedMessage="";
     qz.api.setSha256Type(async(message:string)=>{
       signedMessage=message;
@@ -59,10 +75,10 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
 export function discoverPrinters(brand:string):Promise<string[]> {
  const task=queue.then(async()=>{
   const settings=await terminalRequest(brand);
-  if(!settings.ready||!settings.certificate)throw new Error("COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
+  const manual=settings.manualTestAvailable===true && manualTestSelected(brand);
+  if(!manual && (!settings.ready||!settings.certificate))throw new Error("COMETA todavía no ha habilitado la firma de impresión. Contacta a soporte; no necesitas configurar claves.");
   const qz=(await import("qz-tray")).default;
-  qz.security.setCertificatePromise(resolve=>resolve(settings.certificate||""));
-  qz.security.setSignatureAlgorithm("SHA512");
+
   let message="";
   qz.api.setSha256Type(async value=>{
    message=value;
@@ -73,7 +89,7 @@ export function discoverPrinters(brand:string):Promise<string[]> {
    void terminalRequest(brand,{action:"discover-sign",message,digest}).then(r=>resolve(r.signature||"")).catch(reject);
   });
   try {
-   if(!qz.websocket.isActive())await qz.websocket.connect({host:"localhost",usingSecure:true});
+   await connectQz(settings,manual);
    const printers=await qz.printers.find();
    if(!Array.isArray(printers)||printers.some(p=>typeof p!=="string"))throw new Error("Respuesta inválida.");
    return [...new Set(printers)].sort();

@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import crypto from 'node:crypto';
 import qz from 'qz-tray';
-function load(file,deps={}){const module={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require:name=>{assert.ok(name in deps,name);return deps[name]},Request,Response,URL,Date,Intl,process,Buffer});return module.exports;}
+function load(file,deps={},globals={}){const module={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require:name=>{assert.ok(name in deps,name);return deps[name]},Request,Response,URL,Date,Intl,process,Buffer,...globals});return module.exports;}
 const thermal=load('src/lib/pos/thermal.ts'),permissions=load('src/lib/pos/retail-permissions.ts');
 const conf={printer:'Fixture USB',width:80,profile:'escpos-pin2',autoPrint:true,autoDrawer:true};
 const cash=[{payment_method:'cash',amount:100,tendered_amount:120,change_amount:20}],card=[{payment_method:'card',amount:100,tendered_amount:100,change_amount:0}];
@@ -59,4 +59,58 @@ for(const candidate of [{call:'print',params:{}},{call:'file.write',params:{}},{
 assert.equal((await post({...discoveryBody,message:'{'})).status,400);
 assert.equal((await post({...discoveryBody,digest:'wrong'})).status,403);
 delete process.env.POS_QZ_PRIVATE_KEY;delete process.env.POS_QZ_CERTIFICATE;
+process.env.POS_QZ_MANUAL_TEST='true';
+for(const environment of ['production','development','']){
+ process.env.VERCEL_ENV=environment;
+ assert.equal((await post({...discoveryBody,manualTest:true})).status,403,'manual mode denied outside Preview');
+}
+process.env.VERCEL_ENV='preview';
+assert.equal((await post(discoveryBody)).status,503,'no silent unsigned fallback without opt-in');
+response=await post({...discoveryBody,manualTest:true});assert.equal(response.status,200);
+assert.equal((await response.json()).signature,'','manual approval sends no claimed identity/signature');
+allowed=new Set(['PRODUCTS_READ']);assert.equal((await post({...discoveryBody,manualTest:true})).status,403);
+allowed=new Set(Object.keys(permissions.RETAIL_PERMISSIONS));
+response=await post({action:'test',requestKey:crypto.randomUUID(),manualTest:true});assert.equal(response.status,200);
+const manualJob=(await response.json()).jobs[0];
+const manualMessage=JSON.stringify({call:'print',params:{printer:{name:conf.printer},options,data:manualJob.payload.data},timestamp:Date.now()});
+const manualBody={action:'sign',jobId:manualJob.id,message:manualMessage,digest:crypto.createHash('sha256').update(manualMessage).digest('hex'),manualTest:true};
+assert.equal((await post({...manualBody,message:bad,digest:crypto.createHash('sha256').update(bad).digest('hex')})).status,403,'manual mode does not allow arbitrary commands');
+response=await post(manualBody);assert.equal(response.status,200);assert.equal((await response.json()).signature,'');
+assert.equal((await post(manualBody)).status,409,'manual approval still dispatches once');
+assert.equal((await post({action:'result',jobId:manualJob.id,status:'failed',manualTest:true})).status,200);
+assert.equal(sale.status,'completed');assert.equal(tables.pos_sales.length,1);
+
+// Execute the actual client against the route. QZ UI/hardware is simulated here.
+const storage=new Map();const browserStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+browserStorage.setItem('cometa:print-terminal:'+brand,terminalId);
+let certificateCallback,signatureCallback,hashCallback,bridgeConnected=false,certificateSeen=null,wireCalls=0;
+const bridgeCall=async(call,params)=>{
+ const message=JSON.stringify({call,params,timestamp:Date.now()});
+ const digest=await hashCallback(message);
+ const signature=await new Promise(signatureCallback(digest));
+ assert.equal(signature,'');wireCalls++;
+};
+const mockQz={
+ security:{setCertificatePromise:fn=>{certificateCallback=fn},setSignatureAlgorithm:()=>{},setSignaturePromise:fn=>{signatureCallback=fn}},
+ api:{setSha256Type:fn=>{hashCallback=fn}},
+ websocket:{isActive:()=>bridgeConnected,disconnect:async()=>{bridgeConnected=false},connect:async opts=>{assert.equal(opts.usingSecure,true);assert.equal(opts.host,'localhost');certificateSeen=await new Promise(certificateCallback);bridgeConnected=true;}},
+ printers:{find:async()=>{await bridgeCall('printers.find',{});return ['Fixture USB']}},
+ configs:{create:(printer,options)=>({printer,options:qz.configs.create(printer,options).config})},
+ print:async(config,data)=>{await bridgeCall('print',{printer:{name:config.printer},options:config.options,data})}
+};
+const client=load('src/lib/pos/thermal-client.ts',{'./thermal':thermal,'qz-tray':{default:mockQz}},{sessionStorage:browserStorage,localStorage:browserStorage,crypto:crypto.webcrypto,TextEncoder,fetch:async(url,options)=>{
+ const request=new Request('https://fixture.test'+url,options?{...options,headers:{...options.headers,origin:'https://fixture.test'}}:undefined);
+ return options?.method==='POST'?route.POST(request):route.GET(request);
+}});
+await assert.rejects(client.discoverPrinters(brand),/firma/);
+client.selectManualTest(brand,true);
+assert.deepEqual([...await client.discoverPrinters(brand)],['Fixture USB']);assert.equal(certificateSeen,'');
+const jobsBefore=tables.pos_terminal_print_jobs.length;
+await client.printOperation(brand,{action:'reprint',saleId:sale.id,requestKey:crypto.randomUUID()});
+assert.equal(tables.pos_terminal_print_jobs.length,jobsBefore+1);assert.equal(tables.pos_terminal_print_jobs.at(-1).status,'spooled');
+assert.equal(wireCalls,2);client.selectManualTest(brand,false);
+await assert.rejects(client.discoverPrinters(brand),/firma/);
+delete process.env.POS_QZ_MANUAL_TEST;delete process.env.VERCEL_ENV;
+console.log('PASS manual Preview opt-in: production denied, no silent fallback, permission and payload checks, one-shot dispatch, failure preserves sale. QZ dialogs/hardware not tested.');
+
 console.log('PASS software only: cash/card/transfer/mixed, one-shot jobs, reprint isolation, uncertain drawer, safe HTML, signature validation, server permission denial, admin expiry and non-admin inactivity. No hardware or real sales.');
