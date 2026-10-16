@@ -2,13 +2,13 @@ import Stripe from 'stripe';
 import {requirePosMutationAccess} from '@/lib/pos/mutation-access';
 import {requirePosOperationalAccess} from '@/lib/pos/access';
 import {assertWebAdministrator} from '@/lib/pos/product-web';
-import {getPosMode} from '@/lib/pos/staff-server';
+import {getPosMode,requireRetailPermission} from '@/lib/pos/staff-server';
 import {getBrandSlugFromUrl,handlePosError,PosApiError} from '@/lib/pos/server';
 import {storePaymentState,syncStorePayment} from '@/lib/pos/store-payments';
 import {storeStripeRuntime,assertStoreAccount,type StorePaymentAccount} from '../../../../../../packages/own-storefront/stripe-runtime';
 export const dynamic='force-dynamic';
 const reply=(data:unknown)=>Response.json(data,{headers:{'Cache-Control':'private, no-store'}});
-async function context(request:Request,mutation=false){const c=mutation?await requirePosMutationAccess({brandSlug:getBrandSlugFromUrl(request),operation:'settings.manage'}):await requirePosOperationalAccess({brandSlug:getBrandSlugFromUrl(request),entitlement:'pos.access'});assertWebAdministrator(c);if(await getPosMode(c)!=='RETAIL')throw new PosApiError(409,'POS_WEB_RETAIL_ONLY','Disponible para Retail.');return c;}
+async function context(request:Request,mutation=false){const c=mutation?await requirePosMutationAccess({brandSlug:getBrandSlugFromUrl(request),operation:'settings.manage'}):await requirePosOperationalAccess({brandSlug:getBrandSlugFromUrl(request),entitlement:'pos.access'});assertWebAdministrator(c);await requireRetailPermission(c,"SETTINGS");if(await getPosMode(c)!=='RETAIL')throw new PosApiError(409,'POS_WEB_RETAIL_ONLY','Disponible para Retail.');return c;}
 export async function GET(request:Request){try{const c=await context(request),s=await storePaymentState(c);return reply({mode:s.runtime.mode,connected:!!s.binding?.stripe_account_id,active:s.ready,account:s.binding?.stripe_account_id??null,chargesEnabled:!!s.binding?.stripe_account_id&&s.account.charges_enabled,payoutsEnabled:!!s.binding?.stripe_account_id&&s.account.payouts_enabled,detailsSubmitted:!!s.binding?.stripe_account_id&&s.account.details_submitted,status:!s.binding?.stripe_account_id?'NOT_CONNECTED':s.ready?'ENABLED':'PENDING',onboardingSupported:true});}catch(e){return handlePosError(e);}}
 export async function POST(request:Request){try{
  const c=await context(request,true),text=await request.text();if(text.length>2000)throw new PosApiError(400,'POS_VALIDATION_ERROR','Solicitud inválida.');let body:unknown;try{body=JSON.parse(text);}catch{throw new PosApiError(400,'POS_VALIDATION_ERROR','Solicitud inválida.');}

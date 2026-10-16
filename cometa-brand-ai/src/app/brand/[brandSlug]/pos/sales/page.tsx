@@ -1,4 +1,5 @@
 "use client";
+import {printOperation} from "@/lib/pos/thermal-client";
 
 import {
   useCallback,
@@ -273,7 +274,7 @@ export default function PosSalesPage() {
   useEffect(() => {
     if (!selectedSale || !branding || pendingAutoPrintSaleId.current !== selectedSale.id) return;
     pendingAutoPrintSaleId.current = null;
-    const timer = window.setTimeout(() => window.print(), 150);
+    const timer = window.setTimeout(() => { void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir.")); }, 150);
     return () => window.clearTimeout(timer);
   }, [branding, selectedSale]);
 
@@ -607,7 +608,7 @@ export default function PosSalesPage() {
             setSelectedSale(null)
           }
           onPrint={() =>
-            window.print()
+            void printOperation(brand.slug,{action:"reprint",saleId:selectedSale.id,requestKey:crypto.randomUUID()}).catch(e=>setError(e instanceof Error?e.message:"No se pudo reimprimir."))
           }
         />
       ) : null}

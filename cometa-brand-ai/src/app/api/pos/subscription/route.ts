@@ -1,3 +1,4 @@
+import {requireRetailPermission} from "@/lib/pos/staff-server";
 import {
   assertDatabaseResult,
   booleanValue,
@@ -163,6 +164,8 @@ export async function POST(request: Request) {
       40
     );
 
+    const operatorContext=await requirePosContext(brandSlug);
+    await requireRetailPermission(operatorContext,"SETTINGS");
     const { admin, brand, user } =
       await initializePosSubscription(brandSlug);
 

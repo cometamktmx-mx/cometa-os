@@ -1,3 +1,5 @@
+import {getStaffSession} from "@/lib/pos/staff-server";
+import {retailPermissions} from "@/lib/pos/retail-permissions";
 import {
   assertDatabaseResult,
   getBrandSlugFromUrl,
@@ -410,11 +412,13 @@ export async function GET(request: Request) {
 
     const locations = locationsResult.data || [];
     const registers = registersResult.data || [];
-    const canViewOpenExpectedCash =
+    const activeOperator=await getStaffSession(context);
+    const operatorMayReadCash=resolvePosMode(profileResult.data.profile_code)!=="RETAIL" || !!activeOperator && retailPermissions(activeOperator.staff).includes("CASH");
+    const canViewOpenExpectedCash = operatorMayReadCash && (
       user.isAdmin ||
       ["owner", "admin", "manager"].includes(
         membership?.effectiveRole || ""
-      );
+      ));
     const openSessions = (openSessionsResult.data || []).map((session) =>
       canViewOpenExpectedCash
         ? session

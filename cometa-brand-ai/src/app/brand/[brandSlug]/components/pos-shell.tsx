@@ -443,9 +443,8 @@ export default function PosShell({
                   setLoadError("No se pudo cerrar la sesión operacional.");
                   return;
                 }
-                await clearPosLocalContext(true, "operator");
                 setCurrentOperator(null);
-                router.refresh();
+                window.dispatchEvent(new Event("focus"));
               }}
               onOpenNavigation={() =>
                 setIsMobileNavigationOpen(true)

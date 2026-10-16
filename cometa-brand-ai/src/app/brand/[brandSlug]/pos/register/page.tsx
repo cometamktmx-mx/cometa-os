@@ -1,4 +1,5 @@
 "use client";
+import {printOperation} from "@/lib/pos/thermal-client";
 
 import Link from "next/link";
 import { PosCameraScanner } from "@/components/pos-camera-scanner";
@@ -2000,6 +2001,7 @@ export default function PosRegisterPage() {
           }
         );
 
+      void printOperation(brand.slug,{action:"automatic",saleId:response.sale.id}).then(setNotice).catch(e=>setNotice(`Venta confirmada. ${e instanceof Error?e.message:"Revisa la impresora."}`));
       setCompletedCustomerName(
         selectedCustomer
           ? getCustomerName(
@@ -2483,8 +2485,7 @@ export default function PosRegisterPage() {
             completedCustomerName
           }
           onPrint={() => {
-            const printUrl = `${buildPosHref(brand.slug, "sales")}?saleId=${encodeURIComponent(completedSale.id)}&print=1`;
-            window.open(printUrl, "_blank", "noopener,noreferrer");
+            void printOperation(brand.slug,{action:"reprint",saleId:completedSale.id,requestKey:crypto.randomUUID()}).then(setNotice).catch(e=>setNotice(e instanceof Error?e.message:"No se pudo reimprimir."));
           }}
           onClose={() => {
             setCompletedSale(null);
