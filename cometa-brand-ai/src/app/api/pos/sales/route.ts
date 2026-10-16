@@ -1,6 +1,7 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
   assertDatabaseResult,
+  PosApiError,
   fail,
   getBrandSlugFromUrl,
   getPagination,
@@ -13,7 +14,7 @@ import {
   uuidValue,
 } from "@/lib/pos/server";
 import { requirePosOperationalAccess } from "@/lib/pos/access";
-import { requireStaffSession, getPosMode } from "@/lib/pos/staff-server";
+import { requireStaffSession, getPosMode, requireRetailPermission } from "@/lib/pos/staff-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,8 +64,10 @@ const PAYMENT_METHODS = new Set([
 export async function GET(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } =
-      await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.sales" });
+    const { admin, brand } = context;
+    const browserPrint = new URL(request.url).searchParams.get("print") === "1";
+    const printStaff = browserPrint ? await requireRetailPermission(context,"REPRINT") : null;
 
     const {
       page,
@@ -89,6 +92,7 @@ export async function GET(request: Request) {
       : null;
     const rawSaleId = url.searchParams.get("saleId");
     const saleId = rawSaleId ? uuidValue(rawSaleId, "saleId") : null;
+    if(browserPrint && !saleId) throw new PosApiError(400,"POS_VALIDATION_ERROR","Selecciona la venta confirmada para imprimir.");
 
     let query = admin
       .from("pos_sales")
@@ -143,6 +147,11 @@ export async function GET(request: Request) {
       })
       .range(from, to);
 
+    if(browserPrint){
+      query=query.in("status",["completed","partially_refunded","refunded"]);
+      if(printStaff?.locationId)query=query.eq("location_id",printStaff.locationId);
+      if(context.device?.locationId)query=query.eq("location_id",context.device.locationId);
+    }
     if (status) {
       query = query.eq(
         "status",
@@ -581,7 +590,8 @@ export async function POST(request: Request) {
         }
       );
 
-    const cashierSession = posMode === "RETAIL" ? null : await requireStaffSession(access, "SALE_CHARGE", uuidValue(body.locationId, "locationId") as string);
+    if (posMode === "RETAIL" && normalizedItems.some(item => Number(item.discount_amount) > 0)) await requireRetailPermission(access,"DISCOUNT");
+    const cashierSession = await requireStaffSession(access, "SALE_CHARGE", uuidValue(body.locationId, "locationId") as string);
     const saleRpc = cashierSession ? "pos_complete_sale_with_staff_v1" : "pos_complete_sale_v4";
     const saleArgs: Record<string, unknown> = {
         p_brand_slug: brand.slug,

@@ -1,6 +1,52 @@
+## Publicación POS comercio autorizada — 16 de octubre
+
+El usuario autorizó producción desde 2454b64 para roles/PIN, permisos, bloqueo administrativo, PWA y terminal térmica. No incluye apertura de tienda, cobros reales ni compra de certificado. Las restricciones históricas inferiores quedan sustituidas exclusivamente para este alcance.
+
+- Destino confirmado: Supabase zhtagqrzyovsrmsicaot, Magenta operativa magenta-fitwear (70880b54-b6fe-4775-bb39-c9ff19c47c39), 383 productos y cero ventas al preflight. Administrador Vercel cometa-os, producción main, dominio app.cometaos.com. Storefront y DNS intactos.
+- Respaldo fresco privado en build/retail-terminal/production-private/recovery-1792169526458. DB restaurada con propietarios y roles, 26 objetos Storage descargados por HTTP con hashes iguales; dos migraciones ensayadas y pruebas SQL revertidas: PASS. Contenedores aislados retirados. Sin copia externa/PITR afirmados.
+- Migraciones 20261016090000 y 20261016091000 aplicadas el 16/10 a las 17:02:59 y 17:03:12 UTC. Hashes de la tabla inferior conservados; contenido completo en ledger y verificado. Huellas de usuarios, accesos, catálogo, variantes, inventario, ventas, pagos, ubicaciones y operadores preservadas dentro de cada transacción. Ejecutable: scripts/apply-pos-retail-production.mjs --authorized-launch. Los intentos previos de sintaxis del ejecutor fueron rechazados sin aplicar datos.
+- QZ manual permanece exclusivo de Preview; no se habilita globalmente ni para Magenta productiva porque no existe autorización persistida por terminal. El servidor impide activar automatismos sin firma y el cliente lo explica. Se conserva el diálogo de impresión ya existente para reimpresión, con comprobación nueva REPRINT en servidor, marca/sucursal y venta confirmada. No envía pulso al cajón ni cobra. Desactivar apertura de cajón en el controlador Windows antes de imprimir.
+- Sesión: producción abrió autenticada en navegador antes del despliegue; Auth/settings respondió 200. Preview llegó por TLS al servidor Auth (401 esperado sin API key), mientras su pestaña antigua mostró Failed to fetch al renovar. Esto no demuestra clave incorrecta ni fallo general de Supabase; no se cambiaron claves, cookies ni autenticación para ocultarlo. Para recuperar sin descartar trabajo: conservar pestaña/carrito, verificar conexión, abrir login del mismo entorno en otra pestaña y volver a Reintentar en la original. No borrar almacenamiento, cerrar sesión ni recargar el carrito pendiente. El bloqueo del navegador no se elude.
+- Alta personal PIN, operación por cada rol y hardware pendientes de intervención personal; pruebas automatizadas no los sustituyen. Producción no tenía operadores al preflight. No se crearon PINes ni ventas sintéticas.
+
+Recuperación de aplicación: despliegue anterior dpl_BU5ofoBf7cfLuGprkDx7RDipa9ZG, https://cometa-p2vzxvjhw-cometa-os-s-projects.vercel.app. Si el código nuevo falla, promover esa versión solo tras evaluar que temporalmente no aplicará los nuevos controles PIN Retail; restringir operación durante esa transición. Mantener columnas, auditoría y grants financieros nuevos. Revertir aplicación no revierte DB; no restaurar el respaldo encima de nuevas escrituras sin reconciliación. La copia privada contiene datos reales y no debe subirse a Git/Preview.
+
+Estado de publicación: build/merge/despliegue en ejecución; consultar el resultado final de la entrega antes de considerar publicado.
+
+---
+
+## Incremento POS comercio del 16 de octubre — NO autorizado para producción todavía
+
+La publicación histórica descrita debajo no incluye este incremento. Validar primero Preview, PIN personal, PWA y hardware; certificado central y distribución segura del conector siguen pendientes. No activar impresión automática sin esas comprobaciones.
+
+Migraciones nuevas, en orden, ya ensayadas/aplicadas solo en pruebas:
+
+| Archivo | SHA-256 |
+| --- | --- |
+| 20261016090000_pos_retail_operators_v1.sql | 284f4d3391a749f8aa358a2fb60c623707cad2c40239115c424addce59c67797 |
+| 20261016091000_pos_terminal_print_jobs_v1.sql | f61f875ab13bfa98be9c2ce724e2c2fbb587e93a92fdfde8c49a04dfdc293b71 |
+
+Antes de autorización final: consultar historial de producción y comparar contenido/hash, no solo versión. No reutilizar automáticamente el instalador antiguo de cinco migraciones para estas dos. Obtener respaldo fresco DB/roles/Storage fuera de .next, verificar hashes y restaurar en destino aislado; aplicar allí estas dos migraciones y comprobar permisos de RPC, FOOD, operador existente, último administrador y auditoría. La evidencia histórica de recuperación no reemplaza este ensayo actualizado. En esta continuación no se encontró el archivo local de recovery-result ni Docker en su ruta estándar: recuperación actual pendiente, no declarada aprobada.
+
+Secuencia futura: respaldo verificado → migraciones faltantes con registro y hashes → variables de firma servidor del entorno correcto → administración candidata → smoke autenticado sin ventas ficticias → habilitación por terminal tras prueba física. No copiar certificados demo o claves Preview a live ni tocar storefront/dominios.
+
+Recuperación: detener impresión automática, preservar solicitudes y colas; una apertura incierta no se reenvía. Evaluar compatibilidad de la versión anterior con permisos antes de revertir código. Conservar columnas aditivas, auditoría y revocación de acceso directo a la RPC financiera. Restaurar DB/Storage solo tras evaluar escrituras posteriores y un plan de reconciliación: revertir código no revierte datos.
+
+---
+
 # Magenta: lanzamiento autorizado - 15 de octubre de 2026
 
 ## Resultado vigente del lanzamiento
+
+### Verificación autenticada posterior al lanzamiento
+
+Completada el 15/10/2026 con la sesión real iniciada por el usuario en `app.cometaos.com`, sin crear cuentas ni extraer credenciales. POS, Caja y catálogo cargaron; Caja mostró cero turnos y el catálogo real un producto/27 variantes. Desde Configuración se abrió el asistente ELEVENTA y se consultaron los historiales de Productos, Inventario y Clientes. Inventario exige sucursal; seleccionando Principal se habilita Archivo, y sin archivo no permite revisar correspondencias. No se cargaron muestras ni se confirmó ninguna importación.
+
+La prueba encontró y corrigió un rechazo indebido del administrador global al guardar Personalización: una comprobación adicional exigía membresía local después de la autorización central. `983cf39`, integrado por [PR #3](https://github.com/cometamktmx-mx/cometa-os/pull/3), merge `86dd88b`, elimina únicamente esa comprobación redundante y conserva `requirePosMutationAccess(settings.manage)`. La prueba ejecuta ruta, política y RBAC reales con transporte simulado: administrador global y owner/admin permitidos; roles restringidos, no autenticado, marca ajena y Food sin operador rechazados. Sin cambios de roles, permisos persistidos, schema o inventario. TypeScript, lint dirigido, prueba de permisos y build pasaron. Administración actual: `https://cometa-3w0ahzu0f-cometa-os-s-projects.vercel.app`, READY/Production, promovida al dominio existente; storefront sin nuevo despliegue.
+
+Guardado reversible realizado desde la interfaz: Personalización → Tema **Oscuro → Sistema**, guardar y recargar confirmó `system`; después **Sistema → Oscuro**, guardar y recargar confirmó `dark`. Todos los campos del formulario volvieron a sus valores iniciales. Comparación de DB antes/después: configuración exactamente igual salvo `updated_at`; ventas=0, importaciones=0, pedidos=0 e inventario con la misma huella. Evidencia privada: `.next/magenta-launch-audit/authenticated-verification.json`; captura `personalizacion-restaurada.jpg` en el mismo directorio.
+
+Quedan cerrados login real, navegación autenticada POS/importador y guardado reversible de Personalización. **No equivale a configurar ni verificar guardado de las siete secciones comerciales de la tienda**: siguen vacías, con tienda cerrada y tarjeta bloqueada. No se inicializaron para esta prueba. Stripe live, contenido real y onboarding del titular conservan sus pendientes. El error de la auditoría histórica `audit-pos-business-personalization-v1.mjs` por migración ausente es preexistente; se mantuvo intacta y se añadió la prueba ejecutable específica `test-pos-personalization-access.mjs`.
 
 El usuario autorizó explícitamente merge, las cinco migraciones revisadas y despliegues Production, sin cambios de dominio/DNS, sin cobros reales y con tienda cerrada. Candidato funcional: `dbd075e`, que incluye `ca7b86d` (impuesto explícito) y `dbd075e` (existencias iniciales/absolutas). La aceptación manual del importador y la revisión visual ya están cerradas. Los registros inferiores son históricos y no revocan esta autorización.
 

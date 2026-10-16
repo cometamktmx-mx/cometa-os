@@ -1,3 +1,4 @@
+import {requireRetailPermission} from "@/lib/pos/staff-server";
 import { getAppOrigin, getStripeBillingLink, getStripeClient, getStripeRuntimeMode } from "@/lib/stripe/server";
 import { handlePosError, ok, requiredText, readJsonBody, requirePosContext } from "@/lib/pos/server";
 import { requirePosPermission } from "@/lib/pos/rbac";
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
     const body = await readJsonBody<{ brandSlug?: unknown }>(request);
     const brandSlug = requiredText(body.brandSlug, "brandSlug", 120);
     const context = await requirePosContext(brandSlug);
+    await requireRetailPermission(context,"SETTINGS");
     requirePosPermission(context, "pos.subscription.manage");
     const { admin, brand } = context;
     const link = await getStripeBillingLink(admin, brand.slug, getStripeRuntimeMode());

@@ -15,7 +15,7 @@ const forbidden = /(^|\/)(\.env[^/]*|\.git|\.next|node_modules|\.vercel|backups?
 const shared = ['package.json', 'package-lock.json'];
 const adminConfig = ['tsconfig.json', 'next.config.ts', 'postcss.config.mjs'];
 const adminTarget = 'cometa-os/cometa-brand-ai'; // Existing Vercel project rootDirectory; do not change it remotely.
-const runtimeExtras = ['config/pos-environments.json', 'apps/pos-mobile/config/download-origins.json', 'apps/pos-mobile/src/updates.ts', 'public/logo.png', 'public/manifest.json', 'public/sw.js'];
+const runtimeExtras = ['config/pos-environments.json', 'apps/pos-mobile/config/download-origins.json', 'apps/pos-mobile/src/updates.ts', 'public/logo.png', 'public/pos-icon-192.png', 'public/pos-icon-512.png', 'public/manifest.json', 'public/sw.js'];
 const manifest = [];
 function copy(file, target) {
   if (forbidden.test(file) || file.startsWith('../') || !extensions.test(file)) throw Error('Disallowed deployment file: ' + file);

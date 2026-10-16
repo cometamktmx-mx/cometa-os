@@ -178,7 +178,14 @@ export async function requirePosOperationalAccess({
   entitlement: ProductEntitlementCode;
 }): Promise<PosOperationalAccessContext> {
   const context = await requirePosContext(brandSlug);
-  return requirePosCommercialAccess(context, entitlement);
+  const access = await requirePosCommercialAccess(context, entitlement);
+  const {getPosMode,requireRetailPermission}=await import("./staff-server");
+  if(await getPosMode(context)==="RETAIL") {
+    const readPermissions={"pos.sales":"SELL","pos.cash":"CASH","pos.products":"PRODUCTS_READ","pos.inventory":"PRODUCTS_READ","pos.customers":"PRODUCTS_READ","pos.reports":"REPORTS","intelligence.signals":"REPORTS","intelligence.pulsar":"REPORTS"} as const;
+    const permission=readPermissions[entitlement as keyof typeof readPermissions];
+    if(permission)await requireRetailPermission(context,permission);
+  }
+  return access;
 }
 
 /** Surface access keeps setup and subscription recovery reachable. Commercial

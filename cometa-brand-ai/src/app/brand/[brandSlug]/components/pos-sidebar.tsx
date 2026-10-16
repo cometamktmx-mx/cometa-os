@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { PosBrand } from "./pos-shell";
 import { PosIcon, type PosIconName } from "./pos-icons";
 import { PosDrawer } from "./pos-ui";
+import {retailPermissions, type RetailPermission} from "@/lib/pos/retail-permissions";
 import type { PosOperator } from "./pos-operator-gate";
 import { staffHasAnyRole, staffHasRole } from "@/lib/pos/staff-shared";
 
@@ -35,6 +36,7 @@ export const POS_NAV_ITEMS: PosNavItem[] = [
   { label: "Reportes", route: "reports", icon: "report", section: "Inteligencia" },
   { label: "Suscripción", route: "subscription", icon: "settings", section: "Sistema" },
   { label: "Tienda online", route: "online-store", icon: "settings", section: "Sistema", retailOnly: true },
+  {label:"Importar información",route:"settings/import",icon:"product",section:"Sistema",retailOnly:true},
   { label: "Configuración", route: "settings", icon: "settings", section: "Sistema" },
   { label: "Equipo", route: "team", icon: "customer", section: "Sistema", requiresTeamPermission: true },
   { label: "Operadores", route: "staff", icon: "customers", section: "Sistema", requiresTeamPermission: true },
@@ -151,7 +153,7 @@ function PosNavigation({
     <nav aria-label="Navegación de Cometa POS">
       {NAV_SECTIONS.map((section) => {
         const items = POS_NAV_ITEMS.filter(
-          (item) => item.section === section && (!item.retailOnly || !foodMode) && (!item.requiresTeamPermission || canManageTeam) && operatorCanSeeRoute(operator, item.route)
+          (item) => item.section === section && (!item.retailOnly || !foodMode) && (!item.requiresTeamPermission || canManageTeam) && operatorCanSeeRoute(operator, item.route, foodMode)
         );
 
         if (items.length === 0) return null;
@@ -216,7 +218,12 @@ function PosNavigation({
   );
 }
 
-function operatorCanSeeRoute(operator: PosOperator | null | undefined, route: string) {
+function operatorCanSeeRoute(operator: PosOperator | null | undefined, route: string, foodMode: boolean) {
+  if (!foodMode && operator) {
+    const permissions=retailPermissions(operator);
+    const required:Record<string,RetailPermission>={register:"SELL",sales:"SELL",products:"PRODUCTS_READ",inventory:"INVENTORY",customers:"CUSTOMERS",cash:"CASH",reports:"REPORTS",staff:"STAFF",team:"STAFF",settings:"SETTINGS","settings/import":"IMPORT","online-store":"SETTINGS","online-store/orders":"SETTINGS",subscription:"SETTINGS",loyalty:"SELL"};
+    return route === "" || (required[route] ? permissions.includes(required[route]) : permissions.includes("SETTINGS"));
+  }
   if (!operator || staffHasAnyRole(operator, ["ADMIN", "MANAGER"])) return true;
   if (staffHasRole(operator, "CASHIER") && ["", "register", "cash", "sales", "customers", "loyalty"].includes(route)) return true;
   if (staffHasRole(operator, "WAITER") && ["", "register", "sales", "customers"].includes(route)) return true;

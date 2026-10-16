@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as XLSX from 'xlsx';
+import { requirePosOperationalAccess } from '@/lib/pos/access';
+import { getPosMode, requireRetailPermission } from '@/lib/pos/staff-server';
+import { requirePosPermission } from '@/lib/pos/rbac';
 import { requirePosMutationAccess } from '@/lib/pos/mutation-access';
 import { getBrandSlugFromUrl, handlePosError, ok, PosApiError, uuidValue } from '@/lib/pos/server';
 import { fieldsFor, parseNumber, parseRows, suggestMapping, type ImportKind, type ImportMapping, type ImportDecision } from '@/lib/pos/eleventa-import';
@@ -11,7 +14,11 @@ function kindValue(value: unknown): ImportKind {
   return value;
 }
 async function access(brandSlug: string, kind: ImportKind, locationId?: string | null) {
-  await requirePosMutationAccess({ brandSlug, operation: 'settings.manage', locationId });
+  const context = await requirePosOperationalAccess({brandSlug,entitlement:'pos.access'});
+  if(await getPosMode(context)==='RETAIL') {
+    if(!context.user.isAdmin) requirePosPermission(context,'pos.settings.manage');
+    await requireRetailPermission(context,'IMPORT');
+  } else await requirePosMutationAccess({ brandSlug, operation: 'settings.manage', locationId });
   return requirePosMutationAccess({ brandSlug, operation: kind === 'products' ? 'products.write' : kind === 'inventory' ? 'inventory.write' : 'customers.write', locationId });
 }
 function databaseError(error: { code?: string; message: string }): never {
@@ -34,7 +41,9 @@ export async function POST(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
     // Authenticate before reading/decompressing an untrusted workbook.
-    await requirePosMutationAccess({ brandSlug, operation: 'settings.manage' });
+    const initial = await requirePosOperationalAccess({brandSlug,entitlement:'pos.access'});
+    if(await getPosMode(initial)==='RETAIL') await requireRetailPermission(initial,'IMPORT');
+    else await requirePosMutationAccess({ brandSlug, operation: 'settings.manage' });
     if (Number(request.headers.get('content-length') ?? 0) > 6 * 1024 * 1024) throw new PosApiError(413, 'POS_VALIDATION_ERROR', 'Archivo demasiado grande (máximo 5 MB).');
     const form = await request.formData();
     const kind = kindValue(form.get('kind'));

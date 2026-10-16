@@ -3,13 +3,13 @@ import {presentOrderItems} from '@/lib/pos/order-presentation';
 import { requirePosOperationalAccess } from '@/lib/pos/access';
 import { requirePosMutationAccess } from '@/lib/pos/mutation-access';
 import { assertWebAdministrator } from '@/lib/pos/product-web';
-import { getPosMode } from '@/lib/pos/staff-server';
+import { getPosMode, requireRetailPermission } from '@/lib/pos/staff-server';
 import { getBrandSlugFromUrl, handlePosError, PosApiError, uuidValue } from '@/lib/pos/server';
 import { emptyStoreSettings, parseStoreSettings, StoreSettingsValidationError } from '../../../../../../packages/own-storefront/operations-contract';
 export const dynamic='force-dynamic';
 const reply=(value:unknown)=>Response.json(value,{headers:{'Cache-Control':'private, no-store'}});
 function failure(e:unknown){const r=handlePosError(e);r.headers.set('Cache-Control','private, no-store');return r;}
-async function context(request:Request,mutation=false){const c=mutation?await requirePosMutationAccess({brandSlug:getBrandSlugFromUrl(request),operation:'settings.manage'}):await requirePosOperationalAccess({brandSlug:getBrandSlugFromUrl(request),entitlement:'pos.access'});assertWebAdministrator(c);if(await getPosMode(c)!=='RETAIL')throw new PosApiError(409,'POS_WEB_RETAIL_ONLY','Disponible para Retail.');return c;}
+async function context(request:Request,mutation=false){const c=mutation?await requirePosMutationAccess({brandSlug:getBrandSlugFromUrl(request),operation:'settings.manage'}):await requirePosOperationalAccess({brandSlug:getBrandSlugFromUrl(request),entitlement:'pos.access'});assertWebAdministrator(c);await requireRetailPermission(c,"SETTINGS");if(await getPosMode(c)!=='RETAIL')throw new PosApiError(409,'POS_WEB_RETAIL_ONLY','Disponible para Retail.');return c;}
 async function stripeState(c:Awaited<ReturnType<typeof context>>){try{const s=await storePaymentState(c);return {mode:s.runtime.mode,model:'CONNECTED_DIRECT',merchantConnection:s.ready?'ENABLED':s.binding?.stripe_account_id?'PENDING':'NOT_CONNECTED',onboardingSupported:true,status:s.ready&&s.runtime.connectWebhook?(s.runtime.live?'LIVE_CONFIGURED':'TEST_CONFIGURED'):'NOT_CONFIGURED',account:s.ready?s.account.id:null,chargesEnabled:!!s.binding?.stripe_account_id&&s.account.charges_enabled,payoutsEnabled:!!s.binding?.stripe_account_id&&s.account.payouts_enabled,detailsSubmitted:!!s.binding?.stripe_account_id&&s.account.details_submitted};}catch{return {status:'UNAVAILABLE',account:null};}}
 const orderFields='id,status,payment_method,delivery_method,preparation_status,delivery_status,tracking,refund_required,operation_revision,currency,total_cents,subtotal_cents,shipping_cents,created_at,contact,delivery_snapshot';
 export async function GET(request:Request){try{const c=await context(request),query=new URL(request.url).searchParams,view=query.get('view')??'settings';

@@ -5,8 +5,10 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 const require = createRequire(import.meta.url);
 class PosApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
+function compileRetail(){const loaded={exports:{}};new Function("module","exports",ts.transpileModule(readFileSync("src/lib/pos/retail-permissions.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(loaded,loaded.exports);return loaded.exports;}
 function compile(file, dependencies) {
   if (dependencies["next/headers"]) dependencies["@/lib/pos/transport-server"] = { posCookies: dependencies["next/headers"].cookies };
+  dependencies["./retail-permissions"] ??= compileRetail(); dependencies["@/lib/pos/retail-permissions"] ??= dependencies["./retail-permissions"];
   const loaded = { exports: {} };
   const code = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   new Function("require", "module", "exports", code)((name) => Object.hasOwn(dependencies, name) ? dependencies[name] : require(name), loaded, loaded.exports);
@@ -129,4 +131,24 @@ test("failed session revocation returns error without falsely reporting terminal
   const f = fixture(); await addOperator(f); await f.post({ action: "login", staffId: "staff-a", pin: "1234" });
   f.failures.set("pos_staff_sessions:update", true);
   const result = await f.post({ action: "lock" }); assert.equal(result.status, 503); assert.equal(result.body.code, "POS_STAFF_SESSION_REVOKE_FAILED");
+});
+
+test("Retail admin expires despite background reads; Sales/Inventory do not inherit host permissions", async () => {
+  const f=fixture();const op=await addOperator(f);
+  await f.post({action:"login",staffId:op.id,pin:"1234"});
+  f.rows.pos_business_profiles[0].profile_code="retail";
+  const session=f.rows.pos_staff_sessions[0];session.last_human_at=new Date(Date.now()-180001).toISOString();
+  assert.equal(await f.staff.getStaffSession(f.context),null);
+  session.last_seen_at=new Date().toISOString();
+  assert.equal(await f.staff.getStaffSession(f.context),null,"polling cannot renew human activity");
+  for(const role of ["SALES","INVENTORY"]){
+    op.role="CASHIER";op.retail_role=role;
+    op.retail_permissions=compileRetail().RETAIL_DEFAULTS[role];
+    assert.ok(await f.staff.getStaffSession(f.context));
+    f.context.user.isAdmin=true;
+    await assert.rejects(()=>f.staff.requireRetailPermission(f.context,"SETTINGS"),{status:403});
+    await assert.rejects(()=>f.staff.requireRetailPermission(f.context,"STAFF"),{status:403});
+  }
+  op.retail_permissions=["PRODUCTS_READ","SETTINGS"];
+  assert.equal(await f.staff.getStaffSession(f.context),null,"custom administrative permissions must expire");
 });

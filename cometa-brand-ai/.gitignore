@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-retail-check/
 /out/
 
 # production

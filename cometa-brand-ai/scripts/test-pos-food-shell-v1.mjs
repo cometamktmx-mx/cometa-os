@@ -140,25 +140,27 @@ test("role surfaces render Salon/Caja/Cocina without technical placeholder langu
 
 // Deterministic hook adapter: executes the production gate and its event handlers.
 // No browser, real cookies, network, or database mutations.
-function controller(initialData = data) {
+function controller(initialData = data, retail = false) {
+  let clock=Date.now(); const originalNow=Date.now; if(retail)Date.now=()=>clock; const intervals=[],listeners=new Map();
   let slots = [], cursor = 0, timers = [], responses = [], observed = [], requests = [], completions = [];
   const hooks = {
     ...React,
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === "function" ? initial() : initial; return [slots[i], value => { slots[i] = typeof value === "function" ? value(slots[i]) : value; }]; },
     useRef(initial) { const i = cursor++; if (!(i in slots)) slots[i] = { current: initial }; return slots[i]; },
     useCallback(fn) { return fn; }, useMemo(fn) { return fn(); },
-    useEffect(fn) { const i = cursor++; if (!(i in slots)) { slots[i] = true; fn(); } },
+    useEffect(fn,deps) { const i = cursor++; const previous=slots[i]; if (!(i in slots) || retail && deps?.some((v,j)=>v!==previous?.deps?.[j])) {previous?.cleanup?.();slots[i]={deps,cleanup:fn()};} },
   };
-  const fakeWindow = { dispatchEvent() {}, setTimeout(fn) { timers.push(fn); return 1; }, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {}, addEventListener() {}, removeEventListener() {} };
-  const oldWindow = globalThis.window, oldFetch = globalThis.fetch;
+  const fakeWindow = { dispatchEvent() {}, setTimeout(fn) { timers.push(fn); return 1; }, clearTimeout() {}, setInterval(fn) { intervals.push(fn); return intervals.length; }, clearInterval(id) {intervals[id-1]=()=>{};}, addEventListener(event,fn) {const set=listeners.get(event)||new Set();set.add(fn);listeners.set(event,set);}, removeEventListener(event,fn) {listeners.get(event)?.delete(fn);} };
+  const oldWindow = globalThis.window, oldFetch = globalThis.fetch, oldDocument=globalThis.document;
+  if(retail)globalThis.document={visibilityState:"visible",addEventListener(){},removeEventListener(){}};
   globalThis.window = fakeWindow;
-  globalThis.fetch = async (url, options) => { requests.push({ url, options }); const response = responses.shift(); if (response instanceof Error) throw response; return { ok: response?.ok !== false, json: async () => response?.body ?? initialData }; };
+  globalThis.fetch = async (url, options) => { requests.push({ url, options }); const response = responses.shift(); if (response instanceof Error) throw response; return { ok: response?.ok !== false, json: async () => retail ? structuredClone(response?.body ?? initialData) : response?.body ?? initialData }; };
   const { PosOperatorGate } = loader({ react: hooks })(componentPath + "pos-operator-gate.tsx");
-  const props = { brandSlug: "sample", fallbackName: "Sample", requireFood: true, children: () => null, onOperatorChange: (value) => observed.push(value), onActionComplete: (action) => completions.push(action) };
+  const props = { brandSlug: "sample", fallbackName: "Sample", requireFood: !retail, children: () => React.createElement("div", {id:"retained-cart"}, "carrito pendiente"), onOperatorChange: (value) => observed.push(value), onActionComplete: (action) => completions.push(action) };
   function render() { cursor = 0; return PosOperatorGate(props); }
   async function settle() { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)); }
-  return { render, async start() { render(); timers.splice(0).forEach(fn => fn()); await settle(); return render(); }, settle, responses, requests, observed, completions,
-    close() { globalThis.window = oldWindow; globalThis.fetch = oldFetch; slots = []; } };
+  return { render, advance(ms){clock+=ms;intervals.forEach(fn=>fn());}, human(){listeners.get("pointerdown")?.forEach(fn=>fn({isTrusted:true}));}, async start() { render(); timers.splice(0).forEach(fn => fn()); await settle(); return render(); }, settle, responses, requests, observed, completions,
+    close() { globalThis.window = oldWindow; globalThis.fetch = oldFetch; globalThis.document=oldDocument;Date.now=originalNow; slots = []; } };
 }
 test("gate transition: first ADMIN creation selects persisted operator without auto-login", async () => {
   const c = controller({ ...data, firstRun: true, staff: [] });
@@ -231,3 +233,44 @@ test("brand navigation remounts the shell with a distinct React key", async () =
   assert.equal(first.key, "a"); assert.equal(second.key, "b"); assert.notEqual(first.key, second.key);
 });
 
+
+
+test("Retail lock retains the cart component; stale polling cannot unlock after suspension", async()=>{
+ const retailData={...data,mode:"RETAIL",gateRequired:true,firstRun:false,session:{staff:{...operator,retailPermissions:["STAFF","SETTINGS","SELL","PRODUCTS_READ"]}}};
+ const c=controller(retailData,true);
+ try {
+  let tree=await c.start();const content=tree.props.children[0];assert.equal(content.props.hidden,false);assert.equal(content.props.inert,false);
+  c.advance(180001);await c.settle();tree=c.render();
+  assert.equal(tree.props.children[0].type,content.type);assert.equal(tree.props.children[0].props.hidden,true);assert.equal(tree.props.children[0].props.inert,true);
+  assert.equal(tree.props.children[0].props.children.type,content.props.children.type,"cart subtree stays mounted across lock");
+  assert.equal(c.requests.filter(r=>r.options?.body&&JSON.parse(r.options.body).action==="activity").length,0,"background polling is not human activity");
+ }finally{c.close();}
+});
+
+test("Retail Sales and Inventory keep their session through the administrative idle interval",async()=>{
+ for(const perms of [["SELL","PRODUCTS_READ","REPRINT"],["PRODUCTS_READ","PRODUCTS_WRITE","INVENTORY","IMPORT"]]){
+  const c=controller({...data,mode:"RETAIL",gateRequired:true,firstRun:false,session:{staff:{...operator,role:"CASHIER",retailPermissions:perms}}},true);
+  try{await c.start();c.advance(3600000);await c.settle();assert.equal(c.render().props.children[0].props.hidden,false);}finally{c.close();}
+ }
+});
+
+
+test("Retail switch preserves the cart container and replaces the active identity and permissions",async()=>{
+ const first={...operator,retailPermissions:["STAFF","SETTINGS","SELL","PRODUCTS_READ"]};
+ const second={...operator,id:"sales-b",name:"Ventas B",role:"CASHIER",retailPermissions:["SELL","PRODUCTS_READ","REPRINT"]};
+ const payload={...data,mode:"RETAIL",gateRequired:true,firstRun:false,staff:[first,second],session:{staff:first}};
+ const c=controller(payload,true);
+ const surface=node=>{if(!React.isValidElement(node))return null;if(node.type?.name==="PosOperatorGateSurface")return node;for(const child of React.Children.toArray(node.props.children)){const match=surface(child);if(match)return match;}return null;};
+ try{
+  let tree=await c.start();const original=tree.props.children[0];
+  c.responses.push({body:{session:null}},{body:{...payload,session:null}});
+  const changing=original.props.children.props.action("switch");assert.equal(c.render().props.children[0].props.hidden,true);await changing;
+  surface(c.render()).props.onSelect(second);surface(c.render()).props.onPinChange("1234");
+  c.responses.push({body:{session:{staff:second}}},{body:{...payload,session:{staff:second}}});
+  surface(c.render()).props.onLogin();await c.settle();tree=c.render();
+  assert.equal(tree.props.children[0].props.hidden,false);assert.equal(tree.props.children[0].type,original.type);
+  const active=tree.props.children[0].props.children.props.data.session.staff;
+  assert.equal(active.id,"sales-b");assert.equal(active.retailPermissions.includes("SETTINGS"),false);
+  assert.equal(c.requests.filter(r=>r.options?.body&&JSON.parse(r.options.body).action==="login").length,1);
+ }finally{c.close();}
+});

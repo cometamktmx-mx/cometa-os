@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { PosApiError, type PosRequestContext } from "@/lib/pos/server";
 import { POS_STAFF_ROLE_PERMISSIONS, resolvePosMode, isPosStaffRole, staffHasRole, staffRoles, type PosStaffPermission, type PosStaffRole } from "@/lib/pos/staff-shared";
 
+import { retailPermissions, retailExpired, type RetailPermission, type RetailRole } from "./retail-permissions";
 const scrypt = promisify(scryptCallback);
 const COOKIE_NAME = "cometa_pos_staff_session";
 const SESSION_HOURS = 12;
@@ -31,8 +32,8 @@ export async function setStaffAdminMode(session: PosStaffSession, enabled: boole
   store.set(ADMIN_COOKIE, session.id, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: SESSION_HOURS * 3600 });
 }
 
-export type PosStaffSafe = { id: string; name: string; role: PosStaffRole; roles?: PosStaffRole[]; locationId: string | null; active: boolean };
-export type PosStaffSession = { id: string; staff: PosStaffSafe; brandSlug: string; locationId: string | null; expiresAt: string };
+export type PosStaffSafe = { id: string; name: string; role: PosStaffRole; roles?: PosStaffRole[]; locationId: string | null; active: boolean; retailRole?: RetailRole | null; retailPermissions?: RetailPermission[] | null };
+export type PosStaffSession = { id: string; staff: PosStaffSafe; brandSlug: string; locationId: string | null; expiresAt: string; lastHumanAt?: string };
 
 export async function hashStaffPin(pin: string) {
   assertPin(pin);
@@ -91,19 +92,20 @@ export async function getStaffSession(context: PosRequestContext, requestToken?:
   const token = requestToken === undefined ? (await cookies()).get(COOKIE_NAME)?.value : requestToken;
   if (!token) return null;
   const now = new Date().toISOString();
-  const { data, error } = await context.admin.from("pos_staff_sessions").select("id,brand_slug,location_id,device_id,expires_at,revoked_at,staff:pos_staff(id,name,role,location_id,active)")
+  const { data, error } = await context.admin.from("pos_staff_sessions").select("id,brand_slug,location_id,device_id,expires_at,revoked_at,last_human_at,staff:pos_staff(id,name,role,location_id,active,retail_role,retail_permissions)")
     .eq("token_hash", hashToken(token)).eq("host_user_id", context.user.userId).eq("brand_slug", context.brand.slug).is("revoked_at", null).gt("expires_at", now).maybeSingle();
   if (error) throw new PosApiError(503, "POS_STAFF_SESSION_READ_FAILED", "No se pudo validar la sesión operacional.");
   if (!data) return null;
   if ((data.device_id || null) !== (context.device?.id || null)) return null;
   const rawStaff = Array.isArray(data.staff) ? data.staff[0] : data.staff;
   if (!rawStaff?.active) return null;
-  const staff: PosStaffSafe = { id: String(rawStaff.id), name: String(rawStaff.name), role: rawStaff.role as PosStaffRole, locationId: rawStaff.location_id ? String(rawStaff.location_id) : null, active: true };
+  const staff: PosStaffSafe = { id: String(rawStaff.id), name: String(rawStaff.name), role: rawStaff.role as PosStaffRole, retailRole: rawStaff.retail_role, retailPermissions: rawStaff.retail_permissions, locationId: rawStaff.location_id ? String(rawStaff.location_id) : null, active: true };
+  if (await getPosMode(context) === "RETAIL" && retailExpired(retailPermissions(staff), String(data.last_human_at), Date.now(), staff.role)) return null;
   staff.roles = await resolveStaffRoles(context, staff.id, staff.role);
   if ((context.device?.locationId || staff.locationId) !== (data.location_id || null)) return null;
   if (context.device && staff.locationId && staff.locationId !== context.device.locationId) return null;
   await context.admin.from("pos_staff_sessions").update({ last_seen_at: now }).eq("id", data.id).is("revoked_at", null);
-  return { id: String(data.id), staff, brandSlug: String(data.brand_slug), locationId: data.location_id ? String(data.location_id) : null, expiresAt: String(data.expires_at) };
+  return { id: String(data.id), staff, brandSlug: String(data.brand_slug), locationId: data.location_id ? String(data.location_id) : null, expiresAt: String(data.expires_at), lastHumanAt: String(data.last_human_at) };
 }
 
 export async function revokeStaffSession(context: PosRequestContext, action: "STAFF_LOGOUT" | "STAFF_LOCK" | "STAFF_SWITCH") {
@@ -120,7 +122,7 @@ export async function revokeStaffSession(context: PosRequestContext, action: "ST
 export async function requireStaffSession(context: PosRequestContext, permission: PosStaffPermission, locationId?: string | null) {
   const session = await getStaffSession(context);
   if (!session) throw new PosApiError(401, "POS_STAFF_SESSION_REQUIRED", "Selecciona un operador para continuar.");
-  if (!staffRoles(session.staff).some(role => hasStaffPermission(role, permission))) throw new PosApiError(403, "POS_STAFF_PERMISSION_REQUIRED", "Este operador no tiene permiso para realizar la acción.");
+  if (!(await getPosMode(context) === "RETAIL" ? retailPermissions(session.staff).includes(permission === "SALE_CHARGE" ? "SELL" : permission === "CASH_OPERATE" ? "CASH" : "PRODUCTS_READ") : staffRoles(session.staff).some(role => hasStaffPermission(role, permission)))) throw new PosApiError(403, "POS_STAFF_PERMISSION_REQUIRED", "Este operador no tiene permiso para realizar la acción.");
   if (session.locationId && locationId && session.locationId !== locationId) throw new PosApiError(403, "POS_STAFF_LOCATION_FORBIDDEN", "El operador pertenece a otra sucursal.");
   return session;
 }
@@ -142,3 +144,11 @@ export function canManagePosStaff(context: PosRequestContext) {
 }
 
 function hashToken(token: string) { return createHash("sha256").update(token).digest("hex"); }
+
+export async function requireRetailPermission(context: PosRequestContext, permission: RetailPermission) {
+  if (await getPosMode(context) !== "RETAIL") return null;
+  const session = await getStaffSession(context);
+  if (!session) throw new PosApiError(401, "POS_STAFF_SESSION_REQUIRED", "Selecciona un operador e ingresa su PIN.");
+  if (!retailPermissions(session.staff).includes(permission)) throw new PosApiError(403, "POS_STAFF_PERMISSION_REQUIRED", "El operador no tiene permiso para esta acción.");
+  return session;
+}

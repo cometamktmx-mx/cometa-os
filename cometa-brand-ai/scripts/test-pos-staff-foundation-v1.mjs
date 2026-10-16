@@ -44,7 +44,7 @@ assert.match(gate, /Configura tu equipo para comenzar/);
 assert.match(gate, /teclado|PinPad/);
 assert.match(sales, /pos_complete_sale_with_staff_v1/);
 assert.match(sales, /pos_complete_sale_v4/);
-assert.match(sales, /posMode === "RETAIL" \? null/);
+assert.match(sales, /const cashierSession = await requireStaffSession/, "Retail and Food both attribute sales to the PIN operator");
 assert.match(shared, /if \(profileCode === "coffee_shop"\) return "CAFE"/);
 assert.match(shared, /return "RETAIL"/);
 assert.doesNotMatch([server, session, override].join("\n"), /NEXT_PUBLIC_.*PIN|console\.log\(.*pin/i);

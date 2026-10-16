@@ -174,7 +174,8 @@ export async function POST(request: Request) {
     const access = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "cash.operate" });
     requireCashPermission(access, "pos.cash.operate");
     const { admin, brand, user } = access;
-    const staffSession = (await getPosMode(access)) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
+    const retailStaff = (await getPosMode(access)) === "RETAIL" ? await requireStaffSession(access,"CASH_OPERATE") : null;
+    const staffSession = retailStaff ? null : await requireStaffSession(access, "CASH_OPERATE");
 
     if (action === "open") {
       const registerId = uuidValue(
@@ -192,12 +193,13 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        staffSession ? "pos_cash_command_v2" : "pos_open_cash_session",
+        staffSession ? "pos_cash_command_v2" : retailStaff ? "pos_open_cash_session_with_staff_v1" : "pos_open_cash_session",
         staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: { registerId, openingAmount }, p_key: uuidValue(body.requestKey, "requestKey") } : {
           p_brand_slug: brand.slug,
           p_register_id: registerId,
           p_opening_amount: openingAmount,
           p_user_id: user.userId,
+          ...(retailStaff ? {p_staff_id:retailStaff.staff.id}:{}),
         }
       );
 
@@ -237,12 +239,13 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        staffSession ? "pos_cash_command_v2" : "pos_close_cash_session",
+        staffSession ? "pos_cash_command_v2" : retailStaff ? "pos_close_cash_session_with_staff_v1" : "pos_close_cash_session",
         staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") } : {
           p_brand_slug: brand.slug,
           p_session_id: sessionId,
           p_counted_cash: countedCash,
           p_user_id: user.userId,
+          ...(retailStaff ? {p_staff_id:retailStaff.staff.id}:{}),
           p_notes: optionalText(body.notes, 1000),
         }
       );

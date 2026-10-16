@@ -1,8 +1,8 @@
-const CACHE = "cometa-pos-public-v2";
-const PUBLIC_ASSETS = new Set(["/manifest.json", "/logo.png"]);
+const CACHE = "cometa-pos-public-v3";
+const PUBLIC_ASSETS = new Set(["/manifest.json", "/logo.png", "/pos-icon-192.png", "/pos-icon-512.png"]);
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([...PUBLIC_ASSETS])));
-  self.skipWaiting();
+  // Wait until the operator explicitly accepts the update; never replace a running sale.
 });
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {

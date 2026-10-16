@@ -1,3 +1,4 @@
+import {requireRetailPermission} from "@/lib/pos/staff-server";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
     const brandSlug = requiredText(body.brandSlug, "brandSlug", 120);
     const planCode = requiredText(body.planCode, "planCode", 20).toLowerCase();
     const context = await requirePosContext(brandSlug);
+    await requireRetailPermission(context,"SETTINGS");
     requirePosPermission(context, "pos.subscription.manage");
 
     const { admin, brand, membership } = context;
