@@ -1,4 +1,5 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
+import {thermalReceipt} from "@/lib/pos/thermal";
 import {
   assertDatabaseResult,
   PosApiError,
@@ -40,6 +41,7 @@ type PaymentBody = {
 };
 
 type SaleBody = {
+  expectedQuote?: unknown;
   brandSlug?: unknown;
   locationId?: unknown;
   registerId?: unknown;
@@ -315,9 +317,19 @@ export async function GET(request: Request) {
       }
     );
 
+    let receiptHtml:string|undefined;
+    if(browserPrint && sales.length===1){
+      const sale=sales[0];
+      const identity=await admin.from("pos_branding").select("display_name").eq("brand_slug",brand.slug).maybeSingle();
+      assertDatabaseResult(identity.error,"No se pudo consultar la identidad del ticket.");
+      const cashier=sale.cashier_staff_id?await admin.from("pos_staff").select("name").eq("brand_slug",brand.slug).eq("id",sale.cashier_staff_id).maybeSingle():null;
+      assertDatabaseResult(cashier?.error??null,"No se pudo consultar el operador del ticket.");
+      receiptHtml=thermalReceipt(sale,identity.data?.display_name||brand.slug,cashier?.data?.name||"No registrado",80,{copy:true,customer:sale.customer?[sale.customer.first_name,sale.customer.last_name].filter(Boolean).join(" "):undefined});
+    }
     return ok({
       brand,
       sales,
+      ...(receiptHtml?{receiptHtml}:{}),
 
       pagination: {
         page,
@@ -592,7 +604,7 @@ export async function POST(request: Request) {
 
     if (posMode === "RETAIL" && normalizedItems.some(item => Number(item.discount_amount) > 0)) await requireRetailPermission(access,"DISCOUNT");
     const cashierSession = await requireStaffSession(access, "SALE_CHARGE", uuidValue(body.locationId, "locationId") as string);
-    const saleRpc = cashierSession ? "pos_complete_sale_with_staff_v1" : "pos_complete_sale_v4";
+    const saleRpc = posMode === "RETAIL" ? "pos_complete_retail_sale_v1" : cashierSession ? "pos_complete_sale_with_staff_v1" : "pos_complete_sale_v4";
     const saleArgs: Record<string, unknown> = {
         p_brand_slug: brand.slug,
         p_location_id: uuidValue(body.locationId, "locationId"),
@@ -611,6 +623,7 @@ export async function POST(request: Request) {
       saleArgs.p_served_by_staff_id = null;
       saleArgs.p_cashier_staff_id = cashierSession.staff.id;
     }
+    if(posMode === "RETAIL")saleArgs.p_expected_quote=body.expectedQuote??null;
     const {
       data,
       error,
@@ -619,6 +632,13 @@ export async function POST(request: Request) {
     if (error) {
       const message =
         error.message || "";
+
+      if (["POS_PRICES_CHANGED", "POS_QUOTE_REQUIRED"].includes(message)) {
+        return fail("Los precios cambiaron. Revisa el pedido y actualiza los precios antes de cobrar. No se registró el pago.", 409, "POS_SALE_VALIDATION_ERROR");
+      }
+      if (message === "POS_IDEMPOTENCY_CONFLICT") {
+        return fail("La solicitud ya fue utilizada con otros datos. Revisa las ventas antes de volver a cobrar.", 409, "POS_SALE_VALIDATION_ERROR");
+      }
 
       const validationMessages = [
         "no cubre el total",

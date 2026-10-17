@@ -11,7 +11,11 @@ El usuario autorizó producción desde 2454b64 para roles/PIN, permisos, bloqueo
 
 Recuperación de aplicación: despliegue anterior dpl_BU5ofoBf7cfLuGprkDx7RDipa9ZG, https://cometa-p2vzxvjhw-cometa-os-s-projects.vercel.app. Si el código nuevo falla, promover esa versión solo tras evaluar que temporalmente no aplicará los nuevos controles PIN Retail; restringir operación durante esa transición. Mantener columnas, auditoría y grants financieros nuevos. Revertir aplicación no revierte DB; no restaurar el respaldo encima de nuevas escrituras sin reconciliación. La copia privada contiene datos reales y no debe subirse a Git/Preview.
 
-Estado de publicación: build/merge/despliegue en ejecución; consultar el resultado final de la entrega antes de considerar publicado.
+Estado de publicación: **READY / Production**. Candidato e93d1365fdc9cfa9e8a7d09b641aee277f7a65bb, PR #4, merge eba5b0cee15093bdceea6e4584cbe474b28cfe32. Despliegue dpl_AEpBFWgouwTSbY2JjuqtDRmJJkh3, https://cometa-7jv3gdbs3-cometa-os-s-projects.vercel.app, alias existente https://app.cometaos.com. Publicado por integración Git main; no cambios DNS ni storefront.
+
+Verificación final: build local y Vercel aprobados; TypeScript sin errores; pruebas Retail/terminal, staff y FOOD aprobadas; lint dirigido sin nuevas regresiones (deuda previa conservada). Hashes del ledger productivo releídos y coincidentes. Manifest, ambos iconos y service worker 200; rutas POS/terminal/staff sin sesión redirigen a login; APIs operator-session y terminal-print sin sesión devuelven 401. Navegador autenticado muestra MAGENTA FITWEAR y alta del primer administrador, sin errores de consola. No se introdujo PIN, venta ni importación. Recorrido personal de roles y validación física siguen pendientes.
+
+Archivos del ajuste de publicación e93d136: docs/magenta-production-launch.md; docs/pos-retail-terminal-windows.md; scripts/rehearse-magenta-recovery.mjs; scripts/apply-pos-retail-production.mjs; scripts/test-pos-retail-terminal.mjs; src/app/api/pos/sales/route.ts; src/app/api/pos/terminal-print/route.ts; src/app/brand/[brandSlug]/pos/register/page.tsx; src/app/brand/[brandSlug]/pos/sales/page.tsx; src/app/brand/[brandSlug]/pos/settings/terminal/page.tsx; src/lib/pos/thermal-client.ts.
 
 ---
 

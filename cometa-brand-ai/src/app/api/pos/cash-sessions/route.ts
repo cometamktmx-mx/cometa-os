@@ -135,6 +135,12 @@ export async function GET(request: Request) {
     const summaryBySessionId = new Map(
       summaries.map((summary) => [summary.cash_session_id, summary])
     );
+    const depositsBySession=new Map<string,{cash:number;card:number;transfer:number}>();
+    if(sessionRows.length>0 && await getPosMode(access)==="RETAIL"){
+      const deposits=await admin.from("pos_retail_order_payments").select("cash_session_id,method,amount").eq("brand_slug",brand.slug).in("cash_session_id",sessionRows.map(row=>row.id));
+      assertDatabaseResult(deposits.error,"No se pudieron consultar los abonos de apartados.");
+      for(const payment of deposits.data||[]){const values=depositsBySession.get(payment.cash_session_id)||{cash:0,card:0,transfer:0};if(payment.method==="cash"||payment.method==="card"||payment.method==="transfer")values[payment.method as keyof typeof values]+=Number(payment.amount);depositsBySession.set(payment.cash_session_id,values);}
+    }
 
     const sessions = sessionRows.map((session) => {
       const summary = summaryBySessionId.get(session.id) || null;
@@ -149,6 +155,7 @@ export async function GET(request: Request) {
           ? summary?.expected_cash ?? null
           : null,
         summary,
+        retailDeposits:depositsBySession.get(session.id)||null,
       };
     });
 
