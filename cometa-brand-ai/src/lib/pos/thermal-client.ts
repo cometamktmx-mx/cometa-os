@@ -69,21 +69,25 @@ export function printOperation(brand:string,body:Record<string,unknown>) {
       return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
     });
     const failures:string[]=[];
+    const sent:string[]=[];
     for(const job of prepared.jobs){
+      let signatureFailed=false, accepted=false;
       qz.security.setSignaturePromise((digest:string)=>(resolve:(signature:string)=>void,reject:(error:unknown)=>void)=>{
-        void terminalRequest(brand,{action:"sign",jobId:job.id,message:signedMessage,digest}).then(result=>{resolve(result.signature||"");}).catch(error=>reject(new Error(`Autorización/firma: ${bridgeDetail(error)}`)));
+        void terminalRequest(brand,{action:"sign",jobId:job.id,message:signedMessage,digest}).then(result=>{resolve(result.signature||"");}).catch(error=>{signatureFailed=true;reject(new Error(`Autorización/firma: ${bridgeDetail(error)}`));});
       });
       try {
         const config=qz.configs.create(job.payload.printer,qzPrintOptions(job.payload.width,job.payload.receiptMode));
         await qz.print(config,job.payload.data);
+        accepted=true;
         await terminalRequest(brand,{action:"result",jobId:job.id,status:"spooled"});
+        sent.push(`${job.kind==="drawer"?"Cajón: orden enviada; apertura física por confirmar":"Ticket enviado"} · ${job.payload.printer} · solicitud ${job.id}`);
       }catch(error){
         await terminalRequest(brand,{action:"result",jobId:job.id,status:"failed"}).catch(()=>undefined);
-        failures.push(job.kind==="drawer"?"Cajón: resultado incierto; no se reintentará automáticamente.":`Envío del ticket: ${bridgeDetail(error)}. Pago conservado. Revisa la cola Windows antes de reimprimir sin cobrar.`);
+        failures.push(job.kind==="drawer"?`Cajón · solicitud ${job.id} · ${job.payload.printer}: ${signatureFailed?"Fallo de firma; orden no autorizada":accepted?"Orden enviada; falló la confirmación del registro":"QZ rechazó la orden o perdió la conexión; resultado incierto"}. ${bridgeDetail(error)}. Apertura física no confirmada. Sin reintento automático.`:`Envío del ticket: ${bridgeDetail(error)}. Pago conservado. Revisa la cola Windows antes de reimprimir sin cobrar.`);
       }
     }
     if(failures.length)throw new Error(failures.join(" "));
-    return "Órdenes aceptadas por el puente. Comprueba el ticket y el cajón físicamente.";
+    return sent.join(". ");
   });
   pending.set(key,task);
   queue=task.then(()=>{pending.delete(key);},()=>{pending.delete(key);});return task;

@@ -40,5 +40,7 @@ p{margin:1mm 0;overflow-wrap:anywhere}.label{text-align:center;font-weight:bold;
 }
 export function drawerCommand(profile:TerminalPrintConfig["profile"]) {
   if(profile === "driver") throw new Error("Confirma un perfil de cajón compatible antes de enviar órdenes.");
-  return "\x1b\x70"+(profile === "escpos-pin2" ? "\x00" : "\x01")+"\x19\xfa";
+  // Epson ESC p: m=0 pin 2, m=1 pin 5; t1=25 (50ms), t2=250 (500ms).
+  // Explicit hex prevents text encoders from transforming the byte FA.
+  return "1B70"+(profile === "escpos-pin2" ? "00" : "01")+"19FA";
 }

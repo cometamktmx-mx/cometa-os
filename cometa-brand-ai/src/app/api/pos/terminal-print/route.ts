@@ -127,7 +127,7 @@ export async function POST(request:Request) {
     if(identity.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo preparar el comprobante.");
     const jobs=[];
     for(const kind of automaticOperations(settings,[{payment_method:payment.method,amount:payment.amount,tendered_amount:payment.tendered,change_amount:payment.change}])){
-      const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"plain",data:drawerCommand(settings.profile)}]:qzReceiptData(retailOrderReceipt(order,identity.data?.display_name||c.brand.name,operator.staff.name,order.contact,payment),settings);
+      const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(retailOrderReceipt(order,identity.data?.display_name||c.brand.name,operator.staff.name,order.contact,payment),settings);
       const job=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:operator.staff.id,sale_id:null,cash_session_id:payment.cash_session_id,kind,reason:"Abono confirmado",dedupe_key:`order-payment:${payment.id}:${kind}`,payload:{printer:settings.printer,width:settings.width,receiptMode:settings.receiptMode||"driver",data,orderPaymentId:payment.id}}).select("id,payload,kind").single();
       if(job.error?.code==="23505")continue;
       if(job.error||!job.data)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","Pago conservado; no se pudo registrar la impresión.");
@@ -203,7 +203,7 @@ export async function POST(request:Request) {
   const jobs=[];
   for(const kind of kinds) {
     const testSale:ThermalSale={sale_number:"PRUEBA",sold_at:new Date().toISOString(),subtotal:100,discount_total:0,tax_total:0,total:100,currency:"MXN",items:[{product_name:"Prueba de impresión · acentos áéíóú ñ",variant_name:"Modelo de ejemplo · Color azul · Talla CH",sku:null,quantity:2,unit_price:50,line_total:100}],payments:[]};
-    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"plain",data:drawerCommand(settings.profile)}]:qzReceiptData(thermalReceipt(sale||testSale,brand.data?.display_name||c.brand.slug,cashier,settings.width,{copy:kind==="reprint",test:!sale,customer:customerName}),settings);
+    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(thermalReceipt(sale||testSale,brand.data?.display_name||c.brand.slug,cashier,settings.width,{copy:kind==="reprint",test:!sale,customer:customerName}),settings);
     const payload={printer:settings.printer,width:settings.width,receiptMode:settings.receiptMode||"driver",data};
     const inserted=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:staff.staff.id,sale_id:sale?.id??null,cash_session_id:cashSession,kind,reason:reason||null,dedupe_key:`${key}:${kind}`,payload}).select("id,payload,kind").single();
     if(inserted.error?.code==="23505")continue;

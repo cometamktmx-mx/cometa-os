@@ -148,6 +148,8 @@ export async function GET(request: Request) {
         `%${search}%`
       );
     }
+    const productIdFilter=url.searchParams.get("productId");
+    if(productIdFilter)query=query.eq("id",uuidValue(productIdFilter,"productId"));
 
     if (categoryId) {
       query = query.eq(
