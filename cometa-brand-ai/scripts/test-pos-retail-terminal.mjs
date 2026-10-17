@@ -15,6 +15,8 @@ assert.deepEqual([...thermal.automaticOperations(conf,[{...card[0],payment_metho
 assert.deepEqual([...thermal.automaticOperations(conf,[{...cash[0],amount:40},{...card[0],amount:60}])],['receipt','drawer']);
 assert.deepEqual([...thermal.automaticOperations({...conf,profile:'driver'},cash)],['receipt']);
 assert.throws(()=>thermal.drawerCommand('driver'));
+assert.equal(thermal.drawerCommand('escpos-pin2'),'1B700019FA');
+assert.equal(thermal.drawerCommand('escpos-pin5'),'1B700119FA');
 const now=Date.now();for(const role of ['SALES','INVENTORY'])assert.equal(permissions.retailExpired(permissions.RETAIL_DEFAULTS[role],new Date(now-86400000).toISOString(),now),false);
 assert.equal(permissions.retailExpired(permissions.RETAIL_DEFAULTS.ADMIN,new Date(now-179999).toISOString(),now),false);
 assert.equal(permissions.retailExpired(permissions.RETAIL_DEFAULTS.ADMIN,new Date(now-180000).toISOString(),now),true);
@@ -55,6 +57,7 @@ await post({action:'reprint',saleId:sale.id,requestKey:key});assert.equal(tables
 allowed=new Set(['PRODUCTS_READ']);assert.equal((await post({action:'reprint',saleId:sale.id,requestKey:crypto.randomUUID()})).status,403);allowed=new Set(Object.keys(permissions.RETAIL_PERMISSIONS));
 
 const job=tables.pos_terminal_print_jobs.find(j=>j.kind==='drawer');const options=qz.configs.create(conf.printer,{copies:1,units:'mm',size:{width:80,height:null},margins:0,scaleContent:false}).config;
+assert.equal(job.payload.data[0].type,'raw');assert.equal(job.payload.data[0].flavor,'hex');assert.deepEqual([...Buffer.from(job.payload.data[0].data,'hex')],[27,112,0,25,250]);
 const message=JSON.stringify({call:'print',params:{printer:{name:conf.printer},options,data:job.payload.data},timestamp:Date.now()});const digest=crypto.createHash('sha256').update(message).digest('hex');
 response=await post({action:'sign',jobId:job.id,message,digest});assert.equal(response.status,200);const signature=(await response.json()).signature;assert.ok(crypto.verify('SHA512',Buffer.from(digest),keys.publicKey,Buffer.from(signature,'base64')),'QZ digest signature is valid');
 assert.equal((await post({action:'sign',jobId:job.id,message,digest})).status,409,'dispatch is one shot');

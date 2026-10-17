@@ -1,5 +1,5 @@
 "use client";
-import type {RetailQuote} from "@/lib/pos/retail-orders";
+import {factoryProgress,type RetailQuote} from "@/lib/pos/retail-orders";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
 import {printOperation} from "@/lib/pos/thermal-client";
 
@@ -959,17 +959,21 @@ export default function PosRegisterPage() {
     ? productGroups.find((group) => group.productId === selectedProductId) || null
     : null;
 
+  const factoryState=useRef(new Map<string,boolean>());
   const quoteItems=useMemo(()=>cart.map(item=>({variant_id:item.variantId,quantity:item.quantity,discount_amount:item.discountAmount})),[cart]);
   const quoteKey=JSON.stringify([brand.slug,selectedLocation?.id,quoteItems]);
   useEffect(()=>{
     if(isFoodProfile(profileCode)||!cart.length||!selectedLocation?.id)return;
     let active=true;
     const timer=setTimeout(()=>{
-      void apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`,{method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,items:quoteItems})}).then(result=>{if(active){setRetailQuote({key:quoteKey,quote:result.quote});setQuoteError("");}}).catch(e=>{if(active)setQuoteError(e instanceof Error?e.message:"No se pudo validar el precio.");});
+      void apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`,{method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,items:quoteItems})}).then(result=>{if(active){setRetailQuote({key:quoteKey,quote:result.quote});setQuoteError("");notifyFactory(result.quote);}}).catch(e=>{if(active)setQuoteError(e instanceof Error?e.message:"No se pudo validar el precio.");});
     },200);
     return()=>{active=false;clearTimeout(timer);};
   },[brand.slug,selectedLocation?.id,quoteItems,quoteKey,profileCode,cart.length]);
   const currentQuote=retailQuote?.key===quoteKey?retailQuote.quote:null;
+  function notifyFactory(currentQuote:RetailQuote){if(!currentQuote.wholesale_enabled)return;const seen=new Set<string>();const messages:string[]=[];for(const line of currentQuote.items){if(seen.has(line.product_id))continue;seen.add(line.product_id);const before=factoryState.current.get(line.product_id);if(line.factory_applied&&!before)messages.push(line.product_name+": precio de fábrica aplicado");else if(before&&!line.factory_applied)messages.push(line.product_name+": precio regular por cantidad");factoryState.current.set(line.product_id,line.factory_applied);}if(messages.length)setNotice(messages.join(" · "));}
+  useEffect(()=>{if(!cart.length)factoryState.current.clear();},[cart.length]);
+  useEffect(()=>{if(!notice||isFoodProfile(profileCode))return;const timer=setTimeout(()=>setNotice(null),2800);return()=>clearTimeout(timer);},[notice,profileCode]);
   const pricedCart=useMemo(()=>currentQuote?cart.map(item=>({...item,price:currentQuote.items.find(line=>line.variant_id===item.variantId)?.unit_price??item.price})):cart,[cart,currentQuote]);
   const baseTotals = useMemo(
     () =>
@@ -2159,6 +2163,7 @@ export default function PosRegisterPage() {
       <FeedbackBanner
         error={error}
         notice={notice}
+        floating={!isFoodProfile(profileCode)}
       />
 
       <section className="grid gap-4 min-[1180px]:grid-cols-[minmax(0,1fr)_400px] min-[1180px]:items-start">
@@ -2343,11 +2348,12 @@ export default function PosRegisterPage() {
           />
         ) : null}
 
-        {!isFoodProfile(profileCode)&&cart.length>0&&<section role="status" className="rounded-xl border border-white/15 p-3 text-sm">
-          {!currentQuote?<p>{quoteError||"Validando precios del pedido…"}</p>:<><p>Total actualizado: {formatMoney(currentQuote.total,currency)}. Revisa cualquier cambio antes de cobrar.</p>{currentQuote.wholesale_enabled&&currentQuote.items.map(line=><p key={line.variant_id}>{line.product_name} · {line.variant_name}: {formatMoney(line.regular_price,currency)} original − {formatMoney(Number(line.regular_price)-Number(line.unit_price),currency)} descuento = {formatMoney(line.unit_price,currency)} · {line.model_quantity} piezas del modelo · {line.factory_applied?"Mayoreo aplicado":line.factory_missing?"Falta configurar precio de fábrica":`Faltan ${line.remaining} para mayoreo`}</p>)}</>}
-        </section>}
         <CartPanel
+          compact={!isFoodProfile(profileCode)}
           cart={pricedCart}
+          retailQuote={currentQuote}
+          checkoutError={error||quoteError}
+          validating={!isFoodProfile(profileCode)&&cart.length>0&&!currentQuote}
           totals={totals}
           baseTotals={baseTotals}
           currency={currency}
@@ -2845,6 +2851,8 @@ function VariantCard({
 }
 
 function CartPanel({
+  compact,
+  retailQuote,checkoutError,validating,
   cart,
   totals,
   baseTotals,
@@ -2869,6 +2877,8 @@ function CartPanel({
   onClear,
   onCharge,
 }: {
+  compact:boolean;
+  retailQuote:RetailQuote|null;checkoutError:string|null;validating:boolean;
   cart: CartItem[];
   totals: SaleTotals;
   baseTotals: SaleTotals;
@@ -2902,7 +2912,7 @@ function CartPanel({
   onCharge: () => void;
 }) {
   return (
-    <aside className="rounded-[var(--pos-radius-lg)] bg-[var(--pos-panel-raised)] p-4 min-[1180px]:sticky min-[1180px]:top-[80px] min-[1180px]:h-fit">
+    <aside className={`rounded-[var(--pos-radius-lg)] bg-[var(--pos-panel-raised)] p-4 min-[1180px]:sticky min-[1180px]:top-[80px] ${compact?"min-[1180px]:flex min-[1180px]:h-[calc(100dvh-180px)] min-[1180px]:min-h-[500px] min-[1180px]:flex-col min-[1180px]:[&>div]:shrink-0":"min-[1180px]:h-fit"}`}>
       <div className="flex items-start justify-between gap-4 border-b border-[var(--pos-line-subtle)] pb-4">
         <div>
           <p className="text-xs font-medium text-[var(--pos-text-muted)]">
@@ -3116,9 +3126,9 @@ function CartPanel({
         </div>
       ) : null}
 
-      <div className="pos-ui-scrollbar mt-3 grid max-h-[330px] gap-2 overflow-y-auto pr-1">
+      <div className={`pos-ui-scrollbar mt-3 grid max-h-[330px] content-start gap-2 overflow-y-auto pr-1 ${compact?"min-[1180px]:min-h-0 min-[1180px]:flex-1 min-[1180px]:!shrink min-[1180px]:max-h-none":""}`}>
         {cart.length > 0 ? (
-          cart.map((item) => {
+          cart.map((item,index) => {
             const unit =
               unitMap.get(
                 item.unitCode
@@ -3139,13 +3149,14 @@ function CartPanel({
             return (
               <div
                 key={item.variantId}
-                className="rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-3"
+                className={`rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] ${compact?"p-2 [&_button]:h-8 [&_input]:h-8":"p-3"}`}
               >
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-[var(--pos-text-primary)]">
                       {item.productName}
                     </p>
+                    {retailQuote?.wholesale_enabled&&cart.findIndex(row=>row.productId===item.productId)===index&&(()=>{const line=retailQuote.items.find(row=>row.variant_id===item.variantId);return line?<p className="mt-1 text-[11px] text-cyan-300">{factoryProgress(line)}</p>:null;})()}
                     <p className="mt-0.5 truncate text-xs text-[var(--pos-text-muted)]">
                       {formatCartVariantName(item)}
                     </p>
@@ -3168,7 +3179,7 @@ function CartPanel({
                   </button>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-3">
+                <div className={`flex items-center justify-between gap-3 ${compact?"mt-2":"mt-4"}`}>
                   <div className="flex items-center rounded-[var(--pos-radius-sm)] bg-white/[0.04]">
                     <button
                       type="button"
@@ -3263,7 +3274,7 @@ function CartPanel({
         )}
       </div>
 
-      <div className="mt-4 grid gap-2.5 border-t border-[var(--pos-line-subtle)] pt-4">
+      <div className={`grid border-t border-[var(--pos-line-subtle)] ${compact?"mt-2 gap-1 pt-2":"mt-4 gap-2.5 pt-4"}`}>
         <TotalLine
           label="Subtotal"
           value={formatMoney(
@@ -3295,7 +3306,7 @@ function CartPanel({
           muted
         />
 
-        <div className="mt-2 flex items-end justify-between gap-4 border-t border-[var(--pos-line)] pt-4">
+        <div className={`flex items-end justify-between gap-4 border-t border-[var(--pos-line)] ${compact?"mt-1 pt-2":"mt-2 pt-4"}`}>
           <p className="text-sm font-semibold text-[var(--pos-text-secondary)]">
             Total
           </p>
@@ -3308,11 +3319,12 @@ function CartPanel({
         </div>
       </div>
 
+      {(compact||checkoutError||validating)&&<p role={checkoutError?"alert":"status"} className="mt-2 min-h-4 shrink-0 text-xs text-rose-300">{checkoutError||(validating?"Validando precios…":"")}</p>}
       <button
         type="button"
-        disabled={cart.length === 0}
+        disabled={cart.length === 0||validating}
         onClick={onCharge}
-        className="pos-ui-focus fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-4 right-4 z-40 flex h-14 items-center justify-center rounded-[var(--pos-radius-md)] bg-[var(--pos-primary)] text-base font-bold text-slate-950 shadow-[var(--pos-shadow-overlay)] transition-colors hover:bg-[var(--pos-primary-hover)] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 min-[1180px]:static min-[1180px]:mt-4 min-[1180px]:w-full min-[1180px]:shadow-none"
+        className="pos-ui-focus fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-4 right-4 z-40 flex h-14 shrink-0 items-center justify-center rounded-[var(--pos-radius-md)] bg-[var(--pos-primary)] text-base font-bold text-slate-950 shadow-[var(--pos-shadow-overlay)] transition-colors hover:bg-[var(--pos-primary-hover)] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 min-[1180px]:static min-[1180px]:mt-4 min-[1180px]:w-full min-[1180px]:shadow-none"
       >
         Cobrar{" "}
         {formatMoney(
@@ -4702,9 +4714,11 @@ function TextAreaField({
 }
 
 function FeedbackBanner({
+  floating=false,
   error,
   notice,
 }: {
+  floating?:boolean;
   error: string | null;
   notice: string | null;
 }) {
@@ -4714,7 +4728,8 @@ function FeedbackBanner({
 
   return (
     <div
-      className={`rounded-[20px] border px-5 py-4 text-sm font-bold ${
+      role={error?"alert":"status"}
+      className={`${floating&&!error?"pointer-events-none fixed right-5 top-20 z-50 max-w-sm rounded-lg bg-slate-900 px-4 py-2 shadow-xl":"rounded-[20px] px-5 py-4"} border text-sm font-bold ${
         error
           ? "border-rose-300/20 bg-rose-300/[0.08] text-rose-200"
           : "border-emerald-300/20 bg-emerald-300/[0.08] text-emerald-200"
@@ -5154,21 +5169,8 @@ function formatAttributes(
 }
 
 function formatCartVariantName(variant: SellableVariant) {
-  const values = Object.values(variant.attributes || {})
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-  if (values.length > 1) {
-    const generatedName = variant.variantName.trim();
-    if (
-      generatedName &&
-      generatedName !== "Única" &&
-      (generatedName.includes("/") || generatedName.includes("·"))
-    ) {
-      return generatedName.replace(/\s*\/\s*/g, " · ");
-    }
-    return values.join(" · ");
-  }
-  return variant.variantName || values[0] || "Presentación única";
+  const values=Object.values(variant.attributes||{}).map(value=>String(value||"").trim()).filter(Boolean);
+  return values.length>1?values.join(" · "):(variant.variantName||values[0]||"Presentación única").replace(/(?:Â·|â€¢|\s*\/\s*)/g," · ");
 }
 
 function formatQuantity(

@@ -54,6 +54,7 @@ try{
  await sql(dump.replace('CREATE SCHEMA public;','').replace(/^ALTER DEFAULT PRIVILEGES[^;]+;$/gm,''));
  await sql(fs.readFileSync('supabase/migrations/20261017120000_pos_retail_orders_v1.sql','utf8'));
  await sql(fs.readFileSync('supabase/migrations/20261017180000_pos_per_piece_discount.sql','utf8'));
+ await sql(fs.readFileSync('supabase/migrations/20261018120000_pos_order_workspace.sql','utf8'));
  console.log('PASS both migrations on disposable schema copy');
  await sql(`begin;set local session_replication_role=replica;
  insert into auth.users(id,email) values('${ids.owner}','synthetic@example.test');
@@ -131,7 +132,7 @@ try{
  const competing=await Promise.allSettled(competitors.map(({id,order:o})=>call(id,'activate',{...payBody,revision:o.revision,expected_quote:o.quote})));
  assert.equal(competing.filter(r=>r.status==='fulfilled').length,1);assert.equal(await sql(`select reserved_quantity from pos_inventory where variant_id='${ids.v4}'`),'20.000');
  const winner=competing.find(r=>r.status==='fulfilled').value.order;
- await call(winner.id,'cancel',{revision:winner.revision});
+ await call(winner.id,'cancel',{revision:winner.revision,reason:'Synthetic cancellation'});
  console.log('PASS concurrent reservations prevent overselling; cancellation releases once');
  // Payment waits behind an open-turn lock until after expiry. The cron skips
  // its locked order, then payment itself releases the reservation without money.
@@ -149,6 +150,17 @@ try{
  assert.equal(await sql(`select count(*) from pos_retail_order_events where order_id='${raceId}' and action='expire'`),'1');
  assert.equal(await sql('select pos_retail_expire_v1()'),'0');
  console.log('PASS payment-versus-expiry race: no late payment, one release, preserved money');
+ const editRaceId=randomUUID();order=(await call(editRaceId,'save',draft)).order;
+ order=(await call(editRaceId,'activate',{...payBody,revision:order.revision,expected_quote:order.quote})).order;
+ await sql(`update pos_retail_orders set expires_at=clock_timestamp()+interval '1 second' where id='${editRaceId}'`);
+ const inventoryBlocker=sql(`begin;select variant_id from pos_inventory where variant_id='${ids.v1}' for update;select pg_sleep(2);commit;`);
+ await new Promise(resolve=>setTimeout(resolve,200));
+ const editRace=call(editRaceId,'save',{...draft,revision:order.revision,items:items([['v1',21]])});
+ await inventoryBlocker;assert.equal((await editRace).expired,true);
+ assert.equal(await sql(`select reserved_quantity from pos_inventory where variant_id='${ids.v1}'`),'0.000');
+ assert.equal(await sql(`select count(*) from pos_retail_order_events where order_id='${editRaceId}' and action='expire'`),'1');
+ assert.equal(await sql('select pos_retail_expire_v1()'),'0');
+ console.log('PASS edit-versus-expiry race: reversed pending delta and released original reservation once');
 
  // New per-piece mode: no manual factory price required, history unchanged.
  const history=await sql("select md5(string_agg(to_jsonb(s)::text,'' order by id)) from pos_sales s");
@@ -175,6 +187,23 @@ try{
  assert.equal(await sql(`select subtotal||':'||discount_total||':'||total from pos_sales where id='${bulkSale}'`),'7650.00:510.00:7140.00');
  assert.equal(await sql(`select unit_price||':'||discount_amount from pos_sale_items where sale_id='${bulkSale}'`),'150.00:510.00');
  assert.equal(await sql(`select md5(string_agg(to_jsonb(s)::text,'' order by id)) from pos_sales s where id<>'${bulkSale}'`),history);
+ const excessId=randomUUID();order=(await call(excessId,'save',draft)).order;
+ order=(await call(excessId,'activate',{...payBody,revision:order.revision,expected_quote:order.quote,accepted_policy:bulkRules})).order;
+ order=(await call(excessId,'pay',{revision:order.revision,expected_quote:order.quote,cash_session_id:ids.session,amount:200,method:'card'})).order;
+ const deadline=order.expires_at,paymentCount=await sql('select count(*) from pos_retail_order_payments');
+ order=(await call(excessId,'save',{...draft,revision:order.revision,reason:'Customer reduces package',items:items([['v1',3]])})).order;
+ assert.equal(order.paid,700);assert.equal(order.total,450);assert.equal(order.unresolved,250);assert.equal(order.expires_at,deadline);
+ assert.equal(await sql(`select reserved_quantity from pos_inventory where variant_id='${ids.v1}'`),'3.000');
+ const excessKey=randomUUID(),excessBody={revision:order.revision,expected_quote:order.quote,cash_session_id:ids.session,amount:0,tendered:0,method:'cash'};
+ const excessSettled=await Promise.all([call(excessId,'settle',excessBody,excessKey),call(excessId,'settle',excessBody,excessKey)]);
+ assert.equal(excessSettled[0].order.sale_id,excessSettled[1].order.sale_id);assert.equal(excessSettled[0].order.unresolved,250);assert.equal(await sql('select count(*) from pos_retail_order_payments'),paymentCount);
+ assert.equal(await sql(`select reserved_quantity from pos_inventory where variant_id='${ids.v1}'`),'0.000');
+ console.log('PASS overpayment preserved, difference-only release, zero-payment settlement without cash or duplicate payment');
+ await sql(`update pos_customers set first_name='Ángela',last_name='Muñoz' where id='${ids.customer}';insert into pos_retail_orders(brand_slug,folio,location_id,customer_id,contact,items,quote,total,created_by,staff_id) select '${brand}','N-FIND-'||lpad(n::text,3,'0'),'${ids.location}','${ids.customer}','Synthetic',o.items,o.quote,o.total,'${ids.owner}','${ids.staff}' from pos_retail_orders o cross join generate_series(1,36) n where o.id='${bulkId}';`);
+ const listOrders=async(search,page=1,filter='all',scope=brand)=>JSON.parse(await sql(`set role service_role;select pos_retail_orders_list_v1('${scope}','${ids.location}',${quote(search)},'${filter}','activity',${page},25)`));
+ assert.equal((await listOrders('n-find-')).total,36);assert.equal((await listOrders('n-find-',2)).orders.length,11);assert.equal((await listOrders('n-find-036')).total,1);
+ assert.ok((await listOrders('ANGELA MUNOZ')).total>=36);assert.equal((await listOrders('angela',1,'all','foreign-brand')).total,0);assert.equal((await listOrders('n-find',1,'active')).total,0);
+ console.log('PASS server search across pages, partial folio, case/accent folding, filters and brand isolation');
  await sql(`begin;set local session_replication_role=replica;update pos_product_variants set price=5 where id='${ids.v1}';commit;`);assert.equal((await q(items([['v1',50]]))).total,0);await assert.rejects(q([{variant_id:ids.v1,quantity:50,discount_amount:1}]));
  await assert.rejects(sql(`update pos_retail_rules set per_piece_discount=-10 where brand_slug='${brand}'`));
  console.log('PASS per-piece 49/50/51, model identity, combination toggle, no factory price dependency, manual discount once, editable note/layaway, repeated settlement, original prices and historical preservation, zero floor');
