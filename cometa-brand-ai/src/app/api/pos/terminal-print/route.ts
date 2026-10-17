@@ -3,6 +3,7 @@ import { getBrandSlugFromUrl, requirePosContext, readJsonBody, uuidValue, PosApi
 import { requirePosCommercialAccess } from "@/lib/pos/access";
 import { requireRetailPermission } from "@/lib/pos/staff-server";
 import { automaticOperations, drawerCommand, thermalReceipt, samePrintOptions, type TerminalPrintConfig, type ThermalSale } from "@/lib/pos/thermal";
+import {retailOrderReceipt,type RetailOrder,type RetailPayment} from "@/lib/pos/retail-orders";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -75,6 +76,31 @@ export async function POST(request:Request) {
   if(found.error) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","No se pudo consultar la terminal.");
   if(!found.data) {if(body.action==="automatic")return ok({jobs:[]});throw new PosApiError(400,"POS_VALIDATION_ERROR","Configura esta terminal primero.");}
   const settings=config(found.data.config);
+  if(body.action === "order-payment"){
+    const operator=await requireRetailPermission(c,"SELL");
+    if(!operator)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Selecciona un operador.");
+    const orderId=uuidValue(body.orderId,"orderId"),paymentId=uuidValue(body.paymentId,"paymentId");
+    const paymentResult=await c.admin.from("pos_retail_order_payments").select("*").eq("id",paymentId).eq("order_id",orderId).eq("brand_slug",c.brand.slug).eq("staff_id",operator.staff.id).eq("host_user_id",c.user.userId).single();
+    if(paymentResult.error||!paymentResult.data)throw new PosApiError(404,"POS_NOT_FOUND","Pago confirmado no disponible.");
+    const payment=paymentResult.data as RetailPayment & {cash_session_id:string};
+    if(Date.now()-Date.parse(payment.created_at)>300000)throw new PosApiError(409,"POS_WEB_CONFLICT","El abono ya no admite apertura automática. Reimprime el comprobante sin cajón.");
+    const event=await c.admin.from("pos_retail_order_events").select("result").eq("order_id",orderId).eq("brand_slug",c.brand.slug).eq("request_key",payment.request_key).single();
+    const order=event.data?.result?.order as RetailOrder|undefined;
+    if(event.error||!order)throw new PosApiError(409,"POS_WEB_CONFLICT","No se encontró la confirmación del pago.");
+    if((operator.locationId&&operator.locationId!==order.location_id)||(c.device&&c.device.locationId!==order.location_id))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Pago de otra sucursal.");
+    if(!manualTest&&(!process.env.POS_QZ_PRIVATE_KEY||!process.env.POS_QZ_CERTIFICATE))return ok({jobs:[],unavailable:true});
+    const identity=await c.admin.from("pos_branding").select("display_name").eq("brand_slug",c.brand.slug).maybeSingle();
+    if(identity.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo preparar el comprobante.");
+    const jobs=[];
+    for(const kind of automaticOperations(settings,[{payment_method:payment.method,amount:payment.amount,tendered_amount:payment.tendered,change_amount:payment.change}])){
+      const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"plain",data:drawerCommand(settings.profile)}]:[{type:"pixel",format:"html",flavor:"plain",data:retailOrderReceipt(order,identity.data?.display_name||c.brand.name,operator.staff.name,order.contact,payment)}];
+      const job=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:operator.staff.id,sale_id:null,cash_session_id:payment.cash_session_id,kind,reason:"Abono confirmado",dedupe_key:`order-payment:${payment.id}:${kind}`,payload:{printer:settings.printer,width:settings.width,data,orderPaymentId:payment.id}}).select("id,payload,kind").single();
+      if(job.error?.code==="23505")continue;
+      if(job.error||!job.data)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","Pago conservado; no se pudo registrar la impresión.");
+      jobs.push(job.data);
+    }
+    return ok({jobs});
+  }
   if(body.action === "result" || body.action === "sign") {
     const staff=await requireRetailPermission(c,"PRODUCTS_READ");
     if(!staff) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Disponible para comercio.");
@@ -90,7 +116,7 @@ export async function POST(request:Request) {
       if(saved.error)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","No se pudo registrar el resultado.");
       return ok({recorded:true,physicalConfirmation:false});
     }
-    await requireRetailPermission(c,job.kind==="drawer" && !job.sale_id ? "DRAWER" : job.kind==="test" ? "SETTINGS" : job.kind==="reprint" ? "REPRINT" : "SELL");
+    await requireRetailPermission(c,job.kind==="drawer" && !job.sale_id && !job.payload.orderPaymentId ? "DRAWER" : job.kind==="test" ? "SETTINGS" : job.kind==="reprint" ? "REPRINT" : "SELL");
     if(!manualTest && (!process.env.POS_QZ_PRIVATE_KEY || !process.env.POS_QZ_CERTIFICATE)) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","Falta configurar la firma del puente de impresión.");
     if(typeof body.message!=="string" || body.message.length>250000)throw new PosApiError(400,"POS_VALIDATION_ERROR","Solicitud de impresión inválida.");
     const message=JSON.parse(body.message) as {call?:string;params?:{printer?:unknown;data?:unknown;options?:Record<string,unknown>};timestamp?:number};
@@ -113,9 +139,10 @@ export async function POST(request:Request) {
   const staff=await requireRetailPermission(c,action==="automatic"?"SELL":action==="reprint"?"REPRINT":action==="drawer"?"DRAWER":"SETTINGS");
   if(!staff) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Disponible para comercio.");
   if(action==="automatic" && !manualTest && (!process.env.POS_QZ_PRIVATE_KEY||!process.env.POS_QZ_CERTIFICATE))return ok({jobs:[],unavailable:true});
-  type ConfirmedSale=ThermalSale & {id:string;status:string;cash_session_id:string;location_id:string;cashier_staff_id:string|null};
+  type ConfirmedSale=ThermalSale & {id:string;status:string;cash_session_id:string;location_id:string;cashier_staff_id:string|null;customer_id?:string|null};
   let sale: ConfirmedSale|null=null;
   let cashier=staff.staff.name;
+  let customerName:string|undefined;
   if(action==="automatic"||action==="reprint") {
     const saleId=uuidValue(body.saleId,"saleId");
     const result=await c.admin.from("pos_sales").select("*,items:pos_sale_items(*),payments:pos_payments(*)").eq("id",saleId).eq("brand_slug",c.brand.slug).single();
@@ -124,7 +151,9 @@ export async function POST(request:Request) {
     if(!sale || (staff.locationId && staff.locationId!==sale.location_id) || (c.device && c.device.locationId!==sale.location_id)) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","La venta pertenece a otra sucursal.");
     if(action==="automatic" && (sale.status!=="completed" || sale.cashier_staff_id!==staff.staff.id))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","No corresponde al cobro de este operador.");
     const original= sale.cashier_staff_id ? await c.admin.from("pos_staff").select("name").eq("id",sale.cashier_staff_id).eq("brand_slug",c.brand.slug).maybeSingle():null;
+    if(original?.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo consultar el operador original.");
     cashier=original?.data?.name || "No registrado";
+    if(sale.customer_id){const customer=await c.admin.from("pos_customers").select("first_name,last_name").eq("id",sale.customer_id).eq("brand_slug",c.brand.slug).maybeSingle();if(customer.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo consultar el cliente del ticket.");if(customer.data)customerName=[customer.data.first_name,customer.data.last_name].filter(Boolean).join(" ");}
   }
   let cashSession=sale?.cash_session_id??null;
   const reason=typeof body.reason==="string"?body.reason.trim().slice(0,300):"";
@@ -140,7 +169,8 @@ export async function POST(request:Request) {
   const key=action==="automatic"?sale?.id:uuidValue(body.requestKey,"requestKey");
   const jobs=[];
   for(const kind of kinds) {
-    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"plain",data:drawerCommand(settings.profile)}]:[{type:"pixel",format:"html",flavor:"plain",data:sale?thermalReceipt(sale,brand.data?.display_name||c.brand.slug,cashier,settings.width):"<html><body><h2>COMETA POS</h2><p>Prueba de impresión. No es una venta.</p></body></html>"}];
+    const testSale:ThermalSale={sale_number:"PRUEBA",sold_at:new Date().toISOString(),subtotal:100,discount_total:0,tax_total:0,total:100,currency:"MXN",items:[{product_name:"Prueba de impresión · acentos áéíóú ñ",variant_name:"Modelo de ejemplo · Color azul · Talla CH",sku:null,quantity:2,unit_price:50,line_total:100}],payments:[]};
+    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"plain",data:drawerCommand(settings.profile)}]:[{type:"pixel",format:"html",flavor:"plain",data:thermalReceipt(sale||testSale,brand.data?.display_name||c.brand.slug,cashier,settings.width,{copy:kind==="reprint",test:!sale,customer:customerName})}];
     const payload={printer:settings.printer,width:settings.width,data};
     const inserted=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:staff.staff.id,sale_id:sale?.id??null,cash_session_id:cashSession,kind,reason:reason||null,dedupe_key:`${key}:${kind}`,payload}).select("id,payload,kind").single();
     if(inserted.error?.code==="23505")continue;

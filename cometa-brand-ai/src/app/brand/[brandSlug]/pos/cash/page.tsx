@@ -75,6 +75,7 @@ type CashSessionSummary = {
 };
 
 type CashSession = {
+  retailDeposits?:{cash:number;card:number;transfer:number}|null;
   openingStaffName?: string | null;
   closingStaffName?: string | null;
   id: string;
@@ -693,6 +694,7 @@ function OpenSessionDashboard({
             <MethodValue label="Transferencia" value={summary.transfer_sales} currency={currency} />
             <MethodValue label="Wallet" value={summary.wallet_sales} currency={currency} />
             <MethodValue label="Otros" value={summary.other_sales} currency={currency} />
+            {session.retailDeposits&&<div className="col-span-full rounded-lg border border-white/15 p-3"><p className="font-semibold">Anticipos y abonos recibidos · separados de ventas liquidadas</p><MethodValue label="Efectivo (incluido en depósitos)" value={session.retailDeposits.cash} currency={currency}/><MethodValue label="Tarjeta" value={session.retailDeposits.card} currency={currency}/><MethodValue label="Transferencia" value={session.retailDeposits.transfer} currency={currency}/><p className="text-xs">La liquidación aplica los abonos como pago previo; no vuelve a ingresar efectivo.</p></div>}
           </div>
         </div>
 
@@ -787,6 +789,7 @@ function ClosedSessionHistory({ session, currency }: { session: CashSession; cur
         <HistoryLine label="Transferencia" value={formatMoney(toNumber(summary.transfer_sales), currency)} />
         <HistoryLine label="Wallet" value={formatMoney(toNumber(summary.wallet_sales), currency)} />
         <HistoryLine label="Otros" value={formatMoney(toNumber(summary.other_sales), currency)} />
+        {session.retailDeposits&&<><HistoryLine label="Abonos efectivo (ya incluidos en depósitos)" value={formatMoney(session.retailDeposits.cash,currency)}/><HistoryLine label="Abonos tarjeta" value={formatMoney(session.retailDeposits.card,currency)}/><HistoryLine label="Abonos transferencia" value={formatMoney(session.retailDeposits.transfer,currency)}/></>}
         <HistoryLine label="Entradas" value={formatMoney(toNumber(summary.cash_income) + toNumber(summary.cash_deposits), currency)} />
         <HistoryLine label="Retiros/gastos" value={formatMoney(toNumber(summary.cash_expenses) + toNumber(summary.cash_withdrawals), currency)} />
       </div>

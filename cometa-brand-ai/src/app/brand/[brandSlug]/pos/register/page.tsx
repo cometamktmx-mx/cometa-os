@@ -1,4 +1,5 @@
 "use client";
+import type {RetailQuote} from "@/lib/pos/retail-orders";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
 import {printOperation} from "@/lib/pos/thermal-client";
 
@@ -529,6 +530,8 @@ export default function PosRegisterPage() {
   const [cart, setCart] = useState<
     CartItem[]
   >([]);
+  const [retailQuote,setRetailQuote]=useState<{key:string;quote:RetailQuote}|null>(null);
+  const [quoteError,setQuoteError]=useState("");
 
   const [search, setSearch] = useState("");
   const [
@@ -956,17 +959,29 @@ export default function PosRegisterPage() {
     ? productGroups.find((group) => group.productId === selectedProductId) || null
     : null;
 
+  const quoteItems=useMemo(()=>cart.map(item=>({variant_id:item.variantId,quantity:item.quantity,discount_amount:item.discountAmount})),[cart]);
+  const quoteKey=JSON.stringify([brand.slug,selectedLocation?.id,quoteItems]);
+  useEffect(()=>{
+    if(isFoodProfile(profileCode)||!cart.length||!selectedLocation?.id)return;
+    let active=true;
+    const timer=setTimeout(()=>{
+      void apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`,{method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,items:quoteItems})}).then(result=>{if(active){setRetailQuote({key:quoteKey,quote:result.quote});setQuoteError("");}}).catch(e=>{if(active)setQuoteError(e instanceof Error?e.message:"No se pudo validar el precio.");});
+    },200);
+    return()=>{active=false;clearTimeout(timer);};
+  },[brand.slug,selectedLocation?.id,quoteItems,quoteKey,profileCode,cart.length]);
+  const currentQuote=retailQuote?.key===quoteKey?retailQuote.quote:null;
+  const pricedCart=useMemo(()=>currentQuote?cart.map(item=>({...item,price:currentQuote.items.find(line=>line.variant_id===item.variantId)?.unit_price??item.price})):cart,[cart,currentQuote]);
   const baseTotals = useMemo(
     () =>
       calculateSaleTotals({
-        cart,
+        cart:pricedCart,
         pricesIncludeTax:
           selectedLocation
             ?.prices_include_tax ??
           true,
       }),
     [
-      cart,
+      pricedCart,
       selectedLocation
         ?.prices_include_tax,
     ]
@@ -1929,6 +1944,7 @@ export default function PosRegisterPage() {
 
   async function completeSale() {
     if (isCharging) return;
+    if(!isFoodProfile(profileCode)&&!currentQuote){setError(quoteError||"Espera la validación de precios antes de cobrar.");return;}
 
     if (
       !selectedSession ||
@@ -1998,6 +2014,7 @@ export default function PosRegisterPage() {
                 selectedRewardUnlock?.id ||
                 null,
               idempotencyKey,
+              ...(!isFoodProfile(profileCode)?{expectedQuote:currentQuote}:{}),
             }),
           }
         );
@@ -2326,8 +2343,11 @@ export default function PosRegisterPage() {
           />
         ) : null}
 
+        {!isFoodProfile(profileCode)&&cart.length>0&&<section role="status" className="rounded-xl border border-white/15 p-3 text-sm">
+          {!currentQuote?<p>{quoteError||"Validando precios del pedido…"}</p>:<><p>Total actualizado: {formatMoney(currentQuote.total,currency)}. Revisa cualquier cambio antes de cobrar.</p>{currentQuote.wholesale_enabled&&currentQuote.items.map(line=><p key={line.variant_id}>{line.product_name} · {line.variant_name}: {formatMoney(line.unit_price,currency)} · {line.model_quantity} piezas del modelo · {line.factory_applied?"Fábrica aplicada":line.factory_missing?"Falta configurar precio de fábrica":`Faltan ${line.remaining} para fábrica`}</p>)}</>}
+        </section>}
         <CartPanel
-          cart={cart}
+          cart={pricedCart}
           totals={totals}
           baseTotals={baseTotals}
           currency={currency}

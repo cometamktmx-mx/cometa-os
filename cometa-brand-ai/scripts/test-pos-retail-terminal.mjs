@@ -26,7 +26,7 @@ const tables={pos_terminal_print_settings:[{id:terminalId,brand_slug:brand,host_
 function from(table){assert.ok(table in tables,table);let filters=[],operation='read',value;const query={select(){return query},eq(k,v){filters.push(r=>r[k]===v);return query},maybeSingle(){return exec(false)},single(){return exec(true)},insert(v){operation='insert';value=v;return query},update(v){operation='update';value=v;return query},then(ok,fail){return exec(false).then(ok,fail)}};async function exec(single){let rows=tables[table].filter(r=>filters.every(f=>f(r)));if(operation==='insert'){if(tables[table].some(r=>r.brand_slug===value.brand_slug&&r.dedupe_key===value.dedupe_key))return{error:{code:'23505'},data:null};rows=[{id:crypto.randomUUID(),created_at:new Date().toISOString(),status:'requested',...value}];tables[table].push(...rows);}if(operation==='update')rows.forEach(r=>Object.assign(r,value));return{data:rows[0]??null,error:single&&!rows.length?{code:'missing'}:null}}return query;}
 const context={brand:{slug:brand},user:{userId:'host',isAdmin:true},membership,admin:{from}};
 const server={requirePosContext:async()=>context,getBrandSlugFromUrl:()=>brand,readJsonBody:r=>r.json(),uuidValue:v=>v,PosApiError:ApiError,ok:value=>Response.json({ok:true,...value}),handlePosError:e=>Response.json({error:e.message},{status:e.status||500})};
-const route=load('src/app/api/pos/terminal-print/route.ts',{'node:crypto':crypto,'@/lib/pos/server':server,'@/lib/pos/access':{requirePosCommercialAccess:async()=>{}},'@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{if(!allowed.has(permission))throw new ApiError(403,'denied','denied');return{staff,locationId:null}}},'@/lib/pos/thermal':thermal});
+const route=load('src/app/api/pos/terminal-print/route.ts',{'node:crypto':crypto,'@/lib/pos/server':server,'@/lib/pos/access':{requirePosCommercialAccess:async()=>{}},'@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{if(!allowed.has(permission))throw new ApiError(403,'denied','denied');return{staff,locationId:null}}},'@/lib/pos/thermal':thermal,'@/lib/pos/retail-orders':load('src/lib/pos/retail-orders.ts',{'./thermal':thermal})});
 const post=body=>route.POST(new Request('https://fixture.test/api/pos/terminal-print',{method:'POST',headers:{origin:'https://fixture.test','content-type':'application/json'},body:JSON.stringify({terminalId,...body})}));
 const keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
 let response=await post({action:'automatic',saleId:sale.id});assert.equal(response.status,200);assert.equal((await response.json()).jobs.length,2);
@@ -35,7 +35,7 @@ const key=crypto.randomUUID();response=await post({action:'reprint',saleId:sale.
 await post({action:'reprint',saleId:sale.id,requestKey:key});assert.equal(tables.pos_terminal_print_jobs.length,3);
 allowed=new Set(['PRODUCTS_READ']);assert.equal((await post({action:'reprint',saleId:sale.id,requestKey:crypto.randomUUID()})).status,403);allowed=new Set(Object.keys(permissions.RETAIL_PERMISSIONS));
 
-const job=tables.pos_terminal_print_jobs.find(j=>j.kind==='drawer');const options=qz.configs.create(conf.printer,{copies:1,units:'mm',size:{width:80,height:null},margins:0,scaleContent:true}).config;
+const job=tables.pos_terminal_print_jobs.find(j=>j.kind==='drawer');const options=qz.configs.create(conf.printer,{copies:1,units:'mm',size:{width:80,height:null},margins:0,scaleContent:false}).config;
 const message=JSON.stringify({call:'print',params:{printer:{name:conf.printer},options,data:job.payload.data},timestamp:Date.now()});const digest=crypto.createHash('sha256').update(message).digest('hex');
 response=await post({action:'sign',jobId:job.id,message,digest});assert.equal(response.status,200);const signature=(await response.json()).signature;assert.ok(crypto.verify('SHA512',Buffer.from(digest),keys.publicKey,Buffer.from(signature,'base64')),'QZ digest signature is valid');
 assert.equal((await post({action:'sign',jobId:job.id,message,digest})).status,409,'dispatch is one shot');
@@ -108,6 +108,16 @@ const client=load('src/lib/pos/thermal-client.ts',{'./thermal':thermal,'qz-tray'
 await assert.rejects(client.discoverPrinters(brand),/firma/);
 client.selectManualTest(brand,true);
 assert.deepEqual([...await client.discoverPrinters(brand)],['Fixture USB']);assert.equal(certificateSeen,'');
+const realFind=mockQz.printers.find;
+mockQz.printers.find=async()=>[];
+await assert.rejects(client.discoverPrinters(brand),e=>e.stage==='enumeration'&&/cero impresoras/.test(e.message));
+mockQz.printers.find=async()=>{throw Error('Request blocked by user');};
+await assert.rejects(client.discoverPrinters(brand),e=>e.stage==='enumeration'&&/Request blocked by user/.test(e.message));
+mockQz.printers.find=realFind;
+const realConnect=mockQz.websocket.connect;bridgeConnected=false;
+mockQz.websocket.connect=async()=>{throw Error('Connection refused');};
+await assert.rejects(client.discoverPrinters(brand),e=>e.stage==='connection'&&/Connection refused/.test(e.message));
+mockQz.websocket.connect=realConnect;
 const jobsBefore=tables.pos_terminal_print_jobs.length;
 await client.printOperation(brand,{action:'reprint',saleId:sale.id,requestKey:crypto.randomUUID()});
 assert.equal(tables.pos_terminal_print_jobs.length,jobsBefore+1);assert.equal(tables.pos_terminal_print_jobs.at(-1).status,'spooled');
@@ -122,18 +132,30 @@ console.log('PASS software only: cash/card/transfer/mixed, one-shot jobs, reprin
 let browserAllowed=true,printLocation='location';
 const rows=[sale,{...sale,id:crypto.randomUUID(),brand_slug:'other'},{...sale,id:crypto.randomUUID(),location_id:'other-location'}];
 const receiptContext={...context,admin:{from:table=>{
+ if(table==='pos_branding'||table==='pos_staff')return from(table);
  assert.equal(table,'pos_sales');let filtered=rows;
  const query={select:()=>query,order:()=>query,range:()=>query,eq:(k,v)=>{filtered=filtered.filter(r=>r[k]===v);return query},in:(k,v)=>{filtered=filtered.filter(r=>v.includes(r[k]));return query},then:resolve=>Promise.resolve({data:filtered,error:null,count:filtered.length}).then(resolve)};return query;
 }}};
 const receiptRoute=load('src/app/api/pos/sales/route.ts',{
+ '@/lib/pos/thermal':thermal,
  '@/lib/pos/mutation-access':{},
  '@/lib/pos/server':{...server,getPagination:()=>({page:1,pageSize:100,from:0,to:99}),assertDatabaseResult:e=>{if(e)throw Error('db')}},
  '@/lib/pos/access':{requirePosOperationalAccess:async()=>receiptContext},
  '@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{assert.equal(permission,'REPRINT');if(!browserAllowed)throw new ApiError(403,'denied','denied');return{staff,locationId:printLocation}}}
 });
 const browserReceipt=id=>receiptRoute.GET(new Request('https://fixture.test/api/pos/sales?brandSlug=fixture&print=1'+(id?'&saleId='+id:'')));
-response=await browserReceipt(sale.id);assert.equal(response.status,200);assert.equal((await response.json()).sales.length,1);
+response=await browserReceipt(sale.id);assert.equal(response.status,200);const printed=await response.json();assert.equal(printed.sales.length,1);assert.match(printed.receiptHtml,/COPIA \/ REIMPRESIÓN/);assert.match(printed.receiptHtml,/Operador: Operador sintético/);
 browserAllowed=false;assert.equal((await browserReceipt(sale.id)).status,403);browserAllowed=true;
 assert.equal((await browserReceipt()).status,400);
 for(const row of rows.slice(1)){response=await browserReceipt(row.id);assert.equal(response.status,200);assert.equal((await response.json()).sales.length,0);}
 assert.equal(sale.status,'completed');console.log('PASS native receipt authorization, confirmed sale and brand/location isolation. No print or drawer command executed.');
+
+process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
+const orderId=crypto.randomUUID(),paymentId=crypto.randomUUID(),paymentKey=crypto.randomUUID();
+tables.pos_retail_order_payments=[{id:paymentId,order_id:orderId,request_key:paymentKey,brand_slug:brand,staff_id:staff.id,host_user_id:'host',cash_session_id:sale.cash_session_id,created_at:new Date().toISOString(),method:'cash',amount:500,tendered:500,change:0}];
+tables.pos_retail_order_events=[{order_id:orderId,brand_slug:brand,request_key:paymentKey,result:{order:{id:orderId,folio:'A-FIXTURE',state:'active',location_id:'location',contact:'SYNTHETIC',quote:sale,total:1000,paid:500,created_at:new Date().toISOString()}}}];
+response=await post({action:'order-payment',orderId,paymentId});assert.equal(response.status,200);const abono=(await response.json()).jobs;assert.deepEqual(abono.map(j=>j.kind),['receipt','drawer']);
+response=await post({action:'order-payment',orderId,paymentId});assert.equal((await response.json()).jobs.length,0);
+for(const method of ['card','transfer']){const p={...tables.pos_retail_order_payments[0],id:crypto.randomUUID(),request_key:crypto.randomUUID(),method};tables.pos_retail_order_payments.push(p);tables.pos_retail_order_events.push({...tables.pos_retail_order_events[0],request_key:p.request_key});response=await post({action:'order-payment',orderId,paymentId:p.id});assert.equal(response.status,200);assert.deepEqual((await response.json()).jobs.map(j=>j.kind),['receipt']);}
+tables.pos_retail_order_payments[0].created_at=new Date(Date.now()-600000).toISOString();assert.equal((await post({action:'order-payment',orderId,paymentId})).status,409);
+assert.equal(tables.pos_sales.length,1);console.log('PASS order payments: confirmed cash opens once, card/transfer never open, stale payment cannot trigger drawer, no new sale');

@@ -28,6 +28,7 @@ export const POS_NAV_ITEMS: PosNavItem[] = [
   { label: "Nueva venta", route: "register", icon: "sale", section: "Operación" },
   { label: "Caja", route: "cash", icon: "cash", section: "Operación" },
   { label: "Ventas", route: "sales", icon: "receipt", section: "Operación" },
+  { label: "Notas y apartados", route: "orders", icon: "receipt", section: "Operación", retailOnly: true },
   { label: "Pedidos online", route: "online-store/orders", icon: "sale", section: "Operación", retailOnly: true },
   { label: "Productos", route: "products", icon: "product", section: "Catálogo" },
   { label: "Inventario", route: "inventory", icon: "inventory", section: "Catálogo" },
@@ -221,7 +222,7 @@ function PosNavigation({
 function operatorCanSeeRoute(operator: PosOperator | null | undefined, route: string, foodMode: boolean) {
   if (!foodMode && operator) {
     const permissions=retailPermissions(operator);
-    const required:Record<string,RetailPermission>={register:"SELL",sales:"SELL",products:"PRODUCTS_READ",inventory:"INVENTORY",customers:"CUSTOMERS",cash:"CASH",reports:"REPORTS",staff:"STAFF",team:"STAFF",settings:"SETTINGS","settings/import":"IMPORT","online-store":"SETTINGS","online-store/orders":"SETTINGS",subscription:"SETTINGS",loyalty:"SELL"};
+    const required:Record<string,RetailPermission>={register:"SELL",sales:"SELL",orders:"SELL",products:"PRODUCTS_READ",inventory:"INVENTORY",customers:"CUSTOMERS",cash:"CASH",reports:"REPORTS",staff:"STAFF",team:"STAFF",settings:"SETTINGS","settings/import":"IMPORT","online-store":"SETTINGS","online-store/orders":"SETTINGS",subscription:"SETTINGS",loyalty:"SELL"};
     return route === "" || (required[route] ? permissions.includes(required[route]) : permissions.includes("SETTINGS"));
   }
   if (!operator || staffHasAnyRole(operator, ["ADMIN", "MANAGER"])) return true;

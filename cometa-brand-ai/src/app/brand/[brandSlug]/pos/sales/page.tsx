@@ -1,6 +1,6 @@
 "use client";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
-import {printOperation,terminalRequest,manualTestSelected} from "@/lib/pos/thermal-client";
+import {printOperation,terminalRequest,manualTestSelected,printBrowserReceipt} from "@/lib/pos/thermal-client";
 
 import {
   useCallback,
@@ -217,9 +217,10 @@ export default function PosSalesPage() {
       if(terminal.ready || (terminal.manualTestAvailable && manualTestSelected(brand.slug))){
         await printOperation(brand.slug,{action:"reprint",saleId:sale.id,requestKey:crypto.randomUUID()});return;
       }
-      const authorized=await apiRequest<SalesResponse>(`/api/pos/sales?brandSlug=${encodeURIComponent(brand.slug)}&saleId=${encodeURIComponent(sale.id)}&print=1`);
+      const authorized=await apiRequest<SalesResponse & {receiptHtml?:string}>(`/api/pos/sales?brandSlug=${encodeURIComponent(brand.slug)}&saleId=${encodeURIComponent(sale.id)}&print=1`);
       if(!authorized.sales?.some(row=>row.id===sale.id))throw new Error("No se pudo autorizar la impresión de esta venta.");
-      window.print();
+      if(!authorized.receiptHtml)throw new Error("El servidor no devolvió el comprobante autorizado.");
+      await printBrowserReceipt(authorized.receiptHtml);
     }catch(e){setError(e instanceof Error?e.message:"No se pudo reimprimir.");}
   },[brand.slug,profileCode]);
 
