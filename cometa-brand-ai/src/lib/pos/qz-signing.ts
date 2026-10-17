@@ -3,7 +3,7 @@ import {createPrivateKey,createPublicKey,sign,X509Certificate,type KeyObject} fr
 export type QzSigningHealth={ready:boolean;code:string;message:string;fingerprint?:string;validTo?:string;trustMode?:string};
 type Material={health:QzSigningHealth;certificate:string;key?:KeyObject};
 // Never return private material, PEM parser errors or environment values to clients.
-export function qzSigningMaterial(env:NodeJS.ProcessEnv=process.env,now=Date.now()):Material {
+export function qzSigningMaterial(env:NodeJS.ProcessEnv=process.env,now=Date.now(),scope?:{brand:string;origin:string}):Material {
  const fail=(code:string,message:string):Material=>({health:{ready:false,code,message},certificate:""});
  if(!env.POS_QZ_CERTIFICATE||!env.POS_QZ_PRIVATE_KEY)return fail("QZ_SIGNER_MISSING","Faltan el certificado de firma y/o su clave privada en la configuración central de COMETA. Se requiere emisión QZ o una raíz administrada; instalar QZ no los crea.");
  try {
@@ -16,6 +16,7 @@ export function qzSigningMaterial(env:NodeJS.ProcessEnv=process.env,now=Date.now
   if(!createPublicKey(key).equals(cert.publicKey))return fail("QZ_KEY_MISMATCH","El certificado y la clave privada de firma no corresponden. Corrige el par central sin cambiar la terminal.");
   const trustMode=env.POS_QZ_TRUST_MODE;
   if(trustMode!=="qz-issued"&&trustMode!=="managed-root")return fail("QZ_TRUST_MODE_REQUIRED","Declara centralmente POS_QZ_TRUST_MODE: qz-issued para certificado QZ, o managed-root con raíz instalada por administración en cada terminal.");
+  if(trustMode==="managed-root" && (!env.POS_QZ_MANAGED_BRAND || !env.POS_QZ_MANAGED_ORIGIN || !scope || scope.brand!==env.POS_QZ_MANAGED_BRAND || scope.origin!==env.POS_QZ_MANAGED_ORIGIN))return fail("QZ_MANAGED_SCOPE_REQUIRED","La firma administrada no está habilitada para este negocio y origen. Revisa la configuración central de COMETA.");
   return {certificate,key,health:{ready:true,code:"QZ_SIGNER_VALID",fingerprint:cert.fingerprint256,validTo:cert.validTo,trustMode,message:`Firma central válida hasta ${cert.validTo}. ${trustMode==="managed-root"?"Requiere la raíz administrada instalada en esta terminal.":"QZ debe reconocer al emisor del certificado."} La confianza local y la salida física se comprueban en la terminal.`}};
  } catch {return fail("QZ_SIGNER_INVALID","El certificado o la clave central no tienen un formato PEM válido. Soporte debe revisar la configuración de firma; no se envió ninguna orden.");}
 }
