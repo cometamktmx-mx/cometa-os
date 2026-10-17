@@ -29,7 +29,7 @@ export async function GET(request:Request) {
     const id=uuidValue(new URL(request.url).searchParams.get("terminalId"),"terminalId");
     const result=await c.admin.from("pos_terminal_print_settings").select("config").eq("id",id).eq("brand_slug",c.brand.slug).eq("host_user_id",c.user.userId).maybeSingle();
     if(result.error) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","No se pudo leer la configuración de terminal.");
-    const signing=qzSigningMaterial();
+    const signing=qzSigningMaterial(process.env,Date.now(),{brand:c.brand.slug,origin:new URL(request.url).origin});
     return ok({manualTestAvailable:manualTestAvailable(c.brand.slug,id),config:result.data?.config??null,certificate:signing.certificate||null,ready:signing.health.ready,signing:signing.health});
   } catch(e){return handlePosError(e);}
 }
@@ -40,7 +40,7 @@ export async function POST(request:Request) {
   const c=await context(request),body=await readJsonBody<Record<string,unknown>>(request);
   const terminalId=uuidValue(body.terminalId,"terminalId") as string;
   const manualTest=body.manualTest===true && manualTestAvailable(c.brand.slug,terminalId);
-  const signing=qzSigningMaterial();
+  const signing=qzSigningMaterial(process.env,Date.now(),{brand:c.brand.slug,origin:new URL(request.url).origin});
   if(body.manualTest===true && !manualTest)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","La autorización manual requiere Preview y negocio/terminal expresamente habilitados.");
   if(body.action === "discover-sign") {
     await requireRetailPermission(c,"SETTINGS");
