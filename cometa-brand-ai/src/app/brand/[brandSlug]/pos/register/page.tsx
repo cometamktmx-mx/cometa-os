@@ -974,14 +974,14 @@ export default function PosRegisterPage() {
   const baseTotals = useMemo(
     () =>
       calculateSaleTotals({
-        cart:pricedCart,
+        cart: currentQuote?.pricing_mode==="per_piece_discount" ? cart.map(item=>{const line=currentQuote.items.find(l=>l.variant_id===item.variantId);return line?{...item,price:Number(line.regular_price),discountAmount:Number(item.discountAmount)+Number(line.bulk_discount_amount||0)}:item;}) : pricedCart,
         pricesIncludeTax:
           selectedLocation
             ?.prices_include_tax ??
           true,
       }),
     [
-      pricedCart,
+      pricedCart,cart,currentQuote,
       selectedLocation
         ?.prices_include_tax,
     ]
@@ -2344,7 +2344,7 @@ export default function PosRegisterPage() {
         ) : null}
 
         {!isFoodProfile(profileCode)&&cart.length>0&&<section role="status" className="rounded-xl border border-white/15 p-3 text-sm">
-          {!currentQuote?<p>{quoteError||"Validando precios del pedido…"}</p>:<><p>Total actualizado: {formatMoney(currentQuote.total,currency)}. Revisa cualquier cambio antes de cobrar.</p>{currentQuote.wholesale_enabled&&currentQuote.items.map(line=><p key={line.variant_id}>{line.product_name} · {line.variant_name}: {formatMoney(line.unit_price,currency)} · {line.model_quantity} piezas del modelo · {line.factory_applied?"Fábrica aplicada":line.factory_missing?"Falta configurar precio de fábrica":`Faltan ${line.remaining} para fábrica`}</p>)}</>}
+          {!currentQuote?<p>{quoteError||"Validando precios del pedido…"}</p>:<><p>Total actualizado: {formatMoney(currentQuote.total,currency)}. Revisa cualquier cambio antes de cobrar.</p>{currentQuote.wholesale_enabled&&currentQuote.items.map(line=><p key={line.variant_id}>{line.product_name} · {line.variant_name}: {formatMoney(line.regular_price,currency)} original − {formatMoney(Number(line.regular_price)-Number(line.unit_price),currency)} descuento = {formatMoney(line.unit_price,currency)} · {line.model_quantity} piezas del modelo · {line.factory_applied?"Mayoreo aplicado":line.factory_missing?"Falta configurar precio de fábrica":`Faltan ${line.remaining} para mayoreo`}</p>)}</>}
         </section>}
         <CartPanel
           cart={pricedCart}

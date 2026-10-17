@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import crypto from 'node:crypto';
 import qz from 'qz-tray';
+import {testCertificate} from './qz-test-certificate.mjs';
 function load(file,deps={},globals={}){const module={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require:name=>{assert.ok(name in deps,name);return deps[name]},Request,Response,URL,Date,Intl,process,Buffer,...globals});return module.exports;}
 const thermal=load('src/lib/pos/thermal.ts'),permissions=load('src/lib/pos/retail-permissions.ts');
 const conf={printer:'Fixture USB',width:80,profile:'escpos-pin2',autoPrint:true,autoDrawer:true};
@@ -26,9 +27,22 @@ const tables={pos_terminal_print_settings:[{id:terminalId,brand_slug:brand,host_
 function from(table){assert.ok(table in tables,table);let filters=[],operation='read',value;const query={select(){return query},eq(k,v){filters.push(r=>r[k]===v);return query},maybeSingle(){return exec(false)},single(){return exec(true)},insert(v){operation='insert';value=v;return query},update(v){operation='update';value=v;return query},then(ok,fail){return exec(false).then(ok,fail)}};async function exec(single){let rows=tables[table].filter(r=>filters.every(f=>f(r)));if(operation==='insert'){if(tables[table].some(r=>r.brand_slug===value.brand_slug&&r.dedupe_key===value.dedupe_key))return{error:{code:'23505'},data:null};rows=[{id:crypto.randomUUID(),created_at:new Date().toISOString(),status:'requested',...value}];tables[table].push(...rows);}if(operation==='update')rows.forEach(r=>Object.assign(r,value));return{data:rows[0]??null,error:single&&!rows.length?{code:'missing'}:null}}return query;}
 const context={brand:{slug:brand},user:{userId:'host',isAdmin:true},membership,admin:{from}};
 const server={requirePosContext:async()=>context,getBrandSlugFromUrl:()=>brand,readJsonBody:r=>r.json(),uuidValue:v=>v,PosApiError:ApiError,ok:value=>Response.json({ok:true,...value}),handlePosError:e=>Response.json({error:e.message},{status:e.status||500})};
-const route=load('src/app/api/pos/terminal-print/route.ts',{'node:crypto':crypto,'@/lib/pos/server':server,'@/lib/pos/access':{requirePosCommercialAccess:async()=>{}},'@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{if(!allowed.has(permission))throw new ApiError(403,'denied','denied');return{staff,locationId:null}}},'@/lib/pos/thermal':thermal,'@/lib/pos/retail-orders':load('src/lib/pos/retail-orders.ts',{'./thermal':thermal})});
+const signing=load('src/lib/pos/qz-signing.ts',{'node:crypto':crypto});
+const fixture=testCertificate();
+const signerEnv={POS_QZ_CERTIFICATE:fixture.certificate,POS_QZ_PRIVATE_KEY:fixture.key,POS_QZ_TRUST_MODE:'managed-root'};
+assert.equal(signing.qzSigningMaterial({}).health.code,'QZ_SIGNER_MISSING');
+assert.equal(signing.qzSigningMaterial({...signerEnv,POS_QZ_CERTIFICATE:'invalid'}).health.code,'QZ_SIGNER_INVALID');
+assert.equal(signing.qzSigningMaterial({...signerEnv,POS_QZ_TRUST_MODE:''}).health.code,'QZ_TRUST_MODE_REQUIRED');
+assert.equal(signing.qzSigningMaterial(signerEnv,Date.now()+4*86400000).health.code,'QZ_CERT_EXPIRED');
+assert.equal(signing.qzSigningMaterial(signerEnv,0).health.code,'QZ_CERT_NOT_YET_VALID');
+assert.equal(signing.qzSigningMaterial({...signerEnv,POS_QZ_PRIVATE_KEY:crypto.generateKeyPairSync('rsa',{modulusLength:2048}).privateKey.export({type:'pkcs8',format:'pem'})}).health.code,'QZ_KEY_MISMATCH');
+assert.equal(signing.qzSigningMaterial(signerEnv).health.ready,true);
+const raw=thermal.qzReceiptData('<html>á ñ</html>',{...conf,receiptMode:'epson-tm-t20ii'});
+assert.equal(raw[0].data,'1B40');assert.equal(raw[1].options.pageWidth,560);assert.equal(raw[2].data,'1D564200');assert.equal(raw.length,3);
+assert.equal(thermal.qzPrintOptions(80,'epson-tm-t20ii').density,8);
+const route=load('src/app/api/pos/terminal-print/route.ts',{'node:crypto':crypto,'@/lib/pos/qz-signing':signing,'@/lib/pos/server':server,'@/lib/pos/access':{requirePosCommercialAccess:async()=>{}},'@/lib/pos/staff-server':{requireRetailPermission:async(_,permission)=>{if(!allowed.has(permission))throw new ApiError(403,'denied','denied');return{staff,locationId:null}}},'@/lib/pos/thermal':thermal,'@/lib/pos/retail-orders':load('src/lib/pos/retail-orders.ts',{'./thermal':thermal})});
 const post=body=>route.POST(new Request('https://fixture.test/api/pos/terminal-print',{method:'POST',headers:{origin:'https://fixture.test','content-type':'application/json'},body:JSON.stringify({terminalId,...body})}));
-const keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048});process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
+const keys={privateKey:crypto.createPrivateKey(fixture.key),publicKey:crypto.createPublicKey(fixture.key)};Object.assign(process.env,signerEnv);
 let response=await post({action:'automatic',saleId:sale.id});assert.equal(response.status,200);assert.equal((await response.json()).jobs.length,2);
 await Promise.all([post({action:'automatic',saleId:sale.id}),post({action:'automatic',saleId:sale.id})]);assert.equal(tables.pos_terminal_print_jobs.length,2,'double click/concurrent retry produces no new jobs');
 const key=crypto.randomUUID();response=await post({action:'reprint',saleId:sale.id,requestKey:key});assert.equal(response.status,200);const reprint=(await response.json()).jobs[0];assert.equal(reprint.kind,'reprint');assert.equal(reprint.payload.data[0].type,'pixel');assert.ok(reprint.payload.data[0].data.includes('&lt;script&gt;'));
@@ -62,12 +76,14 @@ assert.equal((await post({...discoveryBody,digest:'wrong'})).status,403);
 delete process.env.POS_QZ_PRIVATE_KEY;delete process.env.POS_QZ_CERTIFICATE;
 response=await post({action:'automatic',saleId:sale.id});assert.equal(response.status,200);assert.equal((await response.json()).unavailable,true);
 assert.equal((await post({action:'configure',config:conf})).status,400,'cannot enable automatic printing without a trusted signer');
-process.env.POS_QZ_MANUAL_TEST='true';
+process.env.POS_QZ_MANUAL_TEST='true';process.env.POS_QZ_MANUAL_BRAND=brand;process.env.POS_QZ_MANUAL_TERMINAL=terminalId;
 for(const environment of ['production','development','']){
  process.env.VERCEL_ENV=environment;
  assert.equal((await post({...discoveryBody,manualTest:true})).status,403,'manual mode denied outside Preview');
 }
 process.env.VERCEL_ENV='preview';
+process.env.POS_QZ_MANUAL_TERMINAL='another';assert.equal((await post({...discoveryBody,manualTest:true})).status,403);process.env.POS_QZ_MANUAL_TERMINAL=terminalId;
+process.env.POS_QZ_MANUAL_BRAND='another';assert.equal((await post({...discoveryBody,manualTest:true})).status,403);process.env.POS_QZ_MANUAL_BRAND=brand;
 assert.equal((await post(discoveryBody)).status,503,'no silent unsigned fallback without opt-in');
 response=await post({...discoveryBody,manualTest:true});assert.equal(response.status,200);
 assert.equal((await response.json()).signature,'','manual approval sends no claimed identity/signature');
@@ -150,7 +166,7 @@ assert.equal((await browserReceipt()).status,400);
 for(const row of rows.slice(1)){response=await browserReceipt(row.id);assert.equal(response.status,200);assert.equal((await response.json()).sales.length,0);}
 assert.equal(sale.status,'completed');console.log('PASS native receipt authorization, confirmed sale and brand/location isolation. No print or drawer command executed.');
 
-process.env.POS_QZ_PRIVATE_KEY=keys.privateKey.export({type:'pkcs8',format:'pem'});process.env.POS_QZ_CERTIFICATE='fixture-public-certificate';
+Object.assign(process.env,signerEnv);
 const orderId=crypto.randomUUID(),paymentId=crypto.randomUUID(),paymentKey=crypto.randomUUID();
 tables.pos_retail_order_payments=[{id:paymentId,order_id:orderId,request_key:paymentKey,brand_slug:brand,staff_id:staff.id,host_user_id:'host',cash_session_id:sale.cash_session_id,created_at:new Date().toISOString(),method:'cash',amount:500,tendered:500,change:0}];
 tables.pos_retail_order_events=[{order_id:orderId,brand_slug:brand,request_key:paymentKey,result:{order:{id:orderId,folio:'A-FIXTURE',state:'active',location_id:'location',contact:'SYNTHETIC',quote:sale,total:1000,paid:500,created_at:new Date().toISOString()}}}];
@@ -159,3 +175,17 @@ response=await post({action:'order-payment',orderId,paymentId});assert.equal((aw
 for(const method of ['card','transfer']){const p={...tables.pos_retail_order_payments[0],id:crypto.randomUUID(),request_key:crypto.randomUUID(),method};tables.pos_retail_order_payments.push(p);tables.pos_retail_order_events.push({...tables.pos_retail_order_events[0],request_key:p.request_key});response=await post({action:'order-payment',orderId,paymentId:p.id});assert.equal(response.status,200);assert.deepEqual((await response.json()).jobs.map(j=>j.kind),['receipt']);}
 tables.pos_retail_order_payments[0].created_at=new Date(Date.now()-600000).toISOString();assert.equal((await post({action:'order-payment',orderId,paymentId})).status,409);
 assert.equal(tables.pos_sales.length,1);console.log('PASS order payments: confirmed cash opens once, card/transfer never open, stale payment cannot trigger drawer, no new sale');
+
+// Direct QZ order copies are authorized, snapshot based, and never open cash drawers.
+tables.pos_retail_orders=[{...tables.pos_retail_order_events[0].result.order,id:orderId,brand_slug:brand,customer_id:'fixture-customer'}];
+tables.pos_customers=[{id:'fixture-customer',brand_slug:brand,first_name:'Cliente',last_name:'Sintético'}];
+tables.pos_terminal_print_settings[0].config={...conf,receiptMode:'epson-tm-t20ii'};
+const copyKey=crypto.randomUUID(),orderCopyJobsBefore=tables.pos_terminal_print_jobs.length;
+response=await post({action:'order-reprint',orderId,requestKey:copyKey});assert.equal(response.status,200);
+const orderCopy=(await response.json()).jobs[0];assert.equal(orderCopy.kind,'reprint');assert.equal(orderCopy.payload.data[0].data,'1B40');assert.match(orderCopy.payload.data[1].data,/COPIA/);assert.equal(orderCopy.payload.data[2].data,'1D564200');assert.equal(tables.pos_terminal_print_jobs.length,orderCopyJobsBefore+1);
+response=await post({action:'order-reprint',orderId,requestKey:copyKey});assert.equal((await response.json()).jobs.length,0);
+const copyMessage=JSON.stringify({call:'print',params:{printer:{name:conf.printer},options:thermal.qzPrintOptions(80,'epson-tm-t20ii'),data:orderCopy.payload.data},timestamp:Date.now()});
+assert.equal((await post({action:'sign',jobId:orderCopy.id,message:copyMessage,digest:crypto.createHash('sha256').update(copyMessage).digest('hex')})).status,200);
+allowed.delete('REPRINT');assert.equal((await post({action:'order-reprint',orderId,requestKey:crypto.randomUUID()})).status,403);allowed.add('REPRINT');
+context.device={locationId:'foreign'};assert.equal((await post({action:'order-reprint',orderId,requestKey:crypto.randomUUID()})).status,403);delete context.device;
+console.log('PASS QZ raw order copy: exact signed payload, scoped permission/location, deduplication, no drawer');

@@ -53,7 +53,8 @@ try{
  await sql('drop schema public;create schema public;alter extension vector set schema public;');
  await sql(dump.replace('CREATE SCHEMA public;','').replace(/^ALTER DEFAULT PRIVILEGES[^;]+;$/gm,''));
  await sql(fs.readFileSync('supabase/migrations/20261017120000_pos_retail_orders_v1.sql','utf8'));
- console.log('PASS migration on disposable schema copy');
+ await sql(fs.readFileSync('supabase/migrations/20261017180000_pos_per_piece_discount.sql','utf8'));
+ console.log('PASS both migrations on disposable schema copy');
  await sql(`begin;set local session_replication_role=replica;
  insert into auth.users(id,email) values('${ids.owner}','synthetic@example.test');
  insert into brands(id,slug,name) values('${ids.brand}','${brand}','SYNTHETIC');
@@ -148,5 +149,34 @@ try{
  assert.equal(await sql(`select count(*) from pos_retail_order_events where order_id='${raceId}' and action='expire'`),'1');
  assert.equal(await sql('select pos_retail_expire_v1()'),'0');
  console.log('PASS payment-versus-expiry race: no late payment, one release, preserved money');
+
+ // New per-piece mode: no manual factory price required, history unchanged.
+ const history=await sql("select md5(string_agg(to_jsonb(s)::text,'' order by id)) from pos_sales s");
+ await sql(`update pos_retail_rules set pricing_mode='per_piece_discount',per_piece_discount=10 where brand_slug='${brand}';begin;set local session_replication_role=replica;update pos_product_variants set price=150 where brand_slug='${brand}';commit;`);
+ for(const quantity of [49,50,51]){const result=await q(items([['v1',quantity]]));assert.equal(result.total,quantity*(quantity>=50?140:150));assert.equal(result.subtotal,quantity*150);assert.equal(result.discount_total,quantity>=50?quantity*10:0);assert.equal(result.items[0].factory_missing,false);}
+ assert.equal((await q(items([['v1',20],['v2',15],['v3',15]]))).total,7000);
+ assert.equal((await q(items([['v1',25],['v4',25]]))).total,7500);
+ assert.equal((await q(items([['v4',50]]))).total,7000,'missing factory price irrelevant');
+ await sql(`update pos_retail_rules set combine_variants=false where brand_slug='${brand}'`);
+ assert.equal((await q(items([['v1',25],['v2',25]]))).total,7500);
+ await sql(`update pos_retail_rules set combine_variants=true where brand_slug='${brand}'`);
+ assert.equal((await q([{variant_id:ids.v1,quantity:50,discount_amount:100}])).total,6900);
+ const bulkId=randomUUID();order=(await call(bulkId,'save',{...draft,items:items([['v1',50]])})).order;
+ assert.equal(order.total,7000);
+ order=(await call(bulkId,'save',{...draft,revision:order.revision,items:items([['v1',49]])})).order;assert.equal(order.total,7350);
+ order=(await call(bulkId,'save',{...draft,revision:order.revision,items:items([['v1',50]])})).order;
+ const bulkRules=JSON.parse(await sql(`select to_jsonb(r) from pos_retail_rules r where brand_slug='${brand}'`));
+ order=(await call(bulkId,'activate',{...payBody,revision:order.revision,expected_quote:order.quote,accepted_policy:bulkRules})).order;
+ const bulkExpiry=order.expires_at,policy=JSON.stringify(order.policy_snapshot);
+ order=(await call(bulkId,'save',{...draft,revision:order.revision,items:items([['v1',51]])})).order;assert.equal(order.total,7140);assert.equal(order.expires_at,bulkExpiry);assert.equal(JSON.stringify(order.policy_snapshot),policy);
+ const bulkKey=randomUUID(),bulkBody={revision:order.revision,expected_quote:order.quote,cash_session_id:ids.session,amount:6640,method:'card'};
+ const bulkSettled=await Promise.all([call(bulkId,'settle',bulkBody,bulkKey),call(bulkId,'settle',bulkBody,bulkKey)]);assert.equal(bulkSettled[0].order.sale_id,bulkSettled[1].order.sale_id);
+ const bulkSale=bulkSettled[0].order.sale_id;
+ assert.equal(await sql(`select subtotal||':'||discount_total||':'||total from pos_sales where id='${bulkSale}'`),'7650.00:510.00:7140.00');
+ assert.equal(await sql(`select unit_price||':'||discount_amount from pos_sale_items where sale_id='${bulkSale}'`),'150.00:510.00');
+ assert.equal(await sql(`select md5(string_agg(to_jsonb(s)::text,'' order by id)) from pos_sales s where id<>'${bulkSale}'`),history);
+ await sql(`begin;set local session_replication_role=replica;update pos_product_variants set price=5 where id='${ids.v1}';commit;`);assert.equal((await q(items([['v1',50]]))).total,0);await assert.rejects(q([{variant_id:ids.v1,quantity:50,discount_amount:1}]));
+ await assert.rejects(sql(`update pos_retail_rules set per_piece_discount=-10 where brand_slug='${brand}'`));
+ console.log('PASS per-piece 49/50/51, model identity, combination toggle, no factory price dependency, manual discount once, editable note/layaway, repeated settlement, original prices and historical preservation, zero floor');
 }catch(error){console.error('LOCAL RETAIL NOT CERTIFIED:',error.message);process.exitCode=1;}
 finally{if(created){await destination();await exec(['dropdb','-U','postgres',database]);console.log('Removed disposable database',database);}}

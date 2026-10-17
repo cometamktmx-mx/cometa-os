@@ -1,5 +1,7 @@
 # COMETA POS — correcciones del 17 de octubre de 2026
 
+Documento histórico de la entrega 879426e. La instrucción de precios de fábrica para Magenta queda sustituida por descuento de $10 por pieza desde 50 del mismo modelo. La ruta QZ y sus requisitos actuales están en [la corrección posterior](POS-QZ-DISCOUNT-20261017.md); ya no es necesario capturar 387 precios de fábrica.
+
 Entrega aditiva sobre la revisión de producción `eba5b0c` y la rama de entrega `45e5e73`. Se conservan catálogo, códigos, existencias, ventas, pagos, usuarios, permisos y las condiciones históricas. No se adquirieron servicios ni certificados.
 
 ## Impresión y cajón

@@ -26,4 +26,8 @@ for(const state of ['note','active','settled','expired']){
  if(state==='expired')assert.match(receipt,/Saldo pendiente de resolución administrativa/);
  fs.writeFileSync(`build/pos-tickets/${state}.html`,receipt);
 }
+
+const bulk={...base,subtotal:7500,discount_total:500,total:7000,items:[{product_name:'Modelo A · Legging deportivo de compresión y cintura alta',variant_name:'Negro CH / Rosa M / Azul G',sku:'000123',quantity:50,unit_price:150,discount_amount:500,line_total:7000}],payments:[{payment_method:'cash',amount:3000,tendered_amount:3000,change_amount:0},{payment_method:'card',amount:4000,tendered_amount:4000,change_amount:0}]};
+fs.writeFileSync('build/pos-tickets/discount.html',thermalReceipt(bulk,'MAGENTA FITWEAR','María José',80,{customer:'José Muñoz'}));
+assert.ok(thermalReceipt(bulk,'A','B',80).includes('Neto/pza $140.00'));
 console.log('PASS compact isolated HTML, 70 mm content, long items, accents, mixed payments, copy and escaping. Fixtures: build/pos-tickets. Physical printing not tested.');
