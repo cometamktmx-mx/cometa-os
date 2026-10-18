@@ -1,4 +1,6 @@
 "use client";
+import RetailReports from "../../components/pos-retail-reports";
+import {isFoodProfile} from "@/lib/pos/surface-policy";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
@@ -36,7 +38,8 @@ const EMPTY = <T,>(): BlockState<T> => ({ data: null, loading: true, error: null
 const money = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 const integer = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
 
-export default function PosReportsPage() {
+export default function PosReportsPage(){const {profileCode}=usePosContext();return isFoodProfile(profileCode)?<ExistingReports/>:<RetailReports/>;}
+function ExistingReports() {
   const { brand } = usePosContext();
   const requestId = useRef(0);
   const [locations, setLocations] = useState<Location[]>([]);

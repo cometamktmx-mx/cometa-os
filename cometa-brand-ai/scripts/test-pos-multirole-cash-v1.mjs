@@ -73,7 +73,7 @@ test("F: changing Food area keeps the operator and does not invoke login/logout"
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("O/P/Q: server rereads active roles for a live session, isolates brand, Retail remains legacy", async () => {
+test("O/P/Q: server rereads active roles for a live session, isolates brand, Retail uses explicit permissions", async () => {
   const { createHash } = await import("node:crypto");
   const state = { mode: "restaurant", roles: [{ staff_id: "juan", brand_slug: "a", role: "WAITER", active: true }, { staff_id: "juan", brand_slug: "a", role: "CASHIER", active: true }, { staff_id: "juan", brand_slug: "b", role: "ADMIN", active: true }] };
   const session = { id: "same-session", token_hash: createHash("sha256").update("local-token").digest("hex"), host_user_id: "host", brand_slug: "a", location_id: "loc", revoked_at: null, expires_at: "2099-01-01", staff: { id: "juan", name: "Juan", role: "WAITER", active: true, location_id: "loc" } };
@@ -97,6 +97,8 @@ test("O/P/Q: server rereads active roles for a live session, isolates brand, Ret
   state.roles[0].active = false;
   await assert.rejects(server.requireStaffSession(context, "ORDER_SEND"), error => error.code === "POS_STAFF_PERMISSION_REQUIRED");
   state.mode = "retail";
+  await assert.rejects(server.requireStaffSession(context,"ORDER_SEND","loc"),error=>error.code==="POS_STAFF_PERMISSION_REQUIRED");
+  session.staff.retail_permissions=["PRODUCTS_READ"];
   assert.equal((await server.requireStaffSession(context, "ORDER_SEND", "loc")).id, "same-session");
   await assert.rejects(server.requireStaffSession(context, "ORDER_SEND", "other"), error => error.code === "POS_STAFF_LOCATION_FORBIDDEN");
 });

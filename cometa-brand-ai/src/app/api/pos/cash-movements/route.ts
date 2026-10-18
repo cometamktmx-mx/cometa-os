@@ -148,7 +148,8 @@ export async function GET(request: Request) {
       );
     }
 
-    if (await getPosMode(access) !== "RETAIL") await requireStaffSession(access, "CASH_OPERATE", session.location_id);
+    await requireStaffSession(access, "CASH_OPERATE", session.location_id);
+    await assertDeviceResource(access,"pos_cash_sessions",cashSessionId);
     const { data, error } = await admin
       .from("pos_cash_movements")
       .select("id,cash_session_id,movement_type,amount,reason,created_by,created_at")
@@ -223,8 +224,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const staffSession = await getPosMode(access) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
-    const { data, error } = await admin.rpc(staffSession ? "pos_cash_command_v2" : "pos_create_cash_movement", staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "movement", p_payload: { sessionId: cashSessionId, movementType, amount: cents / 100, reason, adjustment: body.adjustment === true }, p_key: uuidValue(body.requestKey, "requestKey"), p_authorization_hash: typeof body.authorizationToken === "string" ? createHash("sha256").update(body.authorizationToken).digest("hex") : null } : {
+    const retail=await getPosMode(access)==="RETAIL";
+    const staffSession = await requireStaffSession(access, "CASH_OPERATE");
+    const { data, error } = await admin.rpc(retail ? "pos_retail_cash_command_v1" : "pos_cash_command_v2", staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "movement", p_payload: { sessionId: cashSessionId, movementType, amount: cents / 100, reason, adjustment: body.adjustment === true }, p_key: uuidValue(body.requestKey, "requestKey"), p_authorization_hash: typeof body.authorizationToken === "string" ? createHash("sha256").update(body.authorizationToken).digest("hex") : null } : {
       p_brand_slug: brand.slug,
       p_cash_session_id: cashSessionId,
       p_movement_type: movementType,

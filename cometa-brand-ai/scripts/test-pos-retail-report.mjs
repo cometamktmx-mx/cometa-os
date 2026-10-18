@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';
+const module={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/pos/retail-report.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,Intl,Date,Set,Map});
+const {retailMetrics,reportCsv,comparison,periodDates}=module.exports;
+const data={sales:[{id:'sale',status:'completed',total:7000,discount_total:500,manual_discount:0,loyalty_discount_total:0,discount_identified:true},{id:'void',status:'void',total:500}],items:[{sale_id:'sale',quantity:25,unit_cost:60,line_total:3500,tax_amount:0},{sale_id:'sale',quantity:25,unit_cost:0,line_total:3500,tax_amount:0}],money:[{amount:500,method:'transfer',verified:false},{amount:2500,method:'cash'},{amount:50.12,method:'card'},{amount:-100.1,method:'cash'}],orders:[{state:'active',total:278,paid:500},{state:'active',total:3000,paid:500}]};
+const m=retailMetrics(data);assert.equal(m.revenue,7000);assert.equal(m.factoryDiscount,500);assert.equal(m.operations,1);assert.equal(m.pieces,50);assert.equal(m.incoming,3050.12);assert.equal(m.outgoing,100.1);assert.equal(m.due,2500);assert.equal(m.available,222);assert.equal(m.costCoverage,.5);assert.equal(m.grossProfit,2000);assert.equal(m.unknownCosts,1);assert.equal(m.transferPending,500);
+assert.equal(retailMetrics({...data,items:data.items.map(i=>({...i,unit_cost:0}))}).grossProfit,null);
+assert.equal(comparison(100,0),null);assert.equal(comparison(120,100),20);
+assert.equal(JSON.stringify(periodDates('today','America/Mexico_City',new Date('2026-10-18T01:00:00Z'))),JSON.stringify({from:'2026-10-17',to:'2026-10-17'}));
+const csv=reportCsv(['Detalle','Importe'],[['=HYPERLINK("bad")',10.12],[' \t+cmd',-5],['Ángela\nprueba',0],['@SUM(1)',null]]);
+assert.ok(csv.includes('"\'=HYPERLINK(""bad"")"'));assert.ok(csv.includes('"\' \t+cmd"'));assert.ok(csv.includes('"-5.00"'));assert.ok(csv.includes('"10.12"'));
+console.log('PASS exact money totals, no cross-customer offset, unknown cost excluded, historical factory discount, zero comparison, business timezone, formula-safe CSV');

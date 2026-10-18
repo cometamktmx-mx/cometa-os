@@ -72,7 +72,8 @@ export async function GET(request: Request) {
     requireCashPermission(access, "pos.cash.read");
     const { admin, brand } = access;
 
-    const foodSession = await getPosMode(access) === "RETAIL" ? null : await requireStaffSession(access, "CASH_OPERATE");
+    const retail = await getPosMode(access) === "RETAIL";
+    const foodSession = await requireStaffSession(access, "CASH_OPERATE");
     const url = new URL(request.url);
     const registerId = url.searchParams.get("registerId");
     const status = url.searchParams.get("status");
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
       .limit(100);
 
     if (foodSession?.staff.locationId) query = query.eq("location_id", foodSession.staff.locationId);
+    if(access.device)query=query.eq("location_id",access.device.locationId);
     if (registerId) {
       query = query.eq("register_id", registerId);
     }
@@ -136,10 +138,15 @@ export async function GET(request: Request) {
       summaries.map((summary) => [summary.cash_session_id, summary])
     );
     const depositsBySession=new Map<string,{cash:number;card:number;transfer:number}>();
-    if(sessionRows.length>0 && await getPosMode(access)==="RETAIL"){
-      const deposits=await admin.from("pos_retail_order_payments").select("cash_session_id,method,amount").eq("brand_slug",brand.slug).in("cash_session_id",sessionRows.map(row=>row.id));
-      assertDatabaseResult(deposits.error,"No se pudieron consultar los abonos de apartados.");
-      for(const payment of deposits.data||[]){const values=depositsBySession.get(payment.cash_session_id)||{cash:0,card:0,transfer:0};if(payment.method==="cash"||payment.method==="card"||payment.method==="transfer")values[payment.method as keyof typeof values]+=Number(payment.amount);depositsBySession.set(payment.cash_session_id,values);}
+    if(sessionRows.length>0 && retail){
+      const totals=await admin.rpc('pos_retail_cash_totals_v1',{p_brand:brand.slug,p_sessions:sessionRows.map(row=>row.id)});
+      assertDatabaseResult(totals.error,'No se pudo conciliar el dinero del turno.');
+      type Total={id:string;expected:number;cash_sales:number;card_sales:number;transfer_sales:number;wallet_sales:number;other_sales:number;order_cash:number;order_card:number;order_transfer:number};
+      for(const t of (totals.data||[]) as Total[]){
+        depositsBySession.set(t.id,{cash:t.order_cash,card:t.order_card,transfer:t.order_transfer});
+        const summary=summaryBySessionId.get(t.id),session=sessionRows.find(s=>s.id===t.id);
+        if(summary){Object.assign(summary,{cash_sales:t.cash_sales,card_sales:t.card_sales,transfer_sales:t.transfer_sales,wallet_sales:t.wallet_sales,other_sales:t.other_sales});if(session?.status==='open')summary.expected_cash=canViewOpenExpectedCash(access)?t.expected:null;}
+      }
     }
 
     const sessions = sessionRows.map((session) => {
@@ -182,7 +189,7 @@ export async function POST(request: Request) {
     requireCashPermission(access, "pos.cash.operate");
     const { admin, brand, user } = access;
     const retailStaff = (await getPosMode(access)) === "RETAIL" ? await requireStaffSession(access,"CASH_OPERATE") : null;
-    const staffSession = retailStaff ? null : await requireStaffSession(access, "CASH_OPERATE");
+    const staffSession = retailStaff || await requireStaffSession(access, "CASH_OPERATE");
 
     if (action === "open") {
       const registerId = uuidValue(
@@ -200,14 +207,8 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        staffSession ? "pos_cash_command_v2" : retailStaff ? "pos_open_cash_session_with_staff_v1" : "pos_open_cash_session",
-        staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: { registerId, openingAmount }, p_key: uuidValue(body.requestKey, "requestKey") } : {
-          p_brand_slug: brand.slug,
-          p_register_id: registerId,
-          p_opening_amount: openingAmount,
-          p_user_id: user.userId,
-          ...(retailStaff ? {p_staff_id:retailStaff.staff.id}:{}),
-        }
+        retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
+        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: { registerId, openingAmount }, p_key: uuidValue(body.requestKey, "requestKey") }
       );
 
       if (error?.code === "23505") {
@@ -246,15 +247,8 @@ export async function POST(request: Request) {
       );
 
       const { data, error } = await admin.rpc(
-        staffSession ? "pos_cash_command_v2" : retailStaff ? "pos_close_cash_session_with_staff_v1" : "pos_close_cash_session",
-        staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") } : {
-          p_brand_slug: brand.slug,
-          p_session_id: sessionId,
-          p_counted_cash: countedCash,
-          p_user_id: user.userId,
-          ...(retailStaff ? {p_staff_id:retailStaff.staff.id}:{}),
-          p_notes: optionalText(body.notes, 1000),
-        }
+        retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
+        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") }
       );
 
       assertDatabaseResult(
