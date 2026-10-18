@@ -1,4 +1,5 @@
 "use client";
+import {RetailVariantQuantities} from "../../components/pos-retail-variant-quantities";
 import {factoryProgress,type RetailQuote} from "@/lib/pos/retail-orders";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
 import {printOperation} from "@/lib/pos/thermal-client";
@@ -2335,7 +2336,7 @@ export default function PosRegisterPage() {
           </article>
         </div>
 
-        {selectedProduct ? (
+        {selectedProduct ? (!isFoodProfile(profileCode)?<RetailVariantQuantities name={selectedProduct.productName} variants={selectedProduct.variants.map(v=>({id:v.variantId,name:v.variantName,attributes:v.attributes,available:v.inventoryTracked?Math.max(0,v.availableStock-(cart.find(i=>i.variantId===v.variantId)?.quantity||0)):null}))} onClose={()=>{setSelectedProductId(null);requestAnimationFrame(()=>scannerRef.current?.focus());}} onConfirm={rows=>{for(const row of rows){const variant=selectedProduct.variants.find(v=>v.variantId===row.id);if(variant)addVariantToCart(variant,row.quantity);}setSelectedProductId(null);requestAnimationFrame(()=>scannerRef.current?.focus());}}/>:
           <VariantSelectorModal
             group={selectedProduct}
             definitions={attributeDefinitions}

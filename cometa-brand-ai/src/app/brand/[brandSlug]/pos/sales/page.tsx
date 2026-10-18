@@ -209,8 +209,11 @@ export default function PosSalesPage() {
   const [error, setError] = useState<
     string | null
   >(null);
+  const [printing,setPrinting]=useState(false);
+  const printingRef=useRef(false);
   const pendingAutoPrintSaleId = useRef<string | null>(null);
   const printSale = useCallback(async (sale: Sale) => {
+    if(printingRef.current)return;printingRef.current=true;setPrinting(true);setError(null);
     try {
       if(isFoodProfile(profileCode)){window.print();return;}
       const terminal=await terminalRequest(brand.slug);
@@ -221,7 +224,7 @@ export default function PosSalesPage() {
       if(!authorized.sales?.some(row=>row.id===sale.id))throw new Error("No se pudo autorizar la impresión de esta venta.");
       if(!authorized.receiptHtml)throw new Error("El servidor no devolvió el comprobante autorizado.");
       await printBrowserReceipt(authorized.receiptHtml);
-    }catch(e){setError(e instanceof Error?e.message:"No se pudo reimprimir.");}
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo reimprimir.");}finally{printingRef.current=false;setPrinting(false);}
   },[brand.slug,profileCode]);
 
 
@@ -617,6 +620,7 @@ export default function PosSalesPage() {
 
       {selectedSale ? (
         <SaleDetailModal
+          retail={!isFoodProfile(profileCode)} printError={error} printing={printing}
           sale={selectedSale}
           branding={branding}
           onClose={() =>
@@ -787,11 +791,13 @@ function SaleRow({
 }
 
 function SaleDetailModal({
+  retail,printError,printing,
   sale,
   branding,
   onClose,
   onPrint,
 }: {
+  retail:boolean;printError:string|null;printing:boolean;
   sale: Sale;
   branding: Branding | null;
   onClose: () => void;
@@ -833,9 +839,9 @@ function SaleDetailModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--pos-overlay)] p-0 backdrop-blur-sm sm:p-4 print:static print:block print:bg-white print:p-0">
-      <div className="grid h-full w-full overflow-hidden bg-[var(--pos-panel-raised)] shadow-[var(--pos-shadow-overlay)] lg:h-auto lg:max-h-[94vh] lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_360px] lg:rounded-[var(--pos-radius-lg)] print:block print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:bg-white print:shadow-none">
-        <div className="pos-ui-scrollbar overflow-y-auto p-5 md:p-6 print:hidden">
-          <div className="flex items-start justify-between gap-5 border-b border-[var(--pos-line-subtle)] pb-4">
+      <div role="dialog" aria-modal="true" aria-label="Detalle de venta" className={`${retail?"!h-[92dvh] grid-rows-[minmax(0,1fr)_auto]":""} grid h-full w-full overflow-hidden bg-[var(--pos-panel-raised)] shadow-[var(--pos-shadow-overlay)] lg:h-auto lg:max-h-[94vh] lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_360px] lg:rounded-[var(--pos-radius-lg)] print:block print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:bg-white print:shadow-none`}>
+        <div tabIndex={retail?0:undefined} aria-label={retail?"Productos y pagos de la venta":undefined} className="pos-ui-scrollbar min-h-0 overflow-y-auto p-5 md:p-6 print:hidden">
+          <div className={`${retail?"sticky top-0 z-10 bg-[var(--pos-panel-raised)]":""} flex items-start justify-between gap-5 border-b border-[var(--pos-line-subtle)] pb-4`}>
             <div>
               <p className="text-xs font-medium text-[var(--pos-text-muted)]">
                 Detalle de venta
@@ -1151,21 +1157,22 @@ function SaleDetailModal({
             </div>
           ) : null}
 
-          <button
+          {!retail&&<button
             type="button"
             onClick={onPrint}
             className="pos-ui-focus mt-5 flex h-11 w-full items-center justify-center rounded-[var(--pos-radius-sm)] bg-[var(--pos-primary)] px-5 text-sm font-semibold text-slate-950"
           >
             Reimprimir ticket térmico
-          </button>
+          </button>}
         </div>
 
-        <div className="hidden border-l border-[var(--pos-line-subtle)] bg-white p-5 text-slate-950 lg:block print:block print:border-0 print:p-0">
+        <div className="hidden min-h-0 overflow-y-auto border-l border-[var(--pos-line-subtle)] bg-white p-5 text-slate-950 lg:block print:block print:border-0 print:p-0">
           <ThermalReceipt
             sale={sale}
             branding={branding}
           />
         </div>
+        {retail&&<footer className="col-span-full shrink-0 border-t border-white/15 bg-[var(--pos-panel-raised)] p-3 print:hidden">{printError&&<p role="alert" className="mb-2 text-sm text-rose-300">{printError} Venta conservada. Puedes reintentar la copia.</p>}<div className="flex items-center justify-between gap-3"><strong>Total {formatMoney(sale.total,sale.currency)}</strong><button disabled={printing} onClick={onPrint} className="rounded-lg bg-cyan-300 px-4 py-3 font-semibold text-slate-950 disabled:opacity-40">{printing?"Enviando copia...":"Reimprimir ticket"}</button></div></footer>}
       </div>
 
       <style jsx global>{`
