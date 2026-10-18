@@ -35,3 +35,8 @@ assert.equal(calls.at(-1).name,'pos_retail_orders_list_v1');assert.equal(calls.a
 for(const suffix of ['&page=0','&page=1.5','&filter=unknown','&sort=unknown','&search='+('a'.repeat(121))])assert.equal((await list(suffix)).status,400);
 authenticated=false;assert.equal((await list('')).status,401);authenticated=true;
 console.log('PASS paginated search route authorization, scoped location and invalid filters');
+permissions.delete('SETTINGS');assert.equal((await post({...body,balance_resolution:'pending',resolution_reason:'Approved pending balance'})).status,403);permissions.add('SETTINGS');
+assert.equal((await post({...body,balance_resolution:'refund',resolution_reason:'No automatic refunds'})).status,400);
+assert.equal((await post({...body,balance_resolution:'pending',resolution_reason:'Approved pending balance'})).status,200);
+mode='RESTAURANT';assert.equal((await post({action:'quote',location_id:location,items:[]})).status,403);assert.equal((await list('')).status,403);mode='RETAIL';
+console.log('PASS explicit administrative balance resolution; FOOD cannot read or quote Retail orders');
