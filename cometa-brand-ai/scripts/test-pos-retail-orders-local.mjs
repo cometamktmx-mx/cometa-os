@@ -52,10 +52,12 @@ try{
  const dump=await exec(['pg_dump','-U','postgres','-d','postgres','--schema-only','--no-owner','--schema=public','--schema=auth','--schema=storage']);
  await sql('drop schema public;create schema public;alter extension vector set schema public;');
  await sql(dump.replace('CREATE SCHEMA public;','').replace(/^ALTER DEFAULT PRIVILEGES[^;]+;$/gm,''));
+ await sql(fs.readFileSync('supabase/migrations/20261016090000_pos_retail_operators_v1.sql','utf8'));
  await sql(fs.readFileSync('supabase/migrations/20261017120000_pos_retail_orders_v1.sql','utf8'));
  await sql(fs.readFileSync('supabase/migrations/20261017180000_pos_per_piece_discount.sql','utf8'));
  await sql(fs.readFileSync('supabase/migrations/20261018120000_pos_order_workspace.sql','utf8'));
  await sql(fs.readFileSync('supabase/migrations/20261018180000_pos_retail_open_box.sql','utf8'));
+ await sql(fs.readFileSync('supabase/migrations/20261019090000_pos_retail_v1_reporting.sql','utf8'));
  console.log('PASS both migrations on disposable schema copy');
  await sql(`begin;set local session_replication_role=replica;
  insert into auth.users(id,email) values('${ids.owner}','synthetic@example.test');
@@ -245,9 +247,49 @@ try{
  await sql(`update pos_retail_rules set wholesale_enabled=false where brand_slug='${brand}'`);
  await assert.rejects(call(randomUUID(),'save',{...draft,items:items([['v1',1.5]])}));
  await sql(`update pos_retail_rules set wholesale_enabled=true where brand_slug='${brand}'`);
+
+ const report=JSON.parse(await sql(`set role service_role;select pos_retail_report_v1('${brand}',current_date-1,current_date+1,'${ids.location}')`));
+ assert.ok(report.sales.length>0);assert.ok(report.money.length>0);assert.ok(report.inventory.length>0);
+ const recorded=Number(await sql(`select coalesce(sum(amount),0) from pos_retail_order_payments where brand_slug='${brand}'`));
+ assert.equal(report.money.filter(m=>m.source==='order').reduce((s,m)=>s+m.amount,0),recorded);
+ assert.ok(!report.money.some(m=>m.source==='sale'&&m.sale_id===box.sale_id));
+ assert.equal(report.money.filter(m=>m.order_id===expiringBoxId).reduce((s,m)=>s+m.amount,0),700);
+ assert.equal(report.orders.find(o=>o.id===expiringBoxId).retained,500);
+ const transfer=report.money.find(m=>m.source==='order'&&m.method==='transfer'),verificationKey=randomUUID();
+ const verify=`select pos_retail_verify_transfer_v1('${brand}','${ids.owner}','${ids.staff}','order','${transfer.id}',true,'BANK-TEST','Manual fixture','${verificationKey}')`;
+ assert.equal(JSON.parse(await sql(verify)).id,JSON.parse(await sql(verify)).id);
+ const report2=JSON.parse(await sql(`select pos_retail_report_v1('${brand}',current_date-1,current_date+1,'${ids.location}')`));
+ assert.equal(report2.money.find(m=>m.id===transfer.id).verified,true);assert.equal(report2.money.length,report.money.length);
+ assert.equal(report2.sessions[0].calculated_expected,report2.sessions[0].opening_amount+report2.sessions[0].movements.filter(m=>m.method==='cash').reduce((s,m)=>s+m.amount,0));
+ const datedPayment=report.money.find(m=>m.order_id===emptyId&&m.concept==='initial_deposit');assert.ok(datedPayment);
+ await sql(`begin;set local session_replication_role=replica;update pos_retail_order_payments set created_at=now()-interval '7 days' where id='${datedPayment.id}';commit;`);
+ const oldPeriod=JSON.parse(await sql(`select pos_retail_report_v1('${brand}',current_date-8,current_date-6,'${ids.location}')`));
+ const newPeriod=JSON.parse(await sql(`select pos_retail_report_v1('${brand}',current_date-1,current_date+1,'${ids.location}')`));
+ assert.ok(oldPeriod.money.some(m=>m.id===datedPayment.id));assert.ok(!oldPeriod.sales.some(s=>s.id===box.sale_id));assert.ok(newPeriod.sales.some(s=>s.id===box.sale_id));assert.ok(!newPeriod.money.some(m=>m.id===datedPayment.id));
+ assert.ok(report.money.some(m=>m.method==='cash'));assert.ok(report.money.some(m=>m.method==='card'));assert.ok(report.money.some(m=>m.method==='transfer'));
+ console.log('PASS receipt and sale in different periods; actual cash/card/transfer amounts retained in source ledger');
+ console.log('PASS reports reconcile source payments, exclude prepaid settlement and duplicate cash movements; retention is not income; manual transfer verification idempotent; physical cash excludes transfers');
  console.log('PASS empty-box expiry retains initial500 once, additional200 unresolved; note availability and integer garments enforced');
  await sql(`begin;set local session_replication_role=replica;update pos_product_variants set price=5 where id='${ids.v1}';commit;`);assert.equal((await q(items([['v1',50]]))).total,0);await assert.rejects(q([{variant_id:ids.v1,quantity:50,discount_amount:1}]));
  await assert.rejects(sql(`update pos_retail_rules set per_piece_discount=-10 where brand_slug='${brand}'`));
+
+ const followKey=randomUUID(),followBody={action:'create',note:'Call after package review',responsible_id:ids.staff,due_at:new Date(Date.now()+86400000).toISOString()};
+ const followSql=`select pos_retail_followup_v1('${brand}','${ids.owner}','${ids.staff}','${emptyId}',${quote(JSON.stringify(followBody))}::jsonb,'${followKey}')`;
+ const follow=JSON.parse(await sql(followSql));assert.equal(JSON.parse(await sql(followSql)).id,follow.id);
+ const doneBody={action:'complete',id:follow.id};const doneSql=`select pos_retail_followup_v1('${brand}','${ids.owner}','${ids.staff}','${emptyId}',${quote(JSON.stringify(doneBody))}::jsonb,'${randomUUID()}')`;
+ assert.equal(JSON.parse(await sql(doneSql)).completed_at,JSON.parse(await sql(doneSql)).completed_at);
+ const actorSession=randomUUID();await sql(`insert into pos_staff_sessions(id,token_hash,host_user_id,staff_id,brand_id,brand_slug,expires_at) values('${actorSession}',repeat('a',64),'${ids.owner}','${ids.staff}','${ids.brand}','${brand}',now()+interval '1 hour');`);
+ const cashCommand=async(action,payload,key=randomUUID())=>JSON.parse(await sql(`select pos_retail_cash_command_v1('${brand}','${ids.owner}','${actorSession}','${action}',${quote(JSON.stringify(payload))}::jsonb,'${key}')`));
+ const withdrawalKey=randomUUID(),withdrawal={sessionId:ids.session,movementType:'withdrawal',amount:100,reason:'Fixture withdrawal'};
+ const withdrawals=await Promise.all([cashCommand('movement',withdrawal,withdrawalKey),cashCommand('movement',withdrawal,withdrawalKey)]);assert.equal(withdrawals[0].id,withdrawals[1].id);assert.equal(withdrawals[0].performed_by_staff_id,ids.staff);
+
+ const reverseKey=randomUUID(),reverseSql=`select pos_retail_reverse_cash_v1('${brand}','${ids.owner}','${actorSession}','${withdrawals[0].id}','${ids.session}','Wrong withdrawal fixture','${reverseKey}')`;
+ const reverse=JSON.parse(await sql(reverseSql));assert.equal(JSON.parse(await sql(reverseSql)).id,reverse.id);assert.equal(reverse.amount,100);assert.equal(reverse.movement_type,'income');assert.equal(reverse.reverses_movement_id,withdrawals[0].id);
+ const totals=JSON.parse(await sql(`select pos_retail_cash_totals_v1('${brand}',array['${ids.session}'::uuid])`));
+ const closingKey=randomUUID(),closing={sessionId:ids.session,countedCash:totals[0].expected-5,notes:'Fixture count difference'};
+ const cuts=await Promise.all([cashCommand('close',closing,closingKey),cashCommand('close',closing,closingKey)]);assert.equal(cuts[0].closed_at,cuts[1].closed_at);assert.equal(cuts[0].difference,-5);assert.equal(cuts[0].expected_cash,totals[0].expected);
+ await assert.rejects(cashCommand('movement',withdrawal));
+ console.log('PASS followup creation/completion idempotent; attributed cash withdrawal once; concurrent close once with expected cash and difference; closed turn immutable');
  console.log('PASS per-piece 49/50/51, model identity, combination toggle, no factory price dependency, manual discount once, editable note/layaway, repeated settlement, original prices and historical preservation, zero floor');
 }catch(error){console.error('LOCAL RETAIL NOT CERTIFIED:',error.message);process.exitCode=1;}
 finally{if(created){await destination();await exec(['dropdb','-U','postgres',database]);console.log('Removed disposable database',database);}}

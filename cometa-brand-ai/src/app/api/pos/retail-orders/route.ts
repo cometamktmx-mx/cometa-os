@@ -17,7 +17,7 @@ export async function GET(request:Request){try{
  const url=new URL(request.url),id=url.searchParams.get("id"),location=c.device?.locationId||staff?.locationId;
  if(!id&&url.searchParams.get("list")==="1"){
   const page=Number(url.searchParams.get("page")||1),size=25,search=(url.searchParams.get("search")||"").trim(),filter=url.searchParams.get("filter")||"all",sort=url.searchParams.get("sort")||"activity";
-  if(!Number.isSafeInteger(page)||page<1||page>100000||search.length>120||!["all","notes","active","expired","finished"].includes(filter)||!["activity","expiry"].includes(sort))throw new PosApiError(400,"POS_VALIDATION_ERROR","Revisa la búsqueda y los filtros.");
+  if(!Number.isSafeInteger(page)||page<1||page>100000||search.length>120||!["all","notes","active","soon","expired","finished"].includes(filter)||!["activity","expiry"].includes(sort))throw new PosApiError(400,"POS_VALIDATION_ERROR","Revisa la búsqueda y los filtros.");
   const [result,rules]=await Promise.all([c.admin.rpc("pos_retail_orders_list_v1",{p_brand:c.brand.slug,p_location:location||null,p_search:search,p_filter:filter,p_sort:sort,p_page:page,p_size:size}),c.admin.from("pos_retail_rules").select("*").eq("brand_slug",c.brand.slug).maybeSingle()]);
   dbError(result.error);dbError(rules.error);
   return ok({...result.data,page,pageSize:size,rules:rules.data});
@@ -31,7 +31,7 @@ export async function GET(request:Request){try{
   const order=found.data?.[0] as RetailOrder|undefined;
   if(!order)throw new PosApiError(404,"POS_NOT_FOUND","Pedido no disponible.");
   const payments=await c.admin.from("pos_retail_order_payments").select("*").eq("brand_slug",c.brand.slug).eq("order_id",order.id).order("created_at");dbError(payments.error);
-  const events=await c.admin.from("pos_retail_order_events").select("id,action,staff_id,created_at").eq("brand_slug",c.brand.slug).eq("order_id",order.id).order("created_at");dbError(events.error);
+  const events=await c.admin.from("pos_retail_order_events").select("id,action,staff_id,created_at,payload,result").eq("brand_slug",c.brand.slug).eq("order_id",order.id).order("created_at");dbError(events.error);
   if(url.searchParams.get("print")==="1"){
    await requireRetailPermission(c,"REPRINT");
    const paymentId=url.searchParams.get("paymentId");const payment=paymentId?(payments.data as RetailPayment[]).find(p=>p.id===paymentId):undefined;
