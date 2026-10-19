@@ -40,3 +40,9 @@ assert.equal((await post({...body,balance_resolution:'refund',resolution_reason:
 assert.equal((await post({...body,balance_resolution:'pending',resolution_reason:'Approved pending balance'})).status,200);
 mode='RESTAURANT';assert.equal((await post({action:'quote',location_id:location,items:[]})).status,403);assert.equal((await list('')).status,403);mode='RETAIL';
 console.log('PASS explicit administrative balance resolution; FOOD cannot read or quote Retail orders');
+permissions.delete('SETTINGS');assert.equal((await post({action:'product-discount',product_id:id,discount:5})).status,403);permissions.add('SETTINGS');
+hostAllowed=false;assert.equal((await post({action:'product-discount',product_id:id,discount:5})).status,403);hostAllowed=true;
+assert.equal((await post({action:'product-discount',product_id:id,discount:5,brand_slug:other})).status,200);
+assert.equal(calls.at(-1).name,'pos_retail_rules_save_v1');assert.equal(calls.at(-1).args.p_brand,brand);
+mode='FOOD';assert.equal((await post({action:'product-discount',product_id:id,discount:5})).status,403);mode='RETAIL';
+console.log('PASS product override requires SETTINGS and host permission; resolved tenant wins; FOOD denied');
