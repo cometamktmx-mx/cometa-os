@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import {randomUUID} from 'node:crypto';
+const brand='synthetic-a',location=randomUUID(),customer=randomUUID(),actor=randomUUID(),session=randomUUID();
+let authenticated=true,mode='RETAIL',permissions=new Set(['PRODUCTS_READ','INVENTORY','CUSTOMERS','SETTINGS']),failure=null;const calls=[];
+class ApiError extends Error{constructor(status,code,message){super(message);this.status=status;this.code=code;}}
+const records={pos_locations:[{id:location,brand_slug:brand,active:true}],pos_customers:[{id:customer,brand_slug:brand,first_name:'Synthetic',phone:'000',email:null,active:true}],pos_customer_factory_benefits:[{customer_id:customer,brand_slug:brand,enabled:true}]};
+const admin={from(table){assert.ok(table in records,table);let data=records[table];const query={select:()=>query,eq:(k,v)=>{data=data.filter(r=>r[k]===v);return query;},in:(k,vs)=>{data=data.filter(r=>vs.includes(r[k]));return query;},order:()=>query,range:()=>query,or:()=>query,maybeSingle:async()=>({data:data[0]||null,error:null}),then:resolve=>Promise.resolve({data,error:null,count:data.length}).then(resolve)};return query;},rpc:async(name,args)=>{calls.push({name,args});return {data:{id:customer,factory_price_benefit:args.p_benefit},error:failure};}};
+const context={admin,brand:{id:randomUUID(),slug:brand},user:{userId:actor,isAdmin:false},device:{locationId:location}};
+const authorize=async()=>{if(!authenticated)throw new ApiError(401,'AUTH','No session');return context;};
+const permit=async(_,p)=>{if(!permissions.has(p))throw new ApiError(403,'DENIED','Permission denied');return{id:session,staff:{id:randomUUID()},locationId:location};};
+const server={getBrandSlugFromUrl:()=>brand,uuidValue:(v,_k,required=true)=>{if(!v){if(required)throw new ApiError(400,'INVALID','UUID required');return null;}if(!/^[\da-f-]{36}$/.test(v))throw new ApiError(400,'INVALID','UUID invalid');return v;},readJsonBody:r=>r.json(),PosApiError:ApiError,ok:(d,status=200)=>Response.json({ok:true,...d},{status}),fail:(m,status=400,code='INVALID')=>Response.json({ok:false,error:m,code},{status}),handlePosError:e=>Response.json({ok:false,error:e.message},{status:e.status||500}),requiredText:v=>{if(typeof v!=='string'||!v.trim())throw new ApiError(400,'INVALID','Text required');return v.trim();},optionalText:v=>typeof v==='string'&&v.trim()?v.trim():null,booleanValue:(v,d)=>typeof v==='boolean'?v:d,assertDatabaseResult:e=>{if(e)throw new ApiError(500,'DB','Database error');},getPagination:()=>({page:1,pageSize:25,from:0,to:24})};
+const deps={'@/lib/pos/access':{requirePosOperationalAccess:authorize},'@/lib/pos/mutation-access':{requirePosMutationAccess:async args=>{await authorize();await permit(context,args.operation==='inventory.write'?'INVENTORY':'CUSTOMERS');return context;}},'@/lib/pos/staff-server':{getPosMode:async()=>mode,requireRetailPermission:permit},'@/lib/pos/server':server};
+function route(file){const target={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:target,exports:target.exports,require:n=>{assert.ok(n in deps,n);return deps[n];},Response,Request,URL});return target.exports;}
+const inventory=route('src/app/api/pos/retail-inventory/route.ts'),customers=route('src/app/api/pos/customers/route.ts');
+const request=(body,method='POST',origin='https://synthetic.test')=>new Request('https://synthetic.test/api/pos/test?brandSlug='+brand,{method,headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+const body={locationId:location,requestKey:randomUUID(),action:'receive',payload:{items:[{variant_id:randomUUID(),quantity:5}]}};
+assert.equal((await inventory.POST(request(body,'POST','https://foreign.test'))).status,403);
+authenticated=false;assert.equal((await inventory.POST(request(body))).status,401);authenticated=true;
+mode='RESTAURANT';assert.equal((await inventory.POST(request(body))).status,403);mode='RETAIL';
+permissions.delete('INVENTORY');assert.equal((await inventory.POST(request(body))).status,403);permissions.add('INVENTORY');
+assert.equal((await inventory.POST(request({...body,locationId:randomUUID()}))).status,403);
+assert.equal((await inventory.POST(request(body))).status,200);assert.equal(calls.at(-1).args.p_session,session);assert.equal(calls.at(-1).args.p_brand,brand);
+permissions.delete('SETTINGS');assert.equal((await inventory.POST(request({...body,action:'dispose'}))).status,403);permissions.add('SETTINGS');
+failure={message:'POS_COUNT_BELOW_RESERVED'};assert.equal((await inventory.POST(request({...body,action:'count'}))).status,409);failure=null;
+const benefitBody={brandSlug:brand,customerId:customer,factoryPriceBenefit:true};
+permissions.delete('SETTINGS');assert.equal((await customers.PATCH(request(benefitBody,'PATCH'))).status,403);permissions.add('SETTINGS');
+assert.equal((await customers.PATCH(request({...benefitBody,factoryPriceBenefit:'true'},'PATCH'))).status,400);
+assert.equal((await customers.PATCH(request({...benefitBody,brandSlug:'body-is-not-trusted'},'PATCH'))).status,200);assert.equal(calls.at(-1).args.p_brand,brand);assert.equal(calls.at(-1).args.p_session,session);
+mode='RESTAURANT';assert.equal((await customers.PATCH(request(benefitBody,'PATCH'))).status,400);mode='RETAIL';
+const result=await customers.GET(new Request('https://synthetic.test/api/pos/customers?brandSlug='+brand));assert.equal((await result.json()).customers[0].factory_price_benefit,true);
+assert.equal((await customers.POST(request({brandSlug:brand,firstName:'New',phone:'0001',factoryPriceBenefit:true}))).status,201);assert.equal(calls.at(-1).name,'pos_retail_customer_save_v1');assert.equal(calls.at(-1).args.p_customer,null);
+console.log('PASS real inventory/customer API routes: auth, PIN permissions, tenant/location scope, FOOD isolation, count conflict, administrative benefit create/edit/read');

@@ -1,4 +1,5 @@
 "use client";
+import { retailPermissions } from "@/lib/pos/retail-permissions";
 import {RetailVariantQuantities} from "../../components/pos-retail-variant-quantities";
 import {factoryProgress,type RetailQuote} from "@/lib/pos/retail-orders";
 import {isFoodProfile} from "@/lib/pos/surface-policy";
@@ -962,15 +963,15 @@ export default function PosRegisterPage() {
 
   const factoryState=useRef(new Map<string,boolean>());
   const quoteItems=useMemo(()=>cart.map(item=>({variant_id:item.variantId,quantity:item.quantity,discount_amount:item.discountAmount})),[cart]);
-  const quoteKey=JSON.stringify([brand.slug,selectedLocation?.id,quoteItems]);
+  const quoteKey=JSON.stringify([brand.slug,selectedLocation?.id,selectedCustomerId,quoteItems]);
   useEffect(()=>{
     if(isFoodProfile(profileCode)||!cart.length||!selectedLocation?.id)return;
     let active=true;
     const timer=setTimeout(()=>{
-      void apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`,{method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,items:quoteItems})}).then(result=>{if(active){setRetailQuote({key:quoteKey,quote:result.quote});setQuoteError("");notifyFactory(result.quote);}}).catch(e=>{if(active)setQuoteError(e instanceof Error?e.message:"No se pudo validar el precio.");});
+      void apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`,{method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,customer_id:selectedCustomerId||null,items:quoteItems})}).then(result=>{if(active){setRetailQuote({key:quoteKey,quote:result.quote});setQuoteError("");notifyFactory(result.quote);}}).catch(e=>{if(active)setQuoteError(e instanceof Error?e.message:"No se pudo validar el precio.");});
     },200);
     return()=>{active=false;clearTimeout(timer);};
-  },[brand.slug,selectedLocation?.id,quoteItems,quoteKey,profileCode,cart.length]);
+  },[brand.slug,selectedLocation?.id,selectedCustomerId,quoteItems,quoteKey,profileCode,cart.length]);
   const currentQuote=retailQuote?.key===quoteKey?retailQuote.quote:null;
   function notifyFactory(currentQuote:RetailQuote){if(!currentQuote.wholesale_enabled)return;const seen=new Set<string>();const messages:string[]=[];for(const line of currentQuote.items){if(seen.has(line.product_id))continue;seen.add(line.product_id);const before=factoryState.current.get(line.product_id);if(line.factory_applied&&!before)messages.push(line.product_name+": precio de fábrica aplicado");else if(before&&!line.factory_applied)messages.push(line.product_name+": precio regular por cantidad");factoryState.current.set(line.product_id,line.factory_applied);}if(messages.length)setNotice(messages.join(" · "));}
   useEffect(()=>{if(!cart.length)factoryState.current.clear();},[cart.length]);
@@ -1577,9 +1578,19 @@ export default function PosRegisterPage() {
     }
   }
 
-  function selectCustomer(
+  async function confirmCustomerPricing(customerId: string) {
+    if (isFoodProfile(profileCode) || !cart.length || !selectedLocation) return true;
+    try {
+      const result = await apiRequest<{ok:true;quote:RetailQuote}>(`/api/pos/retail-orders?brandSlug=${encodeURIComponent(brand.slug)}`, {method:"POST",body:JSON.stringify({action:"quote",location_id:selectedLocation.id,customer_id:customerId||null,items:quoteItems})});
+      if (currentQuote && JSON.stringify(result.quote)!==JSON.stringify(currentQuote) && !window.confirm(`Al cambiar el cliente se recalculan los precios: ${currentQuote.total.toFixed(2)} → ${result.quote.total.toFixed(2)} ${result.quote.currency}. ¿Aceptar el recálculo?`)) return false;
+      return true;
+    } catch (error) {setError(error instanceof Error?error.message:"No se pudo validar el precio del cliente.");return false;}
+  }
+
+  async function selectCustomer(
     customerId: string
   ) {
+    if (!(await confirmCustomerPricing(customerId))) return;
     loyaltyRequestRef.current += 1;
     setSelectedPointRewardId(null);
     setSelectedRewardUnlockId(null);
@@ -1610,7 +1621,8 @@ export default function PosRegisterPage() {
     }
   }
 
-  function clearSelectedCustomer() {
+  async function clearSelectedCustomer() {
+    if (!(await confirmCustomerPricing(""))) return;
     loyaltyRequestRef.current += 1;
     setSelectedPointRewardId(null);
     setSelectedRewardUnlockId(null);
@@ -1625,14 +1637,14 @@ export default function PosRegisterPage() {
     );
   }
 
-  async function createQuickCustomer(firstName: string, phone: string) {
+  async function createQuickCustomer(firstName: string, phone: string, factoryPriceBenefit?: boolean) {
     if (isCreatingCustomer) return;
     try {
       setIsCreatingCustomer(true);
       setError(null);
       const response = await apiRequest<CreateCustomerResponse>("/api/pos/customers", {
         method: "POST",
-        body: JSON.stringify({ brandSlug: brand.slug, firstName, phone }),
+        body: JSON.stringify({ brandSlug: brand.slug, firstName, phone, ...(factoryPriceBenefit === undefined ? {} : {factoryPriceBenefit}) }),
       });
       const createdCustomer: PosCustomer = {
         ...response.customer,
@@ -1642,7 +1654,7 @@ export default function PosRegisterPage() {
         createdCustomer,
         ...current.filter((customer) => customer.id !== createdCustomer.id),
       ]);
-      setSelectedCustomerId(createdCustomer.id);
+      await selectCustomer(createdCustomer.id);
       setCustomerSearch("");
       setIsCustomerPickerOpen(false);
       setNotice(`${getCustomerName(createdCustomer)} fue creado y seleccionado.`);
@@ -3361,7 +3373,7 @@ function CustomerPickerModal({
     value: string
   ) => void;
   isCreatingCustomer: boolean;
-  onCreateCustomer: (firstName: string, phone: string) => Promise<void>;
+  onCreateCustomer: (firstName: string, phone: string, factoryPriceBenefit?: boolean) => Promise<void>;
   onSelect: (
     customerId: string
   ) => void;
@@ -3369,6 +3381,9 @@ function CustomerPickerModal({
   onClose: () => void;
 }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const {profileCode,currentOperator}=usePosContext();
+  const canGrantBenefit=!isFoodProfile(profileCode)&&!!currentOperator&&retailPermissions(currentOperator).includes("SETTINGS");
+  const [factoryPriceBenefit,setFactoryPriceBenefit]=useState(false);
   const [firstName, setFirstName] = useState("");
   const [phone, setPhone] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -3381,7 +3396,7 @@ function CustomerPickerModal({
     }
     try {
       setCreateError(null);
-      await onCreateCustomer(firstName.trim(), phone.trim());
+      await onCreateCustomer(firstName.trim(), phone.trim(),canGrantBenefit?factoryPriceBenefit:undefined);
     } catch (error) {
       setCreateError(getErrorMessage(error));
     }
@@ -3530,6 +3545,7 @@ function CustomerPickerModal({
               <p className="text-sm font-semibold text-[var(--pos-text-primary)]">Crear cliente rápido</p>
               <input autoFocus value={firstName} onChange={(event) => setFirstName(event.target.value)} placeholder="Nombre" maxLength={100} disabled={isCreatingCustomer} className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 text-sm outline-none" />
               <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Teléfono" maxLength={40} disabled={isCreatingCustomer} className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 text-sm outline-none" />
+              {!isFoodProfile(profileCode)&&<label className="flex gap-2 text-sm"><input type="checkbox" checked={factoryPriceBenefit} disabled={!canGrantBenefit||isCreatingCustomer} onChange={e=>setFactoryPriceBenefit(e.target.checked)}/>Beneficio de precio de fábrica desde 1 pieza</label>}
               {createError ? <p className="text-xs text-[var(--pos-danger)]">{createError}</p> : null}
               <div className="grid grid-cols-2 gap-2">
                 <PosButton type="button" variant="secondary" disabled={isCreatingCustomer} onClick={() => setIsCreateOpen(false)}>Cancelar</PosButton>

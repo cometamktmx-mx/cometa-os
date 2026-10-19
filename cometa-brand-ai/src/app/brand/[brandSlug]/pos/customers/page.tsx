@@ -1,4 +1,5 @@
 "use client";
+import { retailPermissions } from "@/lib/pos/retail-permissions";
 
 import Link from "next/link";
 import {
@@ -42,6 +43,7 @@ type LoyaltyMember = {
 };
 
 type Customer = {
+  factory_price_benefit?: boolean;
   id: string;
   first_name: string;
   last_name: string | null;
@@ -167,6 +169,7 @@ type CustomerFilter =
   | "birthdays";
 
 type CustomerForm = {
+  factoryPriceBenefit: boolean;
   firstName: string;
   lastName: string;
   phone: string;
@@ -180,6 +183,7 @@ type CustomerForm = {
 };
 
 const EMPTY_FORM: CustomerForm = {
+  factoryPriceBenefit: false,
   firstName: "",
   lastName: "",
   phone: "",
@@ -193,7 +197,8 @@ const EMPTY_FORM: CustomerForm = {
 };
 
 export default function PosCustomersPage() {
-  const { brand, profileCode } = usePosContext();
+  const { brand, profileCode, currentOperator } = usePosContext();
+  const canGrantBenefit = !isFoodProfile(profileCode) && !!currentOperator && retailPermissions(currentOperator).includes("SETTINGS");
   const foodMode = isFoodProfile(profileCode);
   const [foodSafety, setFoodSafety] = useState({ allergies: "", restrictions: "" });
   const [pendingFoodCustomer, setPendingFoodCustomer] = useState<string | null>(null);
@@ -509,6 +514,7 @@ export default function PosCustomersPage() {
               brandSlug: brand.slug,
               firstName:
                 form.firstName,
+              ...(canGrantBenefit ? { factoryPriceBenefit: form.factoryPriceBenefit } : {}),
               lastName:
                 form.lastName ||
                 null,
@@ -647,6 +653,7 @@ export default function PosCustomersPage() {
         body: JSON.stringify({
           brandSlug: brand.slug,
           customerId: editingCustomer.id,
+          ...(canGrantBenefit ? { factoryPriceBenefit: formValue.factoryPriceBenefit } : {}),
           firstName: formValue.firstName,
           lastName: formValue.lastName || null,
           phone: formValue.phone || null,
@@ -1210,6 +1217,7 @@ function CreateCustomerModal({
         </fieldset>
         {foodSafety && <section className="rounded-xl border-2 border-amber-400/50 p-4 space-y-4"><h3 className="font-bold">Salud y preferencias</h3><TextAreaField label="Alergias alimentarias" value={foodSafety.allergies} onChange={allergies => onSafetyChange({ ...foodSafety, allergies })} placeholder="Nueces, cacahuate, lácteos, huevo, gluten (separadas por comas)" /><TextAreaField label="Restricciones alimentarias" value={foodSafety.restrictions} onChange={restrictions => onSafetyChange({ ...foodSafety, restrictions })} placeholder="Sin lactosa, sin gluten, vegetariano, vegano" /></section>}
 
+        <CustomerFactoryBenefitField value={form.factoryPriceBenefit} onChange={value => onChange("factoryPriceBenefit", value)} />
         <fieldset disabled={pendingFoodCustomer} className="mt-4">
           <TextAreaField
             label={foodSafety ? "Notas importantes" : "Notas"}
@@ -1294,6 +1302,13 @@ function CreateCustomerModal({
   );
 }
 
+function CustomerFactoryBenefitField({value,onChange}:{value:boolean;onChange:(value:boolean)=>void}) {
+  const {profileCode,currentOperator}=usePosContext();
+  if(isFoodProfile(profileCode))return null;
+  const allowed=!!currentOperator&&retailPermissions(currentOperator).includes("SETTINGS");
+  return <label className="flex items-center gap-3 rounded-xl border border-cyan-300/20 p-3 text-sm"><input type="checkbox" checked={value} disabled={!allowed} onChange={e=>onChange(e.target.checked)}/><span>Beneficio de precio de fábrica desde 1 pieza{!allowed&&<small className="block text-slate-400">Solo un administrador puede cambiarlo.</small>}</span></label>;
+}
+
 function EditCustomerModal({
   customer,
   isSaving,
@@ -1308,6 +1323,7 @@ function EditCustomerModal({
   const [editForm, setEditForm] = useState<CustomerForm>({
     ...EMPTY_FORM,
     firstName: customer.first_name,
+    factoryPriceBenefit: !!customer.factory_price_benefit,
     lastName: customer.last_name || "",
     phone: customer.phone || "",
     email: customer.email || "",
@@ -1336,6 +1352,7 @@ function EditCustomerModal({
           <Field label="Teléfono" value={editForm.phone} onChange={(value) => setEditForm((current) => ({ ...current, phone: value }))} />
           <Field label="Correo" type="email" value={editForm.email} onChange={(value) => setEditForm((current) => ({ ...current, email: value }))} />
         </div>
+        <CustomerFactoryBenefitField value={editForm.factoryPriceBenefit} onChange={value => setEditForm(current => ({ ...current, factoryPriceBenefit: value }))} />
         <TextAreaField label="Notas" value={editForm.notes} onChange={(value) => setEditForm((current) => ({ ...current, notes: value }))} />
         {editError ? <p className="text-xs text-[var(--pos-danger)]">{editError}</p> : null}
         <div className="grid grid-cols-2 gap-2">

@@ -61,7 +61,7 @@ export async function POST(request:Request){try{
  if(location&&((staff.locationId&&location!==staff.locationId)||(c.device&&location!==c.device.locationId)))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Sucursal no autorizada.");
  if(action==="quote"){
   if(!location)throw new PosApiError(400,"POS_VALIDATION_ERROR","Selecciona sucursal.");
-  const r=await c.admin.rpc("pos_retail_order_quote_v1",{p_brand:c.brand.slug,p_location:location,p_items:body.items,p_allow_empty:true});dbError(r.error);return ok({quote:r.data});
+  const r=await c.admin.rpc("pos_retail_order_quote_customer_v1",{p_brand:c.brand.slug,p_location:location,p_items:body.items,p_allow_empty:true,p_customer:uuidValue(body.customer_id,"customer_id",false)});dbError(r.error);return ok({quote:r.data});
  }
  const id=uuidValue(body.id,"id"),requestKey=uuidValue(body.request_key,"request_key");
  const found=await c.admin.from("pos_retail_orders").select("location_id,state").eq("id",id).eq("brand_slug",c.brand.slug).maybeSingle();dbError(found.error);

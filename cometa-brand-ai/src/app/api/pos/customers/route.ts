@@ -1,4 +1,5 @@
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
+import { getPosMode, requireRetailPermission } from "@/lib/pos/staff-server";
 import {
   assertDatabaseResult,
   booleanValue,
@@ -18,6 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CustomerBody = {
+  factoryPriceBenefit?: unknown;
   brandSlug?: unknown;
   customerId?: unknown;
   firstName?: unknown;
@@ -37,7 +39,8 @@ const hasOwn = (value: object, key: string) =>
 export async function GET(request: Request) {
   try {
     const brandSlug = getBrandSlugFromUrl(request);
-    const { admin, brand } = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.customers" });
+    const context = await requirePosOperationalAccess({ brandSlug, entitlement: "pos.customers" });
+    const { admin, brand } = context;
     const { page, pageSize, from, to } =
       getPagination(request);
 
@@ -80,9 +83,16 @@ export async function GET(request: Request) {
       "No se pudieron cargar los clientes."
     );
 
+    let customers = data || [];
+    if (customers.length && await getPosMode(context) === "RETAIL") {
+      const benefits = await admin.from("pos_customer_factory_benefits").select("customer_id,enabled").eq("brand_slug", brand.slug).in("customer_id", customers.map(c => c.id));
+      assertDatabaseResult(benefits.error, "No se pudieron validar los beneficios de clientes.");
+      const enabled = new Set((benefits.data || []).filter(b => b.enabled).map(b => b.customer_id));
+      customers = customers.map(c => ({ ...c, factory_price_benefit: enabled.has(c.id) }));
+    }
     return ok({
       brand,
-      customers: data || [],
+      customers,
       pagination: {
         page,
         pageSize,
@@ -103,8 +113,14 @@ export async function POST(request: Request) {
       "brandSlug",
       120
     );
-    const { admin, brand, user } =
-      await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.create" });
+    const context = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.create" });
+    const { admin, brand, user } = context;
+    let benefitSession: string | null = null;
+    if (hasOwn(body, "factoryPriceBenefit")) {
+      if (await getPosMode(context) !== "RETAIL" || typeof body.factoryPriceBenefit !== "boolean") return fail("Beneficio no válido para esta operación.", 400, "POS_VALIDATION_ERROR");
+      benefitSession = (await requireRetailPermission(context, "SETTINGS"))?.id || null;
+      if (!benefitSession) return fail("Selecciona un administrador.", 403, "POS_PERMISSION_REQUIRED");
+    }
 
     const firstName = requiredText(
       body.firstName,
@@ -135,9 +151,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data, error } = await admin
-      .from("pos_customers")
-      .insert({
+    const customerFields = {
         brand_id: brand.id,
         brand_slug: brand.slug,
         first_name: firstName,
@@ -160,9 +174,10 @@ export async function POST(request: Request) {
             : [],
         active: true,
         created_by: user.userId,
-      })
-      .select("*")
-      .single();
+      };
+    const { data, error } = benefitSession
+      ? await admin.rpc("pos_retail_customer_save_v1", { p_brand: brand.slug, p_actor: user.userId, p_session: benefitSession, p_customer: null, p_fields: customerFields, p_benefit: body.factoryPriceBenefit })
+      : await admin.from("pos_customers").insert(customerFields).select("*").single();
 
     if (error?.code === "23505") {
       return fail(
@@ -193,7 +208,14 @@ export async function PATCH(request: Request) {
     const body = await readJsonBody<CustomerBody>(request);
     const brandSlug = requiredText(body.brandSlug, "brandSlug", 120);
     const customerId = uuidValue(body.customerId, "customerId") as string;
-    const { admin, brand } = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.write" });
+    const context = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "customers.write" });
+    const { admin, brand } = context;
+    let benefitSession: string | null = null;
+    if (hasOwn(body, "factoryPriceBenefit")) {
+      if (await getPosMode(context) !== "RETAIL" || typeof body.factoryPriceBenefit !== "boolean") return fail("Beneficio no válido para esta operación.", 400, "POS_VALIDATION_ERROR");
+      benefitSession = (await requireRetailPermission(context, "SETTINGS"))?.id || null;
+      if (!benefitSession) return fail("Selecciona un administrador.", 403, "POS_PERMISSION_REQUIRED");
+    }
 
     const { data: existing, error: existingError } = await admin
       .from("pos_customers")
@@ -226,7 +248,7 @@ export async function PATCH(request: Request) {
       updates.notes = optionalText(body.notes, 1500);
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !benefitSession) {
       return fail("No hay cambios editables para guardar.", 400, "POS_CUSTOMER_UPDATE_EMPTY");
     }
 
@@ -240,7 +262,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { data, error } = await admin
+    const { data, error } = benefitSession ? await admin.rpc("pos_retail_customer_save_v1", { p_brand: brand.slug, p_actor: context.user.userId, p_session: benefitSession, p_customer: customerId, p_fields: updates, p_benefit: body.factoryPriceBenefit }) : await admin
       .from("pos_customers")
       .update(updates)
       .eq("brand_slug", brand.slug)
