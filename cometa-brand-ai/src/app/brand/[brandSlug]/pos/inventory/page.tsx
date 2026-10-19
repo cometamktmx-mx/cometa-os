@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import RetailInventory from "./retail-inventory";
+import { resolvePosMode } from "@/lib/pos/staff-shared";
 import {
   type FormEvent,
   useCallback,
@@ -293,6 +295,12 @@ type InventoryStockRow = {
 };
 
 export default function PosInventoryPage() {
+  const { profileCode } = usePosContext();
+  if (!profileCode) return <p>Cargando inventario…</p>;
+  return resolvePosMode(profileCode) === "RETAIL" ? <RetailInventory /> : <LegacyInventoryPage />;
+}
+
+function LegacyInventoryPage() {
   const { brand } = usePosContext();
 
   const [locations, setLocations] = useState<

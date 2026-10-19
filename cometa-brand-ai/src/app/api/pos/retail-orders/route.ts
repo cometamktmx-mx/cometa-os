@@ -40,7 +40,7 @@ export async function GET(request:Request){try{
    if(payment){const event=await c.admin.from("pos_retail_order_events").select("result").eq("brand_slug",c.brand.slug).eq("order_id",order.id).eq("request_key",payment.request_key).single();dbError(event.error);if(!event.data?.result?.order)throw new PosApiError(409,"POS_WEB_CONFLICT","No se encontró el comprobante original.");snapshot=event.data.result.order as RetailOrder;}
    const [identity,customer,operator]=await Promise.all([c.admin.from("pos_branding").select("display_name").eq("brand_slug",c.brand.slug).maybeSingle(),c.admin.from("pos_customers").select("first_name,last_name").eq("brand_slug",c.brand.slug).eq("id",snapshot.customer_id).maybeSingle(),payment?c.admin.from("pos_staff").select("name").eq("brand_slug",c.brand.slug).eq("id",payment.staff_id).maybeSingle():Promise.resolve({data:null,error:null})]);
    dbError(identity.error);dbError(customer.error);dbError(operator.error);
-   return ok({receiptHtml:retailOrderReceipt(snapshot,identity.data?.display_name||c.brand.name,operator.data?.name||"No registrado",[customer.data?.first_name,customer.data?.last_name].filter(Boolean).join(" "),payment,true)});
+   return ok({receiptHtml:retailOrderReceipt(snapshot,identity.data?.display_name||c.brand.name,operator.data?.name||"No registrado",[customer.data?.first_name,customer.data?.last_name].filter(Boolean).join(" "),payment,true,{payments:(payments.data||[]) as RetailPayment[],showSku:url.searchParams.get("showSku")==="1",paymentHistory:url.searchParams.get("paymentHistory")==="1"})});
   }
   return ok({order,payments:payments.data,events:events.data,rules:rules.data});
  }
@@ -51,7 +51,7 @@ export async function POST(request:Request){try{
  if(request.headers.get("origin")!==new URL(request.url).origin)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Origen no autorizado.");
  const c=await context(request),body=await readJsonBody<Record<string,unknown>>(request);
  const action=String(body.action);
- if(action==="rules"||action==="price"){
+ if(action==="rules"||action==="price"||action==="product-discount"){
   await requireRetailPermission(c,"SETTINGS");if(!c.user.isAdmin)requirePosPermission(c,"pos.settings.manage");
   const r=await c.admin.rpc("pos_retail_rules_save_v1",{p_brand:c.brand.slug,p_actor:c.user.userId,p_body:body});dbError(r.error);return ok({rules:r.data});
  }
@@ -61,7 +61,7 @@ export async function POST(request:Request){try{
  if(location&&((staff.locationId&&location!==staff.locationId)||(c.device&&location!==c.device.locationId)))throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Sucursal no autorizada.");
  if(action==="quote"){
   if(!location)throw new PosApiError(400,"POS_VALIDATION_ERROR","Selecciona sucursal.");
-  const r=await c.admin.rpc("pos_retail_order_quote_v1",{p_brand:c.brand.slug,p_location:location,p_items:body.items,p_allow_empty:true});dbError(r.error);return ok({quote:r.data});
+  const r=await c.admin.rpc("pos_retail_order_quote_customer_v1",{p_brand:c.brand.slug,p_location:location,p_items:body.items,p_allow_empty:true,p_customer:uuidValue(body.customer_id,"customer_id",false)});dbError(r.error);return ok({quote:r.data});
  }
  const id=uuidValue(body.id,"id"),requestKey=uuidValue(body.request_key,"request_key");
  const found=await c.admin.from("pos_retail_orders").select("location_id,state").eq("id",id).eq("brand_slug",c.brand.slug).maybeSingle();dbError(found.error);

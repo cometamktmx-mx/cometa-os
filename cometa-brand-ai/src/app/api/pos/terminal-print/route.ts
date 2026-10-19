@@ -21,6 +21,7 @@ function config(value:unknown):TerminalPrintConfig {
   if(!c || typeof c.printer!=="string" || !c.printer.trim() || c.printer.length>200 || /[\x00-\x1f]/.test(c.printer) || ![58,80].includes(Number(c.width)) || !["driver","escpos-pin2","escpos-pin5"].includes(String(c.profile)) || typeof c.autoPrint!=="boolean" || typeof c.autoDrawer!=="boolean") throw new PosApiError(400,"POS_VALIDATION_ERROR","Revisa la impresora, papel y perfil de comandos.");
   if(c.profile === "driver" && c.autoDrawer) throw new PosApiError(400,"POS_VALIDATION_ERROR","Confirma el modelo y perfil compatible antes de activar el cajón.");
   if(c.receiptMode!==undefined&&!["driver","epson-tm-t20ii"].includes(c.receiptMode))throw new PosApiError(400,"POS_VALIDATION_ERROR","Perfil de ticket no válido.");
+  for(const key of ["showSku","paymentHistory"] as const)if(c[key]!==undefined&&typeof c[key]!=="boolean")throw new PosApiError(400,"POS_VALIDATION_ERROR","Opciones de ticket inválidas.");
   return {...c,printer:c.printer.trim()} as TerminalPrintConfig;
 }
 export async function GET(request:Request) {
@@ -103,7 +104,9 @@ export async function POST(request:Request) {
     const customer=await c.admin.from("pos_customers").select("first_name,last_name").eq("brand_slug",c.brand.slug).eq("id",order.customer_id).maybeSingle();
     const original=payment?await c.admin.from("pos_staff").select("name").eq("brand_slug",c.brand.slug).eq("id",payment.staff_id).maybeSingle():null;
     if(identity.error||customer.error||original?.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo preparar el comprobante.");
-    const html=retailOrderReceipt(order,identity.data?.display_name||c.brand.name,original?.data?.name||"No registrado",[customer.data?.first_name,customer.data?.last_name].filter(Boolean).join(" "),payment,true);
+    const history=payment?null:await c.admin.from("pos_retail_order_payments").select("*").eq("brand_slug",c.brand.slug).eq("order_id",orderId).order("created_at");
+    if(history?.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudieron consultar los abonos.");
+    const html=retailOrderReceipt(order,identity.data?.display_name||c.brand.name,original?.data?.name||"No registrado",[customer.data?.first_name,customer.data?.last_name].filter(Boolean).join(" "),payment,true,{...settings,payments:(history?.data||[]) as RetailPayment[]});
     const payload={printer:settings.printer,width:settings.width,receiptMode:settings.receiptMode||"driver",data:qzReceiptData(html,settings),orderId};
     const job=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:operator.staff.id,sale_id:null,cash_session_id:null,kind:"reprint",reason:"Copia de pedido / abono",dedupe_key:`order-reprint:${requestKey}`,payload}).select("id,payload,kind").single();
     if(job.error?.code==="23505")return ok({jobs:[]});
@@ -127,7 +130,7 @@ export async function POST(request:Request) {
     if(identity.error)throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo preparar el comprobante.");
     const jobs=[];
     for(const kind of automaticOperations(settings,[{payment_method:payment.method,amount:payment.amount,tendered_amount:payment.tendered,change_amount:payment.change}])){
-      const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(retailOrderReceipt(order,identity.data?.display_name||c.brand.name,operator.staff.name,order.contact,payment),settings);
+      const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(retailOrderReceipt(order,identity.data?.display_name||c.brand.name,operator.staff.name,order.contact,payment,false,settings),settings);
       const job=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:operator.staff.id,sale_id:null,cash_session_id:payment.cash_session_id,kind,reason:"Abono confirmado",dedupe_key:`order-payment:${payment.id}:${kind}`,payload:{printer:settings.printer,width:settings.width,receiptMode:settings.receiptMode||"driver",data,orderPaymentId:payment.id}}).select("id,payload,kind").single();
       if(job.error?.code==="23505")continue;
       if(job.error||!job.data)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","Pago conservado; no se pudo registrar la impresión.");
@@ -203,7 +206,7 @@ export async function POST(request:Request) {
   const jobs=[];
   for(const kind of kinds) {
     const testSale:ThermalSale={sale_number:"PRUEBA",sold_at:new Date().toISOString(),subtotal:100,discount_total:0,tax_total:0,total:100,currency:"MXN",items:[{product_name:"Prueba de impresión · acentos áéíóú ñ",variant_name:"Modelo de ejemplo · Color azul · Talla CH",sku:null,quantity:2,unit_price:50,line_total:100}],payments:[]};
-    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(thermalReceipt(sale||testSale,brand.data?.display_name||c.brand.slug,cashier,settings.width,{copy:kind==="reprint",test:!sale,customer:customerName}),settings);
+    const data=kind==="drawer"?[{type:"raw",format:"command",flavor:"hex",data:drawerCommand(settings.profile)}]:qzReceiptData(thermalReceipt(sale||testSale,brand.data?.display_name||c.brand.slug,cashier,settings.width,{copy:kind==="reprint",test:!sale,customer:customerName,showSku:settings.showSku,paymentHistory:settings.paymentHistory}),settings);
     const payload={printer:settings.printer,width:settings.width,receiptMode:settings.receiptMode||"driver",data};
     const inserted=await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:staff.staff.id,sale_id:sale?.id??null,cash_session_id:cashSession,kind,reason:reason||null,dedupe_key:`${key}:${kind}`,payload}).select("id,payload,kind").single();
     if(inserted.error?.code==="23505")continue;

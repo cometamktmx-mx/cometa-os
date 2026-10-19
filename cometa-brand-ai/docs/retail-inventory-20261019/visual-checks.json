@@ -1,0 +1,11 @@
+{
+  "source": "real React components; synthetic local API",
+  "keyboardTab": true,
+  "shortViewport125": {
+    "top": 348.109375,
+    "bottom": 420.109375,
+    "height": 448,
+    "scroll": true
+  },
+  "productionWrites": 0
+}

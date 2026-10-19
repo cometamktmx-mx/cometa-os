@@ -3,8 +3,9 @@ import fs from 'node:fs';import path from 'node:path';import http from 'node:htt
 import {execFileSync} from 'node:child_process';
 if(!process.argv.includes('--run')){console.log('PLAN: backup authorized production DB/Storage read-only to private local custody; restore into disposable containers without published ports, verify, then remove only those containers. Pass --run; add --storage-api for HTTP download verification.');process.exit(0);}
 const retail=process.argv.includes('--retail');
-const retailOrders=process.argv.includes('--retail-orders');
-const auditDir=retailOrders?'build/pos-tickets/production-audit':retail?'build/retail-terminal/production-audit':'.next/magenta-launch-audit';
+const retailWorkspace=process.argv.includes('--retail-workspace');
+const retailOrders=process.argv.includes('--retail-orders')||retailWorkspace;
+const auditDir=retailWorkspace?'build/retail-workspace-production/audit':retailOrders?'build/pos-tickets/production-audit':retail?'build/retail-terminal/production-audit':'.next/magenta-launch-audit';
 const ref='zhtagqrzyovsrmsicaot',privateRoot=path.resolve(retailOrders?'build/pos-tickets/production-private':retail?'build/retail-terminal/production-private':'.next/release-private-20261011'),folder=process.argv.includes('--resume')?JSON.parse(fs.readFileSync(auditDir+'/recovery-result.json','utf8')).folder:path.join(privateRoot,'recovery-'+Date.now());assert.ok(path.resolve(folder).startsWith(privateRoot+path.sep+'recovery-'));fs.mkdirSync(folder,{mode:0o700,recursive:true});
 assert.equal(fs.readFileSync('supabase/.temp/project-ref','utf8').trim(),ref);
 try { fs.writeFileSync(path.join(privateRoot,'fresh-dump-command.private.txt'),execFileSync(process.execPath,['node_modules/supabase/dist/supabase.js','db','dump','--linked','--project-ref',ref,'--dry-run'],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:60000}),{mode:0o600}); } catch { throw Error('PRIVATE_BACKUP_CONNECTION_UNAVAILABLE'); }
@@ -76,7 +77,7 @@ try{
   proof.network='dedicated internal network, no published ports';console.log('Storage restored with original versions and downloaded through API with matching hashes:',proof.storageHttpVerified);
  }
  // Rehearse the exact pending migrations against restored data, without external network.
- const audit=JSON.parse(fs.readFileSync(auditDir+'/audit.json','utf8'));assert.equal(audit.project.ref,ref);assert.equal(audit.pending.length,retailOrders?1:retail?2:5);proof.migrations=[];
+ const audit=JSON.parse(fs.readFileSync(auditDir+'/audit.json','utf8'));assert.equal(audit.project.ref,ref);assert.equal(audit.pending.length,retailWorkspace?2:retailOrders?1:retail?2:5);proof.migrations=[];
  for(const item of audit.pending){const bytes=fs.readFileSync('supabase/migrations/'+item.file);assert.equal(hash(bytes),item.sha256);await put(recovery,'migration.sql',Buffer.from('begin;\n'+bytes.toString('utf8').replace(/^\uFEFF/,'')+'\ncommit;'));await run(['psql','-h','/tmp','-U','supabase_admin','-d','postgres','-Xq','-v','ON_ERROR_STOP=1','-f','/tmp/migration.sql']);proof.migrations.push(item);}
  if(retail){
   // This runs only in the private restored container. Borrow the restored owner's

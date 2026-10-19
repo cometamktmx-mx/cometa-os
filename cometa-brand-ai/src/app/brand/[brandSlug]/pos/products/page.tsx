@@ -1790,6 +1790,7 @@ function PosRetailProductsPage({ foodDirect = false }: { foodDirect?: boolean })
           }
           dismissible={!isSavingProduct}
         >
+        {!foodDirect && editingProduct && <Link className="mb-4 inline-block rounded-lg border px-4 py-3" href={`/brand/${brand.slug}/pos/inventory?productId=${editingProduct.id}&locationId=${selectedLocation?.id || ""}`}>Gestionar inventario</Link>}
         {!foodDirect ? <nav className="mb-4 flex gap-3" aria-label="Editor del producto"><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "catalog"} onClick={() => { if (webDirty && !window.confirm("Hay cambios sin guardar. Continuar descarta el borrador local.")) return; setWebDirty(false); setEditorTab("catalog"); }}>Producto y variantes</button><button type="button" className="rounded-lg border px-4 py-3" aria-pressed={editorTab === "web"} onClick={() => setEditorTab("web")}>Ficha web</button></nav> : null}
         {!foodDirect && editorTab === "web" ? <ProductWebEditor key={`${editingProduct?.id ?? "new"}-${selectedLocation?.id ?? "all"}`} brandSlug={brand.slug} productId={editingProduct?.id ?? null} locationId={selectedLocation?.id} onDirtyChange={setWebDirty} /> : null}
         {editorTab !== "web" && (!foodDirect ? <ProductSalesChannels key={editingProduct?.id ?? "new"} brandSlug={brand.slug} productId={editingProduct?.id ?? null} onDraftChange={setNewChannels} /> : null)}
