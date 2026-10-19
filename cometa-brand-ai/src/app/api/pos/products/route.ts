@@ -1,6 +1,6 @@
 import { publishInitialProductWeb } from "@/lib/pos/product-initial-web";
 import { physicalExclusions } from "@/lib/pos/product-channels";
-import { getPosMode } from "@/lib/pos/staff-server";
+import { getPosMode, requireRetailPermission } from "@/lib/pos/staff-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -376,6 +376,12 @@ export async function POST(request: Request) {
 
     const context = await requirePosMutationAccess({ brandSlug: brandSlug, operation: "products.write", locationId: body.locationId });
     const { admin, brand, user } = context;
+
+    if (await getPosMode(context) === "RETAIL") {
+      const operator = await requireRetailPermission(context, "PRODUCTS_WRITE");
+      if (body.locationId && operator?.locationId && body.locationId !== operator.locationId) return fail("Sucursal no autorizada.", 403, "POS_PERMISSION_REQUIRED");
+      if (Array.isArray(body.variants) && body.variants.some((value: ProductVariantInput | null) => !value || typeof value !== "object" || (value.unitCode || body.defaultUnitCode || "piece") === "piece" && !Number.isSafeInteger(Number(value.initialQuantity || 0)))) return fail("Las prendas requieren cantidades iniciales enteras.", 400, "POS_VALIDATION_ERROR");
+    }
 
     const requestedAction = optionalText(body.action, 40);
     if (requestedAction === "suggest_product_code") {

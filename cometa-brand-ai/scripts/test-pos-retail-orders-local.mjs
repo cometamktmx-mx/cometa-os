@@ -292,5 +292,6 @@ try{
  console.log('PASS followup creation/completion idempotent; attributed cash withdrawal once; concurrent close once with expected cash and difference; closed turn immutable');
  console.log('PASS per-piece 49/50/51, model identity, combination toggle, no factory price dependency, manual discount once, editable note/layaway, repeated settlement, original prices and historical preservation, zero floor');
  await (await import('./test-pos-product-discount.mjs')).testProductDiscount({sql,q,items,call,ids,brand,quote});
+ await (await import('./test-pos-retail-inventory.mjs')).testRetailInventory({sql,ids,brand,quote,actorSession});
 }catch(error){console.error('LOCAL RETAIL NOT CERTIFIED:',error.message);process.exitCode=1;}
 finally{if(created){await destination();await exec(['dropdb','-U','postgres',database]);console.log('Removed disposable database',database);}}
