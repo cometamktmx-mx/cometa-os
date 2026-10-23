@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "baseURL": "http://127.0.0.1:55431",
+  "app": "http://127.0.0.1:55400",
+  "tenant": "cash-close-synthetic-20261023",
+  "tests": [
+    "real Auth session and synthetic tenant in isolated database",
+    "unauthenticated cash history denied",
+    "real close committed: expected 1630.25, counted 1620.25, difference -10; snapshot saved",
+    "same close request key returns the saved close, with no second closing",
+    "authenticated history returns the persisted close",
+    "failed print job leaves saved close intact",
+    "history reprint preserves original balances and carries REIMPRESIÓN",
+    "real staff without REPRINT permission denied",
+    "real staff without CASH permission denied",
+    "real cross-location reprint denied",
+    "disabled host account denied",
+    "legacy close prints saved balances and explicitly omits missing original breakdown",
+    "real persisted QZ jobs: authorized dispatch fails, manual retry spools, concurrent double click coalesces, close never called",
+    "database row byte-for-byte unchanged by print/reprint/failure and exactly one close audit event"
+  ],
+  "closeId": "895e88c7-2262-44d3-aa50-a299804b306d"
+}
