@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-23",
+  "applicationCommit": "f52da3071c4e86da40a4d985a09d9cefe6cc7fa3",
+  "baseCommit": "b4039f0ee2a7a1612e0574b06ad689c6839bdfee",
+  "isolatedDatabase": {
+    "container": "cometa-cash-close-test-db",
+    "volume": "cometa-cash-close-validation-db-20261023",
+    "existingMigrationsLoaded": 96,
+    "syntheticDataOnly": true,
+    "priorResourcesModified": false
+  },
+  "checks": {
+    "integration": {
+      "passed": 14,
+      "failed": 0,
+      "qzPhysicalBridge": "simulated; real local authorization and persisted jobs"
+    },
+    "unit": {
+      "passed": 11,
+      "failed": 0
+    },
+    "buildTurbopack": "PASS exit 0",
+    "buildWebpack": "PASS exit 0",
+    "typescript": "PASS",
+    "eslintTargeted": "PASS",
+    "closeNavigation": "PASS",
+    "diffCheck": "PASS"
+  },
+  "scope": {
+    "vercelConfigurationChanged": false,
+    "newMigrations": false,
+    "dependenciesChanged": false,
+    "oldEnvironmentsCopied": false,
+    "productionUsedForTests": false
+  },
+  "notes": [
+    "Next 16.4.0 emitted an existing-version security recommendation; normal retries succeeded, without disabling checks or upgrading dependencies.",
+    "Physical print on Magenta Epson remains pending.",
+    "Publication uses existing COMETA repository, team and Vercel project after CLI authentication."
+  ]
+}

@@ -1,3 +1,4 @@
+import { savedCashCloseReceipt } from "@/lib/pos/cash-close-server";
 import { assertDeviceResource } from "@/lib/pos/device-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
@@ -256,9 +257,13 @@ export async function POST(request: Request) {
         "No se pudo cerrar la caja."
       );
 
-      return ok({
-        session: Array.isArray(data) ? data[0] : data,
-      });
+      const closedSession = Array.isArray(data) ? data[0] : data;
+      // The monetary command has already committed. Receipt preparation is a
+      // separate failure boundary and must never turn success into a close retry.
+      let receiptWarning: string | null = null;
+      try { await savedCashCloseReceipt(access, sessionId, true); }
+      catch { receiptWarning = "Cierre guardado. No se pudo conservar el desglose del ticket; la impresión mostrará solo los importes originales disponibles."; }
+      return ok({ session: closedSession, receiptWarning });
     }
 
     return fail(

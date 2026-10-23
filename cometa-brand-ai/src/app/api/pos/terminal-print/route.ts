@@ -1,7 +1,9 @@
+import { requireCashPrintAccess, savedCashCloseReceipt } from "@/lib/pos/cash-close-server";
+import { cashCloseReceiptHtml } from "@/lib/pos/cash-close-receipt";
 import { createHash } from "node:crypto";
 import { getBrandSlugFromUrl, requirePosContext, readJsonBody, uuidValue, PosApiError, ok, handlePosError } from "@/lib/pos/server";
 import { requirePosCommercialAccess } from "@/lib/pos/access";
-import { requireRetailPermission } from "@/lib/pos/staff-server";
+import { getStaffSession, requireStaffSession, requireRetailPermission } from "@/lib/pos/staff-server";
 import { automaticOperations, qzReceiptData, drawerCommand, thermalReceipt, samePrintOptions, type TerminalPrintConfig, type ThermalSale } from "@/lib/pos/thermal";
 import {retailOrderReceipt,type RetailOrder,type RetailPayment} from "@/lib/pos/retail-orders";
 
@@ -26,7 +28,14 @@ function config(value:unknown):TerminalPrintConfig {
 }
 export async function GET(request:Request) {
   try {
-    const c=await context(request); await requireRetailPermission(c,"PRODUCTS_READ");
+    const c=await context(request);
+    const operator=await getStaffSession(c);
+    if(!operator) throw new PosApiError(401,"POS_STAFF_SESSION_REQUIRED","Selecciona un operador.");
+    try { await requireRetailPermission(c,"PRODUCTS_READ"); }
+    catch (error) {
+      if (!(error instanceof PosApiError) || error.code !== "POS_STAFF_PERMISSION_REQUIRED") throw error;
+      await requireStaffSession(c,"CASH_OPERATE");
+    }
     const id=uuidValue(new URL(request.url).searchParams.get("terminalId"),"terminalId");
     const result=await c.admin.from("pos_terminal_print_settings").select("config").eq("id",id).eq("brand_slug",c.brand.slug).eq("host_user_id",c.user.userId).maybeSingle();
     if(result.error) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","No se pudo leer la configuración de terminal.");
@@ -81,6 +90,21 @@ export async function POST(request:Request) {
   if(found.error) throw new PosApiError(503,"POS_SCHEMA_NOT_READY","No se pudo consultar la terminal.");
   if(!found.data) {if(body.action==="automatic")return ok({jobs:[]});throw new PosApiError(400,"POS_VALIDATION_ERROR","Configura esta terminal primero.");}
   const settings=config(found.data.config);
+  if(body.action === "cash-close" || body.action === "cash-close-reprint") {
+    const sessionId = uuidValue(body.cashSessionId, "cashSessionId") as string;
+    const copy = body.action === "cash-close-reprint";
+    const {operator} = await requireCashPrintAccess(c, sessionId, copy);
+    const requestKey = uuidValue(body.requestKey, "requestKey");
+    if(settings.width !== 80) throw new PosApiError(409,"POS_WEB_CONFLICT","Configura papel de 80 mm para imprimir cierres.");
+    const receipt = await savedCashCloseReceipt(c, sessionId);
+    const previous = await c.admin.from("pos_terminal_print_jobs").select("id").eq("brand_slug",c.brand.slug).eq("cash_session_id",sessionId).contains("payload",{cashClose:true}).limit(1);
+    if(previous.error) throw new PosApiError(503,"POS_WEB_LOOKUP_FAILED","No se pudo consultar la impresión anterior.");
+    const payload = {printer:settings.printer,width:80,receiptMode:settings.receiptMode||"driver",data:qzReceiptData(cashCloseReceiptHtml(receipt,copy || Boolean(previous.data?.length)),settings),cashClose:true,cashCloseCopy:copy};
+    const job = await c.admin.from("pos_terminal_print_jobs").insert({brand_slug:c.brand.slug,terminal_id:terminalId,host_user_id:c.user.userId,staff_id:operator.staff.id,sale_id:null,cash_session_id:sessionId,kind:copy?"reprint":"receipt",reason:copy?"Reimpresión de cierre":"Cierre de caja",dedupe_key:`cash-close:${requestKey}`,payload}).select("id,payload,kind").single();
+    if(job.error?.code === "23505") throw new PosApiError(409,"POS_WEB_CONFLICT","Esta solicitud de impresión ya fue registrada. Revisa la cola antes de reintentar.");
+    if(job.error || !job.data) throw new PosApiError(503,"POS_WEB_SAVE_FAILED","El cierre está guardado; no se pudo registrar la impresión.");
+    return ok({jobs:[job.data]});
+  }
   if(body.action === "order-reprint") {
     const operator=await requireRetailPermission(c,"REPRINT");
     if(!operator)throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Selecciona un operador.");
@@ -139,12 +163,14 @@ export async function POST(request:Request) {
     return ok({jobs});
   }
   if(body.action === "result" || body.action === "sign") {
-    const staff=await requireRetailPermission(c,"PRODUCTS_READ");
-    if(!staff) throw new PosApiError(403,"POS_PERMISSION_REQUIRED","Disponible para comercio.");
+    const staff=await getStaffSession(c);
+    if(!staff) throw new PosApiError(403,"POS_STAFF_SESSION_REQUIRED","Selecciona un operador.");
     const jobId=uuidValue(body.jobId,"jobId");
     const result=await c.admin.from("pos_terminal_print_jobs").select("*").eq("id",jobId).eq("terminal_id",terminalId).eq("brand_slug",c.brand.slug).eq("host_user_id",c.user.userId).eq("staff_id",staff.staff.id).single();
     if(result.error||!result.data)throw new PosApiError(404,"POS_NOT_FOUND","Solicitud no disponible.");
     const job=result.data;
+    if(job.payload.cashClose === true) await requireCashPrintAccess(c,job.cash_session_id,job.payload.cashCloseCopy === true);
+    else await requireRetailPermission(c,"PRODUCTS_READ");
     if(body.action === "result") {
       if(!["spooled","failed","uncertain"].includes(String(body.status)))throw new PosApiError(400,"POS_VALIDATION_ERROR","Resultado inválido.");
       if(!["requested","dispatched"].includes(job.status) || job.status==="requested" && body.status!=="failed")throw new PosApiError(409,"POS_WEB_CONFLICT","La solicitud no admite ese resultado.");
@@ -153,7 +179,7 @@ export async function POST(request:Request) {
       if(saved.error)throw new PosApiError(503,"POS_WEB_SAVE_FAILED","No se pudo registrar el resultado.");
       return ok({recorded:true,physicalConfirmation:false});
     }
-    await requireRetailPermission(c,job.kind==="drawer" && !job.sale_id && !job.payload.orderPaymentId ? "DRAWER" : job.kind==="test" ? "SETTINGS" : job.kind==="reprint" ? "REPRINT" : "SELL");
+    if(job.payload.cashClose !== true) await requireRetailPermission(c,job.kind==="drawer" && !job.sale_id && !job.payload.orderPaymentId ? "DRAWER" : job.kind==="test" ? "SETTINGS" : job.kind==="reprint" ? "REPRINT" : "SELL");
     if(!manualTest && !signing.health.ready) throw new PosApiError(503,"POS_SCHEMA_NOT_READY",signing.health.message);
     if(typeof body.message!=="string" || body.message.length>250000)throw new PosApiError(400,"POS_VALIDATION_ERROR","Solicitud de impresión inválida.");
     const message=JSON.parse(body.message) as {call?:string;params?:{printer?:unknown;data?:unknown;options?:Record<string,unknown>};timestamp?:number};
