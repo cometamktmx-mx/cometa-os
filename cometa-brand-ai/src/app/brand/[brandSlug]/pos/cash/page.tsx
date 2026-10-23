@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { printOperation } from "@/lib/pos/thermal-client";
+import { retailPermissions } from "@/lib/pos/retail-permissions";
 import { PosCashAdjustment } from "../../components/pos-cash-adjustment";
 import { PosCashHistory } from "../../components/pos-cash-history";
 import { isFoodProfile } from "@/lib/pos/surface-policy";
@@ -167,6 +169,10 @@ const MOVEMENT_OPTIONS: Array<{
 
 export default function PosCashPage() {
   const { brand, profileCode, currentOperator } = usePosContext();
+  const canPrintClose = Boolean(currentOperator && (isFoodProfile(profileCode)
+    ? staffHasAnyRole(currentOperator, ["CASHIER", "MANAGER", "ADMIN"])
+    : retailPermissions(currentOperator).includes("CASH")));
+  const canReprintClose = canPrintClose && Boolean(currentOperator && (isFoodProfile(profileCode) || retailPermissions(currentOperator).includes("REPRINT")));
   const [historySessionId, setHistorySessionId] = useState("");
   const pendingCommand = useRef<{ signature: string; key: string } | null>(null);
   function requestKey(payload: unknown) {
@@ -392,7 +398,7 @@ export default function PosCashPage() {
       setError(null);
       setNotice(null);
 
-      const response = await apiRequest<{ ok: true; session: CashSession }>(
+      const response = await apiRequest<{ ok: true; session: CashSession; receiptWarning?: string | null }>(
         "/api/pos/cash-sessions",
         {
           method: "POST",
@@ -410,7 +416,7 @@ export default function PosCashPage() {
       pendingCommand.current = null;
       setCloseResult(response.session);
       setCloseStep(4);
-      setNotice("Caja cerrada. El resultado del corte quedó registrado.");
+      setNotice(response.receiptWarning || "Caja cerrada. El resultado del corte quedó registrado.");
       await loadCashData();
     } catch (closeError) {
       setError(getErrorMessage(closeError));
@@ -590,6 +596,7 @@ export default function PosCashPage() {
                 key={session.id}
                 session={session}
                 currency={getSessionCurrency(session, locations)}
+                printAction={canReprintClose ? <CashClosePrintButton brand={brand.slug} sessionId={session.id} copy /> : null}
               />
             ))}
           </div>
@@ -636,6 +643,7 @@ export default function PosCashPage() {
         onCountedCashChange={setCountedCash}
         onNotesChange={setCloseNotes}
         onConfirm={() => void handleCloseSession()}
+        printAction={closeResult && canPrintClose ? <CashClosePrintButton brand={brand.slug} sessionId={closeResult.id} /> : null}
       />
     </PosPage>
   );
@@ -756,7 +764,7 @@ function OpenSessionDashboard({
   );
 }
 
-function ClosedSessionHistory({ session, currency }: { session: CashSession; currency: string }) {
+function ClosedSessionHistory({ session, currency, printAction }: { session: CashSession; currency: string; printAction: React.ReactNode }) {
   const summary = getSummary(session);
   const difference = toNumber(session.difference);
   const state = getDifferenceState(difference);
@@ -794,6 +802,7 @@ function ClosedSessionHistory({ session, currency }: { session: CashSession; cur
         <HistoryLine label="Retiros/gastos" value={formatMoney(toNumber(summary.cash_expenses) + toNumber(summary.cash_withdrawals), currency)} />
       </div>
 
+      {printAction ? <div className="mt-3">{printAction}</div> : null}
       {session.notes ? (
         <p className="mt-3 rounded-[var(--pos-radius-sm)] bg-[var(--pos-canvas)] px-3 py-2 text-xs leading-5 text-[var(--pos-text-muted)]">
           Nota: {session.notes}
@@ -904,6 +913,7 @@ function CloseCashModal({
   onCountedCashChange,
   onNotesChange,
   onConfirm,
+  printAction,
 }: {
   session: CashSession | null;
   result: CashSession | null;
@@ -918,6 +928,7 @@ function CloseCashModal({
   onCountedCashChange: (value: string) => void;
   onNotesChange: (value: string) => void;
   onConfirm: () => void;
+  printAction: React.ReactNode;
 }) {
   const summary = session ? getSummary(session) : null;
   const difference = result ? toNumber(result.difference) : 0;
@@ -994,6 +1005,7 @@ function CloseCashModal({
             <h3 className={`mt-2 text-2xl font-bold ${state.tone === "success" ? "text-[var(--pos-success)]" : state.tone === "danger" ? "text-[var(--pos-danger)]" : "text-[var(--pos-warning)]"}`}>{state.label}</h3>
             <p className="mt-1 text-sm text-[var(--pos-text-secondary)]">El resultado quedó guardado en el historial de cortes.</p>
           </div>
+          {printAction}
           <div className="grid grid-cols-3 gap-3 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] p-3">
             <SmallValue label="Esperado" value={formatNullableMoney(result.expected_cash, currency)} />
             <SmallValue label="Contado" value={formatNullableMoney(result.counted_cash, currency)} />
@@ -1296,4 +1308,30 @@ async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Ocurrió un error inesperado.";
+}
+
+// Printing is deliberately separate from the close command. Retrying creates
+// only another QZ job, never another close/payment/movement.
+function CashClosePrintButton({ brand, sessionId, copy = false }: { brand: string; sessionId: string; copy?: boolean }) {
+  const busy = useRef(false);
+  const [printing, setPrinting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [failed, setFailed] = useState(false);
+  async function print() {
+    if (busy.current) return;
+    busy.current = true;
+    setPrinting(true); setMessage("");
+    try {
+      const result = await printOperation(brand, { action: copy ? "cash-close-reprint" : "cash-close", cashSessionId: sessionId, requestKey: crypto.randomUUID() });
+      setMessage(result + ". Impresión física por confirmar."); setFailed(false);
+    } catch (printError) {
+      setFailed(true);
+      const detail = getErrorMessage(printError).replace(/Venta conservada|Pago conservado/g, "Cierre conservado").replace("cola Windows", "cola de la impresora");
+      setMessage(`${detail} El cierre permanece guardado. Revisa la cola de la impresora antes de reintentar para evitar dos tickets.`);
+    } finally { busy.current = false; setPrinting(false); }
+  }
+  return <div className="grid gap-2">
+    <PosButton variant="secondary" disabled={printing} loading={printing} onClick={() => void print()}>{failed ? "Reintentar impresión del cierre" : copy ? "Reimprimir cierre" : "Imprimir cierre"}</PosButton>
+    {message ? <p role={failed ? "alert" : "status"} className="text-sm text-[var(--pos-text-secondary)]">{message}</p> : null}
+  </div>;
 }

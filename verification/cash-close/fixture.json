@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "sessionId": "00000000-0000-4000-8000-000000000123",
+  "brand": "TIENDA DEMO · DATOS SINTÉTICOS",
+  "location": "Sucursal de prueba",
+  "register": "Caja DEMO 01",
+  "operator": "Operadora sintética",
+  "openingOperator": "Operador de apertura",
+  "openedAt": "2026-10-23T13:00:00Z",
+  "closedAt": "2026-10-23T22:00:00Z",
+  "currency": "MXN",
+  "timezone": "America/Mexico_City",
+  "opening": 500,
+  "expected": 1630.25,
+  "counted": 1620.25,
+  "difference": -10,
+  "summary": {
+    "cash_sales": 1000.25,
+    "card_sales": 800,
+    "transfer_sales": 450,
+    "wallet_sales": 50,
+    "other_sales": 25,
+    "cash_income": 100,
+    "cash_deposits": 200,
+    "cash_expenses": 50,
+    "cash_withdrawals": 120,
+    "order_cash": 200,
+    "order_card": 75,
+    "order_transfer": 100
+  },
+  "transfers": {
+    "verified": 300,
+    "pending": 250
+  }
+}
