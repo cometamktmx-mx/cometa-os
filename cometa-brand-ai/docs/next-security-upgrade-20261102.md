@@ -1,6 +1,6 @@
 # Actualización de seguridad Next.js — 2 de noviembre de 2026
 
-Rama: `security/next-security-20261102`.
+Rama inicial: `security/next-security-20261102`. Rama de publicación limpia: `security/next-security-publish-20261102`, desde `origin/main` con únicamente los commits de seguridad/build. El checkpoint local QZ `3d80242` se excluye del PR y se conserva en la copia principal.
 
 Copia de trabajo aislada: `/Users/camiloguerrero/Downloads/supabase-recovery-20261014/cometa-security-next-20261102`.
 
@@ -101,4 +101,7 @@ Vercel documenta la resolución del [Build Command](https://vercel.com/docs/buil
 
 Para subir mediante CLI se prepara un snapshot limpio desde el commit: únicamente archivos versionados, sin `.env`, `.git`, `node_modules`, artefactos locales ni el harness QZ pendiente. Se utiliza el proyecto existente y un candidato Production sin asignar dominios hasta verificar READY y logs Next 16.4.4 / webpack. El snapshot del storefront conserva su Root Directory existente; el principal mantiene la integración Git y el commit de merge.
 
-No se ejecutan migraciones, seeds, cobros, ventas, cierres ni impresiones remotas durante publicación/verificación. Las regresiones operativas son locales y sintéticas. La sincronización final de la copia principal se hace por fast-forward conservando los archivos QZ modificados y su documento sin versionar.
+No se ejecutan migraciones, seeds, cobros, ventas, cierres ni impresiones remotas durante publicación/verificación. Las regresiones operativas son locales y sintéticas. La copia principal conserva un commit local (`3d80242`) además de QZ pendiente. La sincronización final integra `origin/main` mediante merge local, preservando ese commit y los archivos modificados/sin versionar; no se fuerza un reset ni se publica ese trabajo QZ.
+
+
+Para conservar la separación del PR se verificó que su diff no incluye `LOCAL-DEVELOPMENT.md`, `test-pos-retail-terminal.mjs` ni `verification/cash-close/local-gateway.cjs` del checkpoint QZ local. El simulador de terminal de `origin/main` tiene el defecto ya conocido de dependencias simuladas de cash-close; la validación de esta publicación utiliza el harness corregido de `3d80242` en `build/security-validation/` (ignorado), contra los módulos de esta rama. El arreglo del simulador no se incorpora incidentalmente al parche de seguridad. La matriz del cliente QZ pendiente se ejecuta aparte, también como harness temporal.
