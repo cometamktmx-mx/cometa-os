@@ -3,5 +3,25 @@
     "deploymentEnabled": {
       "delivery/magenta-20261014": false
     }
-  }
+  },
+  "framework": "nextjs",
+  "installCommand": "npm ci --prefix ../..",
+  "redirects": [
+    {
+      "source": "/_next/image",
+      "destination": "/image-service-disabled",
+      "statusCode": 307
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        }
+      ]
+    }
+  ]
 }
