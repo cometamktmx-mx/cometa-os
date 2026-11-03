@@ -30,6 +30,12 @@ export async function savedCashCloseReceipt(context: PosRequestContext, sessionI
   assertDatabaseResult(closed.error, "No se pudo leer el cierre guardado.");
   const s = closed.data;
   if (!s || s.status !== "closed" || !s.closed_at || s.expected_cash === null || s.counted_cash === null || s.difference === null) throw new PosApiError(409, "POS_WEB_CONFLICT", "El cierre está incompleto.");
+  if (s.reserved_cash != null) {
+    const document = await admin.from("pos_retail_cash_documents").select("document").eq("brand_slug", brand.slug).eq("session_id", sessionId).single();
+    assertDatabaseResult(document.error, "No se pudo leer el documento original del cierre.");
+    if (document.data?.document?.version !== 2) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Falta el documento original del cierre. No se recalculó.");
+    return document.data.document as CashCloseReceipt;
+  }
   const event = await admin.from("pos_staff_audit_events").select("id,metadata").eq("brand_slug", brand.slug).eq("cash_session_id", sessionId).eq("action", "CASH_SESSION_CLOSE").order("created_at").limit(1).maybeSingle();
   assertDatabaseResult(event.error, "No se pudo leer el comprobante del cierre.");
   if (event.data?.metadata?.cashCloseReceipt?.version === 1) return event.data.metadata.cashCloseReceipt as CashCloseReceipt;

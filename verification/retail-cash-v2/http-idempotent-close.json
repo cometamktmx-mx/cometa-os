@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "expected": 2500,
+  "counted": 2400,
+  "difference": -100,
+  "reserved": 500,
+  "declaredDelivery": 1900,
+  "warning": null
+}

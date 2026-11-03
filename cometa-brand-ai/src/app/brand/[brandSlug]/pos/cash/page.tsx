@@ -33,6 +33,7 @@ type Location = {
   name: string;
   code: string;
   currency: string;
+  timezone?: string;
 };
 
 type Register = {
@@ -77,6 +78,7 @@ type CashSessionSummary = {
 };
 
 type CashSession = {
+  reserveReceipt?: CashReserve | null;
   retailDeposits?:{cash:number;card:number;transfer:number}|null;
   openingStaffName?: string | null;
   closingStaffName?: string | null;
@@ -84,7 +86,15 @@ type CashSession = {
   location_id: string;
   register_id: string;
   status: "open" | "closed";
-  opening_amount: number | string;
+  reserved_cash?: number | string | null;
+  declared_delivery?: number | string | null;
+  source_cash_session_id?: string | null;
+  received_cash?: number | string | null;
+  receipt_difference?: number | string | null;
+  receipt_reason?: string | null;
+  additional_cash?: number | string | null;
+  additional_cash_reason?: string | null;
+  opening_amount: number | string | null;
   expected_cash: number | string | null;
   counted_cash: number | string | null;
   difference: number | string | null;
@@ -101,6 +111,7 @@ type CashSession = {
     id: string;
     name: string;
     code: string;
+    timezone?: string;
   } | null;
 };
 
@@ -110,10 +121,13 @@ type BootstrapResponse = {
   registers: Register[];
 };
 
+type CashReserve = { source_session_id: string; register_id: string; reserved_amount: number; target_session_id: string | null; received_amount: number | null; discrepancy: number | null; reason: string | null };
 type SessionsResponse = {
   ok: true;
   sessions: CashSession[];
   blindClose: boolean;
+  canSupervise: boolean;
+  reserves: CashReserve[];
 };
 
 type FoodCashSnapshotResponse = {
@@ -144,13 +158,13 @@ const MOVEMENT_OPTIONS: Array<{
   {
     type: "income",
     label: "Entrada",
-    description: "Efectivo que entra a la caja.",
+    description: "Aporte físico nuevo. Nunca para cuadrar o separar el fondo.",
     direction: "in",
   },
   {
     type: "deposit",
     label: "Depósito",
-    description: "Fondo adicional para operar.",
+    description: "Dinero adicional realmente recibido, no una reserva del cajón.",
     direction: "in",
   },
   {
@@ -168,12 +182,18 @@ const MOVEMENT_OPTIONS: Array<{
 ];
 
 export default function PosCashPage() {
+  const { brand, currentOperator } = usePosContext();
+  return <PosCashWorkspace key={`${brand.slug}:${currentOperator?.id || "locked"}`} />;
+}
+
+function PosCashWorkspace() {
   const { brand, profileCode, currentOperator } = usePosContext();
   const canPrintClose = Boolean(currentOperator && (isFoodProfile(profileCode)
     ? staffHasAnyRole(currentOperator, ["CASHIER", "MANAGER", "ADMIN"])
     : retailPermissions(currentOperator).includes("CASH")));
   const canReprintClose = canPrintClose && Boolean(currentOperator && (isFoodProfile(profileCode) || retailPermissions(currentOperator).includes("REPRINT")));
   const [historySessionId, setHistorySessionId] = useState("");
+  const loadVersion = useRef(0);
   const pendingCommand = useRef<{ signature: string; key: string } | null>(null);
   function requestKey(payload: unknown) {
     const signature = JSON.stringify({ brand: brand.slug, payload });
@@ -184,11 +204,19 @@ export default function PosCashPage() {
   const [registers, setRegisters] = useState<Register[]>([]);
   const [sessions, setSessions] = useState<CashSession[]>([]);
   const [pendingAccounts, setPendingAccounts] = useState<PendingFoodAccount[]>([]);
+  const [reserves, setReserves] = useState<CashReserve[]>([]);
+  const [canSupervise, setCanSupervise] = useState(false);
+  const [supervision, setSupervision] = useState(false);
+  const [receivedCash, setReceivedCash] = useState("0");
+  const [receiptReason, setReceiptReason] = useState("");
+  const [additionalReason, setAdditionalReason] = useState("");
+  const [reservedCash, setReservedCash] = useState("");
   const [blindClose, setBlindClose] = useState(true);
   const [selectedRegisterId, setSelectedRegisterId] = useState("");
   const [openingAmount, setOpeningAmount] = useState("0");
   const [movementSession, setMovementSession] = useState<CashSession | null>(null);
   const [movementType, setMovementType] = useState<MovementType>("income");
+  const [physicalContribution, setPhysicalContribution] = useState(false);
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
   const [closeSession, setCloseSession] = useState<CashSession | null>(null);
@@ -202,6 +230,7 @@ export default function PosCashPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadCashData = useCallback(async () => {
+    const version = ++loadVersion.current;
     try {
       setIsLoading(true);
       setError(null);
@@ -211,17 +240,20 @@ export default function PosCashPage() {
           `/api/pos/bootstrap?brandSlug=${encodeURIComponent(brand.slug)}`
         ),
         apiRequest<SessionsResponse>(
-          `/api/pos/cash-sessions?brandSlug=${encodeURIComponent(brand.slug)}`
+          `/api/pos/cash-sessions?brandSlug=${encodeURIComponent(brand.slug)}${supervision ? "&supervision=1" : ""}`
         ),
         isFoodProfile(profileCode)
           ? apiRequest<FoodCashSnapshotResponse>(`/api/pos/food?brandSlug=${encodeURIComponent(brand.slug)}`)
           : Promise.resolve<FoodCashSnapshotResponse | null>(null),
       ]);
 
+      if (version !== loadVersion.current) return;
       setLocations(bootstrap.locations || []);
       setRegisters(bootstrap.registers || []);
       setSessions(history.sessions || []);
       setBlindClose(history.blindClose);
+      setReserves(history.reserves || []);
+      setCanSupervise(history.canSupervise);
       setHistorySessionId((current) => current || history.sessions.find((session) => session.status === "open")?.id || history.sessions[0]?.id || "");
       setPendingAccounts(food ? buildPendingFoodAccounts(food.snapshot) : []);
 
@@ -237,11 +269,12 @@ export default function PosCashPage() {
 
       setSelectedRegisterId((current) => current || firstAvailable?.id || "");
     } catch (loadError) {
+      if (version !== loadVersion.current) return;
       setError(getErrorMessage(loadError));
     } finally {
-      setIsLoading(false);
+      if (version === loadVersion.current) setIsLoading(false);
     }
-  }, [brand.slug, profileCode]);
+  }, [brand.slug, profileCode, supervision, setIsLoading, setError, setLocations, setRegisters, setSessions, setBlindClose, setReserves, setCanSupervise, setHistorySessionId, setPendingAccounts, setSelectedRegisterId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -278,6 +311,11 @@ export default function PosCashPage() {
     (location) => location.id === selectedRegister?.location_id
   );
   const closeCountedValue = parseMoney(countedCash);
+  const closeReservedValue = parseMoney(reservedCash);
+  const retail = !isFoodProfile(profileCode);
+  const pendingReserve = reserves.find(r => r.register_id === selectedRegisterId && !r.target_session_id);
+  const receivedValue = parseMoney(receivedCash);
+  const receiptDiffers = !!pendingReserve && receivedValue !== null && Math.round(receivedValue * 100) !== Math.round(Number(pendingReserve.reserved_amount) * 100);
 
   async function handleOpenSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -288,6 +326,10 @@ export default function PosCashPage() {
       return;
     }
 
+    if (retail && ((receivedValue === null || receivedValue < 0) ||
+      ((receiptDiffers || !pendingReserve && (receivedValue || 0) > 0) && receiptReason.trim().length < 3) || (amount > 0 && additionalReason.trim().length < 3))) {
+      setError("Confirma lo recibido; indica el motivo de cualquier discrepancia y del aporte físico adicional."); return;
+    }
     try {
       setPendingAction("open");
       setError(null);
@@ -300,9 +342,12 @@ export default function PosCashPage() {
           body: JSON.stringify({
             brandSlug: brand.slug,
             action: "open",
-            requestKey: requestKey({ action: "open", register: selectedRegisterId, amount }),
+            requestKey: requestKey({ action: "open", register: selectedRegisterId, amount, receivedCash, receiptReason, additionalReason, source: pendingReserve?.source_session_id }),
             registerId: selectedRegisterId,
             openingAmount: amount,
+            ...(retail ? { reserveSessionId: pendingReserve?.source_session_id || null,
+              receivedCash: receivedValue, receiptReason: receiptReason.trim() || null,
+              additionalCash: amount, additionalReason: additionalReason.trim() || null } : {}),
           }),
         }
       );
@@ -310,6 +355,7 @@ export default function PosCashPage() {
       pendingCommand.current = null;
       setNotice(`Turno abierto en ${selectedRegister?.name || response.session.register_id}.`);
       setOpeningAmount("0");
+      setReceivedCash("0"); setReceiptReason(""); setAdditionalReason("");
       setSelectedRegisterId("");
       await loadCashData();
     } catch (openError) {
@@ -324,6 +370,7 @@ export default function PosCashPage() {
     setMovementSession(session);
     setMovementType("income");
     setMovementAmount("");
+    setPhysicalContribution(false);
     setMovementReason("");
   }
 
@@ -336,6 +383,9 @@ export default function PosCashPage() {
       return;
     }
 
+    if (!isFoodProfile(profileCode) && ["income", "deposit"].includes(movementType) && !physicalContribution) {
+      setError("Confirma que hubo un aporte físico NUEVO; reservar dinero existente se declara al cerrar."); return;
+    }
     if (!movementReason.trim()) {
       setError("Indica el motivo del movimiento.");
       return;
@@ -354,6 +404,7 @@ export default function PosCashPage() {
             requestKey: requestKey({ action: "movement", session: movementSession.id, movementType, amount, reason: movementReason.trim() }),
             cashSessionId: movementSession.id,
             movementType,
+            physicalContributionConfirmed: physicalContribution,
             amount,
             reason: movementReason.trim(),
           }),
@@ -376,6 +427,7 @@ export default function PosCashPage() {
     setCloseSession(session);
     setCloseStep(1);
     setCountedCash("");
+    setReservedCash("");
     setCloseNotes("");
     setCloseResult(null);
   }
@@ -393,6 +445,9 @@ export default function PosCashPage() {
       return;
     }
 
+    if (retail && (closeReservedValue === null || closeReservedValue < 0 || closeReservedValue > closeCountedValue)) {
+      setError("El fondo que se deja es obligatorio: entre cero y el efectivo contado total."); return;
+    }
     try {
       setPendingAction("close");
       setError(null);
@@ -405,9 +460,10 @@ export default function PosCashPage() {
           body: JSON.stringify({
             brandSlug: brand.slug,
             action: "close",
-            requestKey: requestKey({ action: "close", session: closeSession.id, countedCash, closeNotes }),
+            requestKey: requestKey({ action: "close", session: closeSession.id, countedCash, reservedCash, closeNotes }),
             sessionId: closeSession.id,
             countedCash: closeCountedValue,
+            ...(retail ? { reservedCash: closeReservedValue } : {}),
             notes: closeNotes.trim() || undefined,
           }),
         }
@@ -478,6 +534,7 @@ export default function PosCashPage() {
         <Metric label="Cortes recientes" value={String(closedSessions.length)} icon="receipt" />
       </section>
 
+      {retail && canSupervise && <PosButton variant="secondary" onClick={() => setSupervision(v => !v)}>{supervision ? "Volver a conteo ciego" : "Ver supervisión autorizada por mi PIN"}</PosButton>}
       <FeedbackBanner error={error} notice={notice} onRetry={() => void loadCashData()} />
 
       <section className="grid gap-4 min-[1180px]:grid-cols-[340px_minmax(0,1fr)] min-[1180px]:items-start">
@@ -518,7 +575,7 @@ export default function PosCashPage() {
                 <select
                   required
                   value={selectedRegisterId}
-                  onChange={(event) => setSelectedRegisterId(event.target.value)}
+                  onChange={(event) => { setSelectedRegisterId(event.target.value); setReceivedCash(reserves.some(r => r.register_id === event.target.value && !r.target_session_id) ? "" : "0"); setReceiptReason(""); }}
                   className="pos-ui-focus h-11 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] px-3 text-sm text-[var(--pos-text-primary)] outline-none"
                 >
                   <option value="">Seleccionar caja</option>
@@ -530,13 +587,22 @@ export default function PosCashPage() {
                 </select>
               </label>
 
+              {retail && pendingReserve ? <div className="grid gap-3 rounded-xl border border-cyan-300/30 p-3">
+                <p className="font-semibold">Fondo pendiente: {formatMoney(Number(pendingReserve.reserved_amount), selectedLocation?.currency || "MXN")}</p>
+                <p className="text-xs">Del cierre {pendingReserve.source_session_id.slice(0, 8)} de esta misma caja. Cuenta lo que realmente recibes; no lo registres otra vez como entrada.</p>
+                <MoneyField label="Fondo realmente recibido *" value={receivedCash} onChange={setReceivedCash} placeholder="0.00" />
+                {receiptDiffers && <label className="grid gap-2 text-sm">Motivo de la discrepancia *<input required minLength={3} maxLength={1000} className="rounded-lg bg-[var(--pos-canvas)] p-3" value={receiptReason} onChange={e => setReceiptReason(e.target.value)} /><span>Discrepancia: {formatSignedMoney((receivedValue || 0) - Number(pendingReserve.reserved_amount), selectedLocation?.currency || "MXN")}. No cambia el cierre anterior.</span></label>}
+              </div> : retail ? <div className="grid gap-3"><p className="text-xs">Sin reserva vinculada. Confirma el fondo existente; no se atribuye a un cierre histórico ni incluye el aporte adicional de abajo.</p><MoneyField label="Fondo existente confirmado, sin reserva vinculada *" value={receivedCash} onChange={setReceivedCash} placeholder="0.00" />{(receivedValue || 0) > 0 && <label className="grid gap-2 text-sm">Origen / motivo del fondo independiente *<input required minLength={3} maxLength={1000} className="rounded-lg bg-[var(--pos-canvas)] p-3" value={receiptReason} onChange={e => setReceiptReason(e.target.value)} /></label>}</div> : null}
               <MoneyField
-                label="Fondo inicial *"
+                label={retail ? "Aporte físico adicional (0 si no hay) *" : "Fondo inicial *"}
                 value={openingAmount}
                 onChange={setOpeningAmount}
                 placeholder="0.00"
               />
 
+              {retail && <><p className="text-xs">Solo dinero NUEVO aportado físicamente. Separar dinero del cajón para dejar fondo no es una entrada.</p>
+                {(parseMoney(openingAmount) || 0) > 0 && <label className="grid gap-2 text-sm">Origen / motivo del aporte *<input required minLength={3} maxLength={1000} className="rounded-lg bg-[var(--pos-canvas)] p-3" value={additionalReason} onChange={e => setAdditionalReason(e.target.value)} /></label>}
+                <p className="text-sm">Fondo inicial = recibido + aporte: {formatMoney((receivedValue || 0) + (parseMoney(openingAmount) || 0), selectedLocation?.currency || "MXN")}. Se registra una vez en la apertura.</p></>}
               {selectedRegister ? (
                 <div className="rounded-[var(--pos-radius-sm)] bg-[var(--pos-canvas)] p-3">
                   <p className="text-[11px] font-medium text-[var(--pos-text-muted)]">Turno a iniciar</p>
@@ -611,12 +677,16 @@ export default function PosCashPage() {
         open={Boolean(movementSession)}
         session={movementSession}
         currency={movementSession ? getSessionCurrency(movementSession, locations) : "MXN"}
+        errorMessage={error}
         movementType={movementType}
+        retail={retail}
+        physicalContribution={physicalContribution}
+        onPhysicalContributionChange={setPhysicalContribution}
         amount={movementAmount}
         reason={movementReason}
         isSaving={pendingAction === "movement"}
         onClose={() => pendingAction !== "movement" && setMovementSession(null)}
-        onMovementTypeChange={setMovementType}
+        onMovementTypeChange={value => { setMovementType(value); setPhysicalContribution(false); }}
         onAmountChange={setMovementAmount}
         onReasonChange={setMovementReason}
         onSave={() => void handleCreateMovement()}
@@ -626,8 +696,12 @@ export default function PosCashPage() {
         session={closeSession}
         result={closeResult}
         currency={closeSession ? getSessionCurrency(closeSession, locations) : "MXN"}
+        errorMessage={error}
         step={closeStep}
         countedCash={countedCash}
+        reservedCash={reservedCash}
+        retail={retail}
+        onReservedCashChange={setReservedCash}
         closeNotes={closeNotes}
         isSaving={pendingAction === "close"}
         onClose={closeCashModal}
@@ -635,6 +709,9 @@ export default function PosCashPage() {
           if (closeStep === 2 && (closeCountedValue === null || closeCountedValue < 0)) {
             setError("Ingresa el efectivo contado antes de continuar.");
             return;
+          }
+          if (retail && closeStep === 2 && (closeReservedValue === null || closeReservedValue < 0 || closeReservedValue > (closeCountedValue || 0))) {
+            setError("Indica el fondo que dejas, entre cero y lo contado."); return;
           }
           setError(null);
           setCloseStep((current) => (current === 1 ? 2 : 3));
@@ -662,6 +739,9 @@ function OpenSessionDashboard({
   onCreateMovement: () => void;
   onClose: () => void;
 }) {
+  const oldDay = new Intl.DateTimeFormat("en-CA", { timeZone: session.location?.timezone || "America/Mexico_City" }).format(new Date(session.opened_at)) !== new Intl.DateTimeFormat("en-CA", { timeZone: session.location?.timezone || "America/Mexico_City" }).format(new Date());
+  const ageWarning = oldDay ? <p role="alert" className="rounded-lg bg-amber-500/15 p-3 text-amber-200">Este turno pertenece a un día anterior ({formatDateTime(session.opened_at)}). Cierra este turno y abre uno nuevo para el relevo. Sus operaciones conservan sus fechas originales.</p> : null;
+  if (!showExpected) return <PosCard padding="compact"><div className="grid gap-4">{ageWarning}<h3 className="font-semibold">{session.register?.name || "Caja"} · Turno abierto</h3><p>Abrió: {session.openingStaffName || "No registrado"} · {formatDateTime(session.opened_at)}</p><p>Conteo ciego activo. Los importes del turno se revelan después de confirmar el cierre.</p><div className="flex gap-3"><PosButton variant="secondary" onClick={onCreateMovement}>+ Movimiento físico</PosButton><PosButton variant="danger" onClick={onClose}>Cerrar turno y preparar relevo</PosButton></div></div></PosCard>;
   const summary = getSummary(session);
   const movements = normalizeMovements(summary.recent_movements);
 
@@ -691,6 +771,7 @@ function OpenSessionDashboard({
       </div>
 
       <div className="grid gap-4 p-4">
+        {ageWarning}
         <div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">Pagos por método</p>
@@ -802,6 +883,7 @@ function ClosedSessionHistory({ session, currency, printAction }: { session: Cas
         <HistoryLine label="Retiros/gastos" value={formatMoney(toNumber(summary.cash_expenses) + toNumber(summary.cash_withdrawals), currency)} />
       </div>
 
+      <CashAllocation session={session} currency={currency} />
       {printAction ? <div className="mt-3">{printAction}</div> : null}
       {session.notes ? (
         <p className="mt-3 rounded-[var(--pos-radius-sm)] bg-[var(--pos-canvas)] px-3 py-2 text-xs leading-5 text-[var(--pos-text-muted)]">
@@ -813,10 +895,11 @@ function ClosedSessionHistory({ session, currency, printAction }: { session: Cas
 }
 
 function MovementModal({
-  open,
+  open, errorMessage,
   session,
   currency,
   movementType,
+  retail, physicalContribution, onPhysicalContributionChange,
   amount,
   reason,
   isSaving,
@@ -826,10 +909,11 @@ function MovementModal({
   onReasonChange,
   onSave,
 }: {
-  open: boolean;
+  open: boolean; errorMessage: string | null;
   session: CashSession | null;
   currency: string;
   movementType: MovementType;
+  retail: boolean; physicalContribution: boolean; onPhysicalContributionChange: (value: boolean) => void;
   amount: string;
   reason: string;
   isSaving: boolean;
@@ -856,6 +940,7 @@ function MovementModal({
       }
     >
       <div className="grid gap-5">
+        {errorMessage && <p role="alert" className="rounded-lg bg-rose-500/15 p-3 text-sm text-rose-200">{errorMessage}</p>}
         <div className="grid grid-cols-2 gap-2">
           {MOVEMENT_OPTIONS.map((option) => {
             const active = option.type === movementType;
@@ -878,9 +963,10 @@ function MovementModal({
         </div>
 
         <div className={`rounded-[var(--pos-radius-sm)] px-3 py-2 text-xs ${selected.direction === "in" ? "bg-[var(--pos-success-soft)] text-[var(--pos-success)]" : "bg-[var(--pos-danger-soft)] text-[var(--pos-danger)]"}`}>
-          {selected.direction === "in" ? "Este movimiento aumentará el efectivo esperado." : "Este movimiento disminuirá el efectivo esperado."}
+          {selected.direction === "in" ? "Solo si hubo un aporte físico NUEVO. Separar fondo del dinero existente se declara al cerrar; no registres una entrada para cuadrar." : "Este movimiento disminuirá el efectivo esperado."}
         </div>
 
+        {retail && selected.direction === "in" && <label className="flex items-start gap-3 rounded-lg border border-amber-400/40 p-3 text-sm"><input type="checkbox" checked={physicalContribution} onChange={e => onPhysicalContributionChange(e.target.checked)} /><span>Declaro que este dinero NUEVO se aportó físicamente. No estoy separando fondo ni intentando cuadrar una diferencia.</span></label>}
         <MoneyField label={`Monto (${currency}) *`} value={amount} onChange={onAmountChange} placeholder="0.00" autoFocus />
 
         <label className="grid gap-2">
@@ -900,11 +986,12 @@ function MovementModal({
 }
 
 function CloseCashModal({
-  session,
+  session, errorMessage,
   result,
   currency,
   step,
   countedCash,
+  reservedCash, retail, onReservedCashChange,
   closeNotes,
   isSaving,
   onClose,
@@ -915,11 +1002,12 @@ function CloseCashModal({
   onConfirm,
   printAction,
 }: {
-  session: CashSession | null;
+  session: CashSession | null; errorMessage: string | null;
   result: CashSession | null;
   currency: string;
   step: 1 | 2 | 3 | 4;
   countedCash: string;
+  reservedCash: string; retail: boolean; onReservedCashChange: (value: string) => void;
   closeNotes: string;
   isSaving: boolean;
   onClose: () => void;
@@ -930,7 +1018,6 @@ function CloseCashModal({
   onConfirm: () => void;
   printAction: React.ReactNode;
 }) {
-  const summary = session ? getSummary(session) : null;
   const difference = result ? toNumber(result.difference) : 0;
   const state = getDifferenceState(difference);
 
@@ -963,15 +1050,17 @@ function CloseCashModal({
         )
       }
     >
-      {session && summary && step === 1 ? <CloseSummary session={session} summary={summary} currency={currency} /> : null}
+      {errorMessage && <p role="alert" className="rounded-lg bg-rose-500/15 p-3 text-sm text-rose-200">{errorMessage}</p>}
+      {session && step === 1 ? <div className="grid gap-3"><h3 className="text-xl font-semibold">Prepara el conteo del turno</h3><p>{session.register?.name} · {formatDateTime(session.opened_at)}</p><p>Coordina el corte para que nadie cobre ni mueva dinero mientras cuentas. Cuenta TODO el efectivo, incluido el fondo que dejarás. No se muestran totales que guíen el conteo.</p></div> : null}
       {step === 2 ? (
         <div className="grid gap-5">
           <div className="rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">Paso 2 de 3 · Conteo ciego</p>
-            <h3 className="mt-2 text-xl font-semibold text-[var(--pos-text-primary)]">¿Cuánto efectivo hay físicamente en caja?</h3>
-            <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">Cuenta primero. El efectivo esperado se revela únicamente después del cierre.</p>
+            <h3 className="mt-2 text-xl font-semibold text-[var(--pos-text-primary)]">¿Cuánto efectivo TOTAL hay en caja, incluido el fondo?</h3>
+            <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">Cuenta antes de separar la entrega y el fondo. La reserva no elimina faltantes. El esperado se revela después del cierre.</p>
           </div>
-          <MoneyField label="Efectivo contado *" value={countedCash} onChange={onCountedCashChange} placeholder="0.00" autoFocus large />
+          <MoneyField label="Efectivo contado total, incluido el fondo *" value={countedCash} onChange={onCountedCashChange} placeholder="0.00" autoFocus large />
+          {retail && <><MoneyField label="Fondo que se deja para el siguiente turno *" value={reservedCash} onChange={onReservedCashChange} placeholder="0.00 (admite cero)" /><p>Efectivo a entregar (declarado): {formatMoney(Math.max(0, (parseMoney(countedCash) || 0) - (parseMoney(reservedCash) || 0)), currency)}. No confirma una entrega física.</p></>}
           <label className="grid gap-2">
             <span className="text-xs font-medium text-[var(--pos-text-muted)]">Nota de cierre (opcional)</span>
             <textarea
@@ -994,6 +1083,7 @@ function CloseCashModal({
           </div>
           <div className="grid grid-cols-2 gap-3 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] p-3">
             <SmallValue label="Efectivo contado" value={formatMoney(parseMoney(countedCash) || 0, currency)} />
+            {retail && <><SmallValue label="Fondo reservado" value={formatMoney(parseMoney(reservedCash) || 0, currency)} /><SmallValue label="A entregar · declarado" value={formatMoney((parseMoney(countedCash) || 0) - (parseMoney(reservedCash) || 0), currency)} /></>}
             <SmallValue label="Nota" value={closeNotes.trim() ? "Incluida" : "Sin nota"} />
           </div>
         </div>
@@ -1005,6 +1095,7 @@ function CloseCashModal({
             <h3 className={`mt-2 text-2xl font-bold ${state.tone === "success" ? "text-[var(--pos-success)]" : state.tone === "danger" ? "text-[var(--pos-danger)]" : "text-[var(--pos-warning)]"}`}>{state.label}</h3>
             <p className="mt-1 text-sm text-[var(--pos-text-secondary)]">El resultado quedó guardado en el historial de cortes.</p>
           </div>
+          <CashAllocation session={result} currency={currency} />
           {printAction}
           <div className="grid grid-cols-3 gap-3 rounded-[var(--pos-radius-sm)] border border-[var(--pos-line-subtle)] p-3">
             <SmallValue label="Esperado" value={formatNullableMoney(result.expected_cash, currency)} />
@@ -1017,36 +1108,17 @@ function CloseCashModal({
   );
 }
 
-function CloseSummary({ session, summary, currency }: { session: CashSession; summary: CashSessionSummary; currency: string }) {
-  return (
-    <div className="grid gap-5">
-      <div className="rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">Paso 1 de 3 · Resumen</p>
-        <h3 className="mt-2 text-xl font-semibold text-[var(--pos-text-primary)]">Revisa el turno antes de contar</h3>
-        <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">Este resumen no revela el efectivo esperado.</p>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <SmallValue label="Fondo inicial" value={formatMoney(toNumber(session.opening_amount), currency)} />
-        <SmallValue label="Duración" value={formatDuration(session.opened_at)} />
-        <SmallValue label="Ventas totales" value={formatMoney(toNumber(summary.sales_total), currency)} />
-        <SmallValue label="Tickets" value={String(toNumber(summary.tickets_count))} />
-      </div>
-      <div>
-        <p className="text-xs font-semibold text-[var(--pos-text-primary)]">Ventas por método</p>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <MethodValue label="Efectivo" value={summary.cash_sales} currency={currency} />
-          <MethodValue label="Tarjeta" value={summary.card_sales} currency={currency} />
-          <MethodValue label="Transferencia" value={summary.transfer_sales} currency={currency} />
-          <MethodValue label="Wallet" value={summary.wallet_sales} currency={currency} />
-          <MethodValue label="Otros" value={summary.other_sales} currency={currency} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3 border-t border-[var(--pos-line-subtle)] pt-4">
-        <SmallValue label="Entradas / depósitos" value={formatMoney(toNumber(summary.cash_income) + toNumber(summary.cash_deposits), currency)} tone="success" />
-        <SmallValue label="Retiros / gastos" value={formatMoney(toNumber(summary.cash_expenses) + toNumber(summary.cash_withdrawals), currency)} tone="danger" />
-      </div>
-    </div>
-  );
+function CashAllocation({ session, currency }: { session: CashSession; currency: string }) {
+  return <div className="my-3 grid gap-2 rounded-lg border border-[var(--pos-line-subtle)] p-3 text-sm">
+    <p>Fondo reservado: {session.reserved_cash == null ? "No registrado" : formatMoney(Number(session.reserved_cash), currency)}</p>
+    <p>A entregar (declarado): {session.declared_delivery == null ? "No registrado" : formatMoney(Number(session.declared_delivery), currency)}</p>
+    {session.reserveReceipt && <p>Recepción del fondo por siguiente turno: {session.reserveReceipt.target_session_id ? `Confirmada: ${formatMoney(Number(session.reserveReceipt.received_amount), currency)} · discrepancia ${formatSignedMoney(Number(session.reserveReceipt.discrepancy), currency)} · ${session.reserveReceipt.reason || "Sin discrepancia"}` : "Pendiente; reserva declarada"}</p>}
+    <p>Entrega externa: {session.declared_delivery == null ? "No registrada" : "Recepción no confirmada"}. La reserva no modifica la diferencia.</p>
+    <p>Fondo recibido al abrir: {session.received_cash == null ? "Sin recepción vinculada / no registrado" : formatMoney(Number(session.received_cash), currency)}</p>
+    {session.received_cash != null && !session.source_cash_session_id && session.receipt_reason && <p>Origen del fondo independiente: {session.receipt_reason}</p>}
+    {session.receipt_difference != null && <p>Discrepancia de recepción: {formatSignedMoney(Number(session.receipt_difference), currency)} · {session.receipt_reason || "Sin discrepancia"}</p>}
+    <p>Aporte físico adicional al abrir: {session.additional_cash == null ? "No registrado" : formatMoney(Number(session.additional_cash), currency)} {session.additional_cash_reason || ""}</p>
+  </div>;
 }
 
 function MoneyField({

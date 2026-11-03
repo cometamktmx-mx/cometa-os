@@ -1,3 +1,4 @@
+import { canSuperviseRetailCash } from "@/lib/pos/cash-visibility";
 import { assertDeviceResource } from "@/lib/pos/device-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import { createHash } from "node:crypto";
@@ -29,6 +30,7 @@ type CashMovementBody = {
   cashSessionId?: unknown;
   requestKey?: unknown;
   adjustment?: unknown;
+  physicalContributionConfirmed?: unknown;
   authorizationToken?: unknown;
   movementType?: unknown;
   amount?: unknown;
@@ -148,7 +150,10 @@ export async function GET(request: Request) {
       );
     }
 
-    await requireStaffSession(access, "CASH_OPERATE", session.location_id);
+    const operator = await requireStaffSession(access, "CASH_OPERATE", session.location_id);
+    if (session.status === "open" && await getPosMode(access) === "RETAIL" && !canSuperviseRetailCash(operator)) {
+      return fail("El detalle monetario del turno se revela después del cierre.", 403, "POS_STAFF_PERMISSION_REQUIRED");
+    }
     await assertDeviceResource(access,"pos_cash_sessions",cashSessionId);
     const { data, error } = await admin
       .from("pos_cash_movements")
@@ -225,8 +230,11 @@ export async function POST(request: Request) {
     }
 
     const retail=await getPosMode(access)==="RETAIL";
+    if (retail && ["income", "deposit"].includes(movementType) && body.adjustment !== true && body.physicalContributionConfirmed !== true) {
+      return fail("Confirma un aporte físico nuevo. Separar fondo del cajón se declara al cerrar, no como entrada.", 400, "POS_VALIDATION_ERROR");
+    }
     const staffSession = await requireStaffSession(access, "CASH_OPERATE");
-    const { data, error } = await admin.rpc(retail ? "pos_retail_cash_command_v1" : "pos_cash_command_v2", staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "movement", p_payload: { sessionId: cashSessionId, movementType, amount: cents / 100, reason, adjustment: body.adjustment === true }, p_key: uuidValue(body.requestKey, "requestKey"), p_authorization_hash: typeof body.authorizationToken === "string" ? createHash("sha256").update(body.authorizationToken).digest("hex") : null } : {
+    const { data, error } = await admin.rpc(retail ? "pos_retail_cash_command_v1" : "pos_cash_command_v2", staffSession ? { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "movement", p_payload: { sessionId: cashSessionId, movementType, amount: cents / 100, reason, adjustment: body.adjustment === true, ...(retail ? { physicalContributionConfirmed: body.physicalContributionConfirmed === true } : {}) }, p_key: uuidValue(body.requestKey, "requestKey"), p_authorization_hash: typeof body.authorizationToken === "string" ? createHash("sha256").update(body.authorizationToken).digest("hex") : null } : {
       p_brand_slug: brand.slug,
       p_cash_session_id: cashSessionId,
       p_movement_type: movementType,

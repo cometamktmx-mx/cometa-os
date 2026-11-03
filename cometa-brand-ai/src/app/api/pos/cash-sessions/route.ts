@@ -1,7 +1,9 @@
+import { blindOpenCash, canSuperviseRetailCash } from "@/lib/pos/cash-visibility";
 import { savedCashCloseReceipt } from "@/lib/pos/cash-close-server";
 import { assertDeviceResource } from "@/lib/pos/device-server";
 import { requirePosMutationAccess } from "@/lib/pos/mutation-access";
 import {
+  PosApiError,
   assertDatabaseResult,
   getBrandSlugFromUrl,
   fail,
@@ -29,6 +31,12 @@ type CashSessionBody = {
   openingAmount?: unknown;
   countedCash?: unknown;
   notes?: unknown;
+  reservedCash?: unknown;
+  reserveSessionId?: unknown;
+  receivedCash?: unknown;
+  receiptReason?: unknown;
+  additionalCash?: unknown;
+  additionalReason?: unknown;
 };
 
 type CashSessionSummaryRow = {
@@ -48,6 +56,10 @@ type CashSessionSummaryRow = {
   expected_cash: number | string | null;
   recent_movements: unknown;
 };
+
+function moneyInput(value: unknown) {
+  return typeof value === "number" || typeof value === "string" && /^\d+(?:\.\d{1,2})?$/.test(value.trim());
+}
 
 function requireCashPermission(
   access: Awaited<ReturnType<typeof requirePosOperationalAccess>>,
@@ -78,11 +90,13 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const registerId = url.searchParams.get("registerId");
     const status = url.searchParams.get("status");
+    const maySupervise = retail ? canSuperviseRetailCash(foodSession) : canViewOpenExpectedCash(access);
+    const reveal = retail ? maySupervise && url.searchParams.get("supervision") === "1" : maySupervise;
 
     let query = admin
       .from("pos_cash_sessions")
       .select(
-        "*, register:pos_registers(id,name,code), location:pos_locations(id,name,code)"
+        "*, register:pos_registers(id,name,code), location:pos_locations(id,name,code,timezone)"
       )
       .eq("brand_slug", brand.slug)
       .order("opened_at", { ascending: false })
@@ -121,7 +135,7 @@ export async function GET(request: Request) {
         {
           p_brand_slug: brand.slug,
           p_session_ids: sessionRows.map((session) => session.id),
-          p_include_expected_cash: canViewOpenExpectedCash(access),
+          p_include_expected_cash: reveal,
         }
       );
 
@@ -146,14 +160,26 @@ export async function GET(request: Request) {
       for(const t of (totals.data||[]) as Total[]){
         depositsBySession.set(t.id,{cash:t.order_cash,card:t.order_card,transfer:t.order_transfer});
         const summary=summaryBySessionId.get(t.id),session=sessionRows.find(s=>s.id===t.id);
-        if(summary){Object.assign(summary,{cash_sales:t.cash_sales,card_sales:t.card_sales,transfer_sales:t.transfer_sales,wallet_sales:t.wallet_sales,other_sales:t.other_sales});if(session?.status==='open')summary.expected_cash=canViewOpenExpectedCash(access)?t.expected:null;}
+        if(summary){Object.assign(summary,{cash_sales:t.cash_sales,card_sales:t.card_sales,transfer_sales:t.transfer_sales,wallet_sales:t.wallet_sales,other_sales:t.other_sales});if(session?.status==='open')summary.expected_cash=reveal?t.expected:null;}
+      }
+    }
+
+    // New closed-turn breakdowns come from the original transactional document.
+    const closedIds = sessionRows.filter(s => s.status === "closed").map(s => s.id);
+    if (retail && closedIds.length) {
+      const documents = await admin.from("pos_retail_cash_documents").select("session_id,document").eq("brand_slug", brand.slug).in("session_id", closedIds);
+      assertDatabaseResult(documents.error, "No se pudieron leer los documentos originales de cierre.");
+      for (const { session_id, document } of documents.data || []) {
+        if (document?.version !== 2 || !document.summary) continue;
+        summaryBySessionId.set(session_id, { ...document.summary, cash_session_id: session_id, expected_cash: document.expected });
+        depositsBySession.set(session_id, { cash: document.summary.order_cash, card: document.summary.order_card, transfer: document.summary.order_transfer });
       }
     }
 
     const sessions = sessionRows.map((session) => {
       const summary = summaryBySessionId.get(session.id) || null;
       const canReceiveExpected =
-        session.status === "closed" || canViewOpenExpectedCash(access);
+        session.status === "closed" || reveal;
 
       return {
         ...session,
@@ -167,10 +193,21 @@ export async function GET(request: Request) {
       };
     });
 
+    let reserves = admin.from("pos_retail_cash_reserves").select("*").eq("brand_slug", brand.slug);
+    if (foodSession.locationId) reserves = reserves.eq("location_id", foodSession.locationId);
+    if (access.device) reserves = reserves.eq("location_id", access.device.locationId);
+    if (registerId) reserves = reserves.eq("register_id", registerId);
+    const reserveRows = retail ? await reserves : { data: [], error: null };
+    assertDatabaseResult(reserveRows.error, "No se pudieron consultar los fondos pendientes.");
     return ok({
       brand,
-      sessions,
-      blindClose: !canViewOpenExpectedCash(access),
+      sessions: sessions.map(s => {
+        const row = { ...s, reserveReceipt: (reserveRows.data || []).find(r => r.source_session_id === s.id) || null };
+        return retail && !reveal ? blindOpenCash(row) : row;
+      }),
+      reserves: reserveRows.data || [],
+      canSupervise: maySupervise,
+      blindClose: !reveal,
     });
   } catch (error) {
     return handlePosError(error);
@@ -207,12 +244,27 @@ export async function POST(request: Request) {
         }
       );
 
+      if (retailStaff && (!moneyInput(body.additionalCash) || body.receivedCash != null && !moneyInput(body.receivedCash))) {
+        return fail("Confirma recibido y aporte adicional con importes numéricos; usa cero si no hay aporte.", 400, "POS_VALIDATION_ERROR");
+      }
+      const retailPayload = retailStaff ? {
+        registerId,
+        reserveSessionId: uuidValue(body.reserveSessionId, "reserveSessionId", false),
+        receivedCash: body.receivedCash == null ? null : numberValue(body.receivedCash, "receivedCash", { min: 0 }),
+        receiptReason: optionalText(body.receiptReason, 1000),
+        additionalCash: numberValue(body.additionalCash, "additionalCash", { min: 0 }),
+        additionalReason: optionalText(body.additionalReason, 1000),
+      } : { registerId, openingAmount };
+      if (retailStaff) {
+        const contract = await admin.rpc("pos_retail_cash_contract_v2");
+        if (contract.error || contract.data !== 2) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
+      }
       const { data, error } = await admin.rpc(
         retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
-        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: { registerId, openingAmount }, p_key: uuidValue(body.requestKey, "requestKey") }
+        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "open", p_payload: retailPayload, p_key: uuidValue(body.requestKey, "requestKey") }
       );
 
-      if (error?.code === "23505") {
+      if (error?.code === "23505" || error?.message?.includes("POS_REGISTER_ALREADY_OPEN")) {
         return fail(
           "Esta caja ya tiene una sesión abierta.",
           409,
@@ -220,14 +272,12 @@ export async function POST(request: Request) {
         );
       }
 
-      assertDatabaseResult(
-        error,
-        "No se pudo abrir la caja."
-      );
+      if (error?.message?.includes("POS_CASH_")) return fail("El fondo pendiente cambió o falta confirmar recibido, motivo de discrepancia o aporte. Actualiza la pantalla y revisa los importes.", 409, "POS_WEB_CONFLICT");
+      assertDatabaseResult(error, "No se pudo abrir la caja.");
 
       return ok(
         {
-          session: Array.isArray(data) ? data[0] : data,
+          session: retailStaff ? blindOpenCash(Array.isArray(data) ? data[0] : data) : Array.isArray(data) ? data[0] : data,
         },
         201
       );
@@ -239,6 +289,9 @@ export async function POST(request: Request) {
         "sessionId"
       ) as string;
       await assertDeviceResource(access, "pos_cash_sessions", sessionId);
+      if (retailStaff && (!moneyInput(body.countedCash) || !moneyInput(body.reservedCash))) {
+        return fail("El contado total y el fondo reservado son obligatorios; admite cero explícito.", 400, "POS_VALIDATION_ERROR");
+      }
       const countedCash = numberValue(
         body.countedCash,
         "countedCash",
@@ -247,22 +300,25 @@ export async function POST(request: Request) {
         }
       );
 
+      const reservedCash = retailStaff ? numberValue(body.reservedCash, "reservedCash", { min: 0, max: countedCash }) : null;
+      if (retailStaff) {
+        const contract = await admin.rpc("pos_retail_cash_contract_v2");
+        if (contract.error || contract.data !== 2) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
+      }
       const { data, error } = await admin.rpc(
         retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
-        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") }
+        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, ...(retailStaff ? { reservedCash } : {}), notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") }
       );
 
-      assertDatabaseResult(
-        error,
-        "No se pudo cerrar la caja."
-      );
+      if (error?.message?.includes("POS_CASH_ALLOCATION_INVALID")) return fail("Indica el contado total y el fondo reservado, entre cero y lo contado, con dos decimales.", 400, "POS_VALIDATION_ERROR");
+      assertDatabaseResult(error, "No se pudo cerrar la caja.");
 
       const closedSession = Array.isArray(data) ? data[0] : data;
       // The monetary command has already committed. Receipt preparation is a
       // separate failure boundary and must never turn success into a close retry.
       let receiptWarning: string | null = null;
       try { await savedCashCloseReceipt(access, sessionId, true); }
-      catch { receiptWarning = "Cierre guardado. No se pudo conservar el desglose del ticket; la impresión mostrará solo los importes originales disponibles."; }
+      catch { receiptWarning = retailStaff ? "Cierre y documento original guardados. No se pudo consultar el ticket; reintenta reimprimir sin volver a cerrar." : "Cierre guardado. No se pudo conservar el desglose del ticket; la impresión mostrará solo los importes originales disponibles."; }
       return ok({ session: closedSession, receiptWarning });
     }
 
