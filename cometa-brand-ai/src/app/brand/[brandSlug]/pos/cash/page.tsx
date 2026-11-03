@@ -221,6 +221,7 @@ function PosCashWorkspace() {
   const [movementReason, setMovementReason] = useState("");
   const [closeSession, setCloseSession] = useState<CashSession | null>(null);
   const [closeStep, setCloseStep] = useState<1 | 2 | 3 | 4>(1);
+  const [countId, setCountId] = useState("");
   const [countedCash, setCountedCash] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
   const [closeResult, setCloseResult] = useState<CashSession | null>(null);
@@ -426,6 +427,7 @@ function PosCashWorkspace() {
     setError(null);
     setCloseSession(session);
     setCloseStep(1);
+    setCountId("");
     setCountedCash("");
     setReservedCash("");
     setCloseNotes("");
@@ -433,10 +435,29 @@ function PosCashWorkspace() {
   }
 
   function closeCashModal() {
-    if (pendingAction === "close") return;
+    if (pendingAction === "close" || pendingAction === "count") return;
     setCloseSession(null);
     setCloseResult(null);
     setCloseStep(1);
+  }
+
+  async function beginCashCount() {
+    if (!closeSession) return;
+    try {
+      setPendingAction("count"); setError(null);
+      const response = await apiRequest<{ count: { countId: string } }>("/api/pos/cash-sessions", {
+        method: "POST", body: JSON.stringify({ brandSlug: brand.slug, action: "start-count", sessionId: closeSession.id,
+          requestKey: requestKey({ action: "start-count", session: closeSession.id }) }),
+      });
+      pendingCommand.current = null;
+      setCountId(response.count.countId); setCountedCash(""); setReservedCash(""); setCloseStep(2);
+    } catch (countError) {
+      if (typeof countError === "object" && countError !== null && "code" in countError && countError.code === "POS_CASH_COUNT_REQUIRED") {
+        pendingCommand.current = null; setCountId(""); setCountedCash(""); setReservedCash("");
+      }
+      setError(getErrorMessage(countError));
+    }
+    finally { setPendingAction(null); }
   }
 
   async function handleCloseSession() {
@@ -460,10 +481,10 @@ function PosCashWorkspace() {
           body: JSON.stringify({
             brandSlug: brand.slug,
             action: "close",
-            requestKey: requestKey({ action: "close", session: closeSession.id, countedCash, reservedCash, closeNotes }),
+            requestKey: requestKey({ action: "close", session: closeSession.id, countId, countedCash, reservedCash, closeNotes }),
             sessionId: closeSession.id,
             countedCash: closeCountedValue,
-            ...(retail ? { reservedCash: closeReservedValue } : {}),
+            ...(retail ? { reservedCash: closeReservedValue, countId } : {}),
             notes: closeNotes.trim() || undefined,
           }),
         }
@@ -475,6 +496,11 @@ function PosCashWorkspace() {
       setNotice(response.receiptWarning || "Caja cerrada. El resultado del corte quedó registrado.");
       await loadCashData();
     } catch (closeError) {
+      if (typeof closeError === "object" && closeError !== null && "code" in closeError &&
+          ["POS_CASH_CHANGED_RECOUNT_REQUIRED", "POS_CASH_COUNT_REQUIRED"].includes(String(closeError.code))) {
+        setCountId(""); setCountedCash(""); setReservedCash(""); setCloseStep(1);
+        pendingCommand.current = null;
+      }
       setError(getErrorMessage(closeError));
     } finally {
       setPendingAction(null);
@@ -703,9 +729,10 @@ function PosCashWorkspace() {
         retail={retail}
         onReservedCashChange={setReservedCash}
         closeNotes={closeNotes}
-        isSaving={pendingAction === "close"}
+        isSaving={pendingAction === "close" || pendingAction === "count"}
         onClose={closeCashModal}
         onNext={() => {
+          if (retail && closeStep === 1) { void beginCashCount(); return; }
           if (closeStep === 2 && (closeCountedValue === null || closeCountedValue < 0)) {
             setError("Ingresa el efectivo contado antes de continuar.");
             return;
@@ -1032,8 +1059,8 @@ function CloseCashModal({
       footer={
         step === 1 ? (
           <>
-            <PosButton variant="secondary" onClick={onClose}>Cancelar</PosButton>
-            <PosButton onClick={onNext}>Continuar al conteo</PosButton>
+            <PosButton variant="secondary" onClick={onClose} disabled={isSaving}>Cancelar</PosButton>
+            <PosButton onClick={onNext} loading={isSaving} disabled={isSaving}>Continuar al conteo</PosButton>
           </>
         ) : step === 2 ? (
           <>
@@ -1057,7 +1084,7 @@ function CloseCashModal({
           <div className="rounded-[var(--pos-radius-md)] bg-[var(--pos-canvas)] p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--pos-text-muted)]">Paso 2 de 3 · Conteo ciego</p>
             <h3 className="mt-2 text-xl font-semibold text-[var(--pos-text-primary)]">¿Cuánto efectivo TOTAL hay en caja, incluido el fondo?</h3>
-            <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">Cuenta antes de separar la entrega y el fondo. La reserva no elimina faltantes. El esperado se revela después del cierre.</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--pos-text-muted)]">Cuenta antes de separar la entrega y el fondo. La reserva no elimina faltantes. Si hay cobros o movimientos durante el conteo, se pedirá recontar sin revelar el esperado.</p>
           </div>
           <MoneyField label="Efectivo contado total, incluido el fondo *" value={countedCash} onChange={onCountedCashChange} placeholder="0.00" autoFocus large />
           {retail && <><MoneyField label="Fondo que se deja para el siguiente turno *" value={reservedCash} onChange={onReservedCashChange} placeholder="0.00 (admite cero)" /><p>Efectivo a entregar (declarado): {formatMoney(Math.max(0, (parseMoney(countedCash) || 0) - (parseMoney(reservedCash) || 0)), currency)}. No confirma una entrega física.</p></>}
@@ -1373,7 +1400,7 @@ async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
   });
   const data = await response.json();
   if (!response.ok || !data?.ok) {
-    throw new Error(data?.error || data?.message || "No se pudo completar la operación.");
+    throw Object.assign(new Error(data?.error || data?.message || "No se pudo completar la operación."), { code: data?.code });
   }
   return data as T;
 }

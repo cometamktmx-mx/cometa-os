@@ -14,7 +14,10 @@ def cmd(action,p,key=None):
  if action=='open' and 'additionalCash' not in p:
   p={'registerId':p['registerId'],'additionalCash':p.get('openingAmount',0),'additionalReason':'Synthetic physical contribution','reserveSessionId':None,'receivedCash':None}
  if action=='movement' and p.get('movementType') in ('income','deposit'):p={'physicalContributionConfirmed':True,**p}
- if action=='close':p={'reservedCash':0,**p}
+ if action=='close':
+  key=key or u()
+  token=json.loads(run(f"select pos_retail_cash_count_start_v3({q(slug)},{q(host)},{q(ss)},{q(p['sessionId'])},{q(key)});").stdout)
+  p={'reservedCash':0,**p,'countId':token['countId']}
  return f"select pos_retail_cash_command_v1({q(slug)},{q(host)},{q(ss)},{q(action)},{q(json.dumps(p))}::jsonb,{q(key or u())});"
 def sale(reg,cash,key):return f"select pos_complete_retail_sale_v1({q(slug)},{q(loc)},{q(reg)},{q(cash)},null,{q(json.dumps([{'variant_id':var,'quantity':1,'discount_amount':0}]))}::jsonb,{q(json.dumps([{'method':'cash','amount':100,'tendered':150}]))}::jsonb,'SYNTHETIC',{q(host)},null,{q(key)},null,null,{q(st)},null);"
 def check(ok,label):
@@ -52,11 +55,11 @@ try:
  reg,c=shift();_,late=races(cmd('close',{'sessionId':c,'countedCash':500}),cmd('movement',{'sessionId':c,'movementType':'income','amount':100,'reason':'SYNTHETIC late'}))
  check(late.returncode!=0 and 'POS_CASH_SESSION_NOT_FOUND' in late.stderr and run(f"select count(*) from pos_cash_movements where cash_session_id={q(c)};").stdout.strip()=='0','close wins concurrent movement: late movement rejected, zero cash entries')
  reg,c=shift();_,after=races(cmd('movement',{'sessionId':c,'movementType':'income','amount':100,'reason':'SYNTHETIC first'}),cmd('close',{'sessionId':c,'countedCash':600}))
- check(after.returncode==0 and json.loads(after.stdout)['expected_cash']==600,'movement wins concurrent close: expected includes committed income exactly once')
+ check(after.returncode!=0 and 'POS_CASH_CHANGED_RECOUNT_REQUIRED' in after.stderr,'movement wins concurrent close: stale count requires recount');check(json.loads(run(cmd('close',{'sessionId':c,'countedCash':600})).stdout)['difference']==0,'fresh count after movement closes correctly')
  reg,c=shift();_,late=races(cmd('close',{'sessionId':c,'countedCash':500}),sale(reg,c,u()))
  check(late.returncode!=0 and 'No existe una sesión de caja abierta.' in late.stderr and run(f"select count(*) from pos_sales where cash_session_id={q(c)};").stdout.strip()=='0','close wins concurrent sale: sale rejected atomically with zero payments/sale')
  reg,c=shift();key=u();_,closed=races(sale(reg,c,key),cmd('close',{'sessionId':c,'countedCash':600}))
- check(closed.returncode==0 and json.loads(closed.stdout)['expected_cash']==600,'sale wins concurrent close: close includes net cash100 once')
+ check(closed.returncode!=0 and 'POS_CASH_CHANGED_RECOUNT_REQUIRED' in closed.stderr,'sale wins concurrent close: stale count requires recount');check(json.loads(run(cmd('close',{'sessionId':c,'countedCash':600})).stdout)['difference']==0,'fresh count includes cash sale100 once')
  again=run(sale(reg,c,key));check(json.loads(again.stdout)['id']==run(f"select id from pos_sales where cash_session_id={q(c)};").stdout.strip(),'sale same-key retry after close returns original sale without duplicate cash')
  # No permanent schema changes; cleanup is limited to this exact synthetic brand.
  reg,c=shift();key=u();payload={'sessionId':c,'countedCash':500}

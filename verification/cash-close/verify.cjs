@@ -113,14 +113,14 @@ fs.writeFileSync(path.join(previewDir,'fixture.json'),JSON.stringify(receipt,nul
 
 test('receipt failure after commit returns a successful saved close, never runs the monetary command twice', async () => {
   let closes=0;
-  const c={brand:{slug:'demo'},user:{isAdmin:true,userId:'host'},admin:{rpc:async(name)=>{if(name==='pos_retail_cash_contract_v2')return {data:2,error:null};closes++;return {data:{id:'session',status:'closed'},error:null};}}};
+  const c={brand:{slug:'demo'},user:{isAdmin:true,userId:'host'},admin:{rpc:async(name)=>{if(name==='pos_retail_cash_contract_v2')return {data:3,error:null};closes++;return {data:{id:'session',status:'closed'},error:null};}}};
   const route=load('src/app/api/pos/cash-sessions/route.ts',{
     '@/lib/pos/cash-close-server':{savedCashCloseReceipt:async()=>{throw Error('Synthetic receipt storage outage');}},
     '@/lib/pos/device-server':{assertDeviceResource:async()=>{}},
     '@/lib/pos/mutation-access':{requirePosMutationAccess:async()=>c},
     '@/lib/pos/access':{},'@/lib/pos/rbac':{},
     '@/lib/pos/staff-server':{getPosMode:async()=>'RETAIL',requireStaffSession:async()=>({id:'operator-session'})},
-    '@/lib/pos/server':{...server,requiredText:v=>v,uuidValue:v=>v,numberValue:v=>v,optionalText:v=>v,readJsonBody:async()=>({brandSlug:'demo',action:'close',sessionId:'session',countedCash:100,reservedCash:0,requestKey:'same-key'}),ok:body=>({status:200,body}),handlePosError:e=>{throw e;}},
+    '@/lib/pos/server':{...server,requiredText:v=>v,uuidValue:v=>v,numberValue:v=>v,optionalText:v=>v,readJsonBody:async()=>({brandSlug:'demo',action:'close',sessionId:'session',countedCash:100,reservedCash:0,countId:'synthetic-count',requestKey:'same-key'}),ok:body=>({status:200,body}),handlePosError:e=>{throw e;}},
   });
   const response=await route.POST({});
   assert.equal(response.status,200);assert.equal(response.body.session.status,'closed');assert.ok(response.body.receiptWarning);assert.equal(closes,1);

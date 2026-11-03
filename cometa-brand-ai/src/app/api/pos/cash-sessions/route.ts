@@ -30,6 +30,7 @@ type CashSessionBody = {
   sessionId?: unknown;
   openingAmount?: unknown;
   countedCash?: unknown;
+  countId?: unknown;
   notes?: unknown;
   reservedCash?: unknown;
   reserveSessionId?: unknown;
@@ -229,6 +230,21 @@ export async function POST(request: Request) {
     const retailStaff = (await getPosMode(access)) === "RETAIL" ? await requireStaffSession(access,"CASH_OPERATE") : null;
     const staffSession = retailStaff || await requireStaffSession(access, "CASH_OPERATE");
 
+    if (action === "start-count") {
+      if (!retailStaff) return fail("El control de conteo corresponde a Caja Retail.", 400, "POS_CASH_ACTION_INVALID");
+      const sessionId = uuidValue(body.sessionId, "sessionId") as string;
+      await assertDeviceResource(access, "pos_cash_sessions", sessionId);
+      const contract = await admin.rpc("pos_retail_cash_contract_v2");
+      if (contract.error || contract.data !== 3) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se inició el conteo.");
+      const result = await admin.rpc("pos_retail_cash_count_start_v3", {
+        p_brand_slug: brand.slug, p_host_user_id: user.userId, p_staff_session_id: staffSession.id,
+        p_cash_session_id: sessionId, p_key: uuidValue(body.requestKey, "requestKey"),
+      });
+      if (result.error?.message?.includes("POS_IDEMPOTENCY_CONFLICT")) return fail("Cambió el contexto del conteo o del PIN. Inicia un conteo nuevo.", 409, "POS_CASH_COUNT_REQUIRED");
+      assertDatabaseResult(result.error, "No se pudo iniciar el conteo; revisa que el turno siga abierto.");
+      return ok({ count: { countId: result.data.countId, cashSessionId: result.data.cashSessionId, startedAt: result.data.startedAt } });
+    }
+
     if (action === "open") {
       const registerId = uuidValue(
         body.registerId,
@@ -257,7 +273,7 @@ export async function POST(request: Request) {
       } : { registerId, openingAmount };
       if (retailStaff) {
         const contract = await admin.rpc("pos_retail_cash_contract_v2");
-        if (contract.error || contract.data !== 2) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
+        if (contract.error || contract.data !== 3) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
       }
       const { data, error } = await admin.rpc(
         retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
@@ -300,16 +316,20 @@ export async function POST(request: Request) {
         }
       );
 
+      if (retailStaff && !body.countId) return fail("Inicia un nuevo conteo antes de confirmar el cierre.", 400, "POS_CASH_COUNT_REQUIRED");
+      const countId = retailStaff ? uuidValue(body.countId, "countId") : null;
       const reservedCash = retailStaff ? numberValue(body.reservedCash, "reservedCash", { min: 0, max: countedCash }) : null;
       if (retailStaff) {
         const contract = await admin.rpc("pos_retail_cash_contract_v2");
-        if (contract.error || contract.data !== 2) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
+        if (contract.error || contract.data !== 3) throw new PosApiError(503, "POS_WEB_LOOKUP_FAILED", "Caja pendiente de actualización de esquema. No se registró la operación.");
       }
       const { data, error } = await admin.rpc(
         retailStaff ? "pos_retail_cash_command_v1" : "pos_cash_command_v2",
-        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, ...(retailStaff ? { reservedCash } : {}), notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") }
+        { p_brand_slug: brand.slug, p_host_user_id: user.userId, p_session_id: staffSession.id, p_action: "close", p_payload: { sessionId, countedCash, ...(retailStaff ? { reservedCash, countId } : {}), notes: optionalText(body.notes, 1000) }, p_key: uuidValue(body.requestKey, "requestKey") }
       );
 
+      if (error?.message?.includes("POS_CASH_CHANGED_RECOUNT_REQUIRED")) return fail("La caja cambió durante el conteo. Inicia un nuevo conteo y vuelve a contar TODO el efectivo antes de confirmar.", 409, "POS_CASH_CHANGED_RECOUNT_REQUIRED");
+      if (error?.message?.includes("POS_CASH_COUNT_REQUIRED")) return fail("El conteo no corresponde a este turno o PIN. Inicia un nuevo conteo.", 409, "POS_CASH_COUNT_REQUIRED");
       if (error?.message?.includes("POS_CASH_ALLOCATION_INVALID")) return fail("Indica el contado total y el fondo reservado, entre cero y lo contado, con dos decimales.", 400, "POS_VALIDATION_ERROR");
       assertDatabaseResult(error, "No se pudo cerrar la caja.");
 
@@ -323,7 +343,7 @@ export async function POST(request: Request) {
     }
 
     return fail(
-      "La acción debe ser open o close.",
+      "La acción debe ser open, start-count o close.",
       400,
       "POS_CASH_ACTION_INVALID"
     );

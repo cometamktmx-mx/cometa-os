@@ -5,6 +5,15 @@ create function pg_temp.check_cash(ok boolean,label text) returns void language 
 create function pg_temp.fail_document() returns trigger language plpgsql as $$ begin
  if current_setting('cometa.test_fail_document',true)='yes' then raise exception 'SYNTHETIC_DOCUMENT_FAILURE';end if;return new;end $$;
 create trigger synthetic_document_failure before insert on public.pos_retail_cash_documents for each row execute function pg_temp.fail_document();
+-- Test adapter: start is idempotent by the same request key; never used by the application.
+create function pg_temp.cash_allocation_test_command(brand text,host uuid,pin_session uuid,action text,payload jsonb,key uuid) returns jsonb language plpgsql as $$
+declare started jsonb;begin
+ if action='close' then
+  started:=public.pos_retail_cash_count_start_v3(brand,host,pin_session,(payload->>'sessionId')::uuid,key);
+  payload:=payload||jsonb_build_object('countId',started->>'countId');
+ end if;
+ return public.pos_retail_cash_command_v1(brand,host,pin_session,action,payload,key);
+end $$;
 do $$
 declare b text:=gen_random_uuid()::text; slug text:='synthetic-cash-audit-'||substr(b,1,8); host uuid:=gen_random_uuid(); loc uuid:=gen_random_uuid(); reg uuid:=gen_random_uuid(); st uuid:=gen_random_uuid(); ss uuid:=gen_random_uuid(); sale uuid:=gen_random_uuid(); cust uuid:=gen_random_uuid(); ord uuid:=gen_random_uuid(); cash uuid; nextcash uuid; k uuid:=gen_random_uuid(); ck uuid:=gen_random_uuid(); mk uuid:=gen_random_uuid(); rk uuid:=gen_random_uuid(); r jsonb; p jsonb; closed jsonb; movement uuid; e numeric; q jsonb; failed boolean;
 begin
@@ -17,18 +26,18 @@ begin
  insert into pos_staff_sessions(id,token_hash,host_user_id,staff_id,brand_id,brand_slug,location_id,expires_at,last_human_at) values(ss,repeat('a',64),host,st,b,slug,loc,clock_timestamp()+interval '1 hour',clock_timestamp());
 
  p:=jsonb_build_object('registerId',reg,'reserveSessionId',null,'receivedCash',null,'additionalCash',500,'additionalReason','Synthetic physical initial contribution');
- r:=pos_retail_cash_command_v1(slug,host,ss,'open',p,k);cash:=(r->>'id')::uuid;
- perform pg_temp.check_cash(r=pos_retail_cash_command_v1(slug,host,ss,'open',p,k),'opening retry exactly once');
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,k);cash:=(r->>'id')::uuid;
+ perform pg_temp.check_cash(r=pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,k),'opening retry exactly once');
  insert into pos_sales(id,brand_id,brand_slug,sale_number,location_id,register_id,cash_session_id,total,subtotal,sold_by) values(sale,b,slug,'SYNTHETIC-MIXED',loc,reg,cash,2600,2600,host);
  insert into pos_payments(brand_id,brand_slug,sale_id,payment_method,amount,tendered_amount,change_amount) values(b,slug,sale,'cash',2000,2500,500),(b,slug,sale,'card',300,300,0),(b,slug,sale,'transfer',300,300,0);
  p:=jsonb_build_object('sessionId',cash,'countedCash',2400,'reservedCash',500,'notes','SYNTHETIC full physical cash before allocation');
  perform set_config('cometa.test_fail_document','yes',true);
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',p,ck);exception when others then failed:=sqlerrm='SYNTHETIC_DOCUMENT_FAILURE';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',p,ck);exception when others then failed:=sqlerrm='SYNTHETIC_DOCUMENT_FAILURE';end;
  perform set_config('cometa.test_fail_document','no',true);
  perform pg_temp.check_cash(failed and (select status='open' and reserved_cash is null from pos_cash_sessions where id=cash) and not exists(select 1 from pos_retail_cash_reserves where source_session_id=cash) and not exists(select 1 from pos_staff_audit_events where cash_session_id=cash and action='CASH_SESSION_CLOSE'),'document failure rolls back close, allocation, reserve and close audit atomically');
- closed:=pos_retail_cash_command_v1(slug,host,ss,'close',p,ck);
+ closed:=pg_temp.cash_allocation_test_command(slug,host,ss,'close',p,ck);
  perform pg_temp.check_cash((closed->>'expected_cash')::numeric=2500 and (closed->>'counted_cash')::numeric=2400 and (closed->>'difference')::numeric=-100 and (closed->>'reserved_cash')::numeric=500 and (closed->>'declared_delivery')::numeric=1900,'full audited scenario persisted atomically: expected2500 counted2400 shortage100 reserve500 delivery1900');
- perform pg_temp.check_cash(closed=pos_retail_cash_command_v1(slug,host,ss,'close',p,ck),'same-key close retry preserves original allocation');
+ perform pg_temp.check_cash(closed=pg_temp.cash_allocation_test_command(slug,host,ss,'close',p,ck),'same-key close retry preserves original allocation');
  perform pg_temp.check_cash((select count(*)=0 from pos_cash_movements where cash_session_id=cash),'reserve creates no expense or withdrawal');
  perform pg_temp.check_cash((select document->>'version'='2' and (document->>'declaredDelivery')::numeric=1900 and (document->>'difference')::numeric=-100 and document->>'deliveryStatus'='declared' from pos_retail_cash_documents where session_id=cash),'transactional immutable snapshot v2 and declared delivery');
  failed:=false;begin update pos_retail_cash_documents set document='{}' where session_id=cash;exception when others then failed:=sqlerrm='POS_CASH_DOCUMENT_IMMUTABLE';end;
@@ -36,33 +45,33 @@ begin
  failed:=false;begin update pos_cash_sessions set reserved_cash=400,declared_delivery=2000 where id=cash;exception when others then failed:=true;end;
  perform pg_temp.check_cash(failed,'closed allocation immutable');
  p:=jsonb_build_object('registerId',reg,'reserveSessionId',cash,'receivedCash',450,'additionalCash',0);
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',p,gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RECEIPT_REASON_REQUIRED';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RECEIPT_REASON_REQUIRED';end;
  perform pg_temp.check_cash(failed,'receipt discrepancy requires reason');
  p:=p||jsonb_build_object('receiptReason','Synthetic physically received only450');k:=gen_random_uuid();
- r:=pos_retail_cash_command_v1(slug,host,ss,'open',p,k);nextcash:=(r->>'id')::uuid;
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,k);nextcash:=(r->>'id')::uuid;
  perform pg_temp.check_cash((r->>'opening_amount')::numeric=450 and (r->>'received_cash')::numeric=450 and (r->>'receipt_difference')::numeric=-50,'actual received450 opens450; discrepancy minus50 recorded');
  perform pg_temp.check_cash((select received_amount=450 and discrepancy=-50 and target_session_id=nextcash from pos_retail_cash_reserves where source_session_id=cash),'reserve consumed and linked to same box once');
  perform pg_temp.check_cash((select expected_cash=2500 and counted_cash=2400 and difference=-100 and reserved_cash=500 and declared_delivery=1900 from pos_cash_sessions where id=cash),'receipt does not change prior close');
- perform pg_temp.check_cash(r=pos_retail_cash_command_v1(slug,host,ss,'open',p,k),'retry of receipt returns same opening');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',p,gen_random_uuid());exception when others then failed:=sqlerrm='POS_REGISTER_ALREADY_OPEN';end;
+ perform pg_temp.check_cash(r=pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,k),'retry of receipt returns same opening');
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,gen_random_uuid());exception when others then failed:=sqlerrm='POS_REGISTER_ALREADY_OPEN';end;
  perform pg_temp.check_cash(failed,'second opening on same register rejected');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',p||'{"additionalCash":50}',k);exception when others then failed:=sqlerrm='POS_IDEMPOTENCY_CONFLICT';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',p||'{"additionalCash":50}',k);exception when others then failed:=sqlerrm='POS_IDEMPOTENCY_CONFLICT';end;
  perform pg_temp.check_cash(failed,'same-key changed contribution rejected');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',450),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',450),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
  perform pg_temp.check_cash(failed and (select status='open' from pos_cash_sessions where id=nextcash),'missing reserve rejects entire close, no partial financial update');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',450,'reservedCash',451),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',450,'reservedCash',451),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
  perform pg_temp.check_cash(failed,'reserve cannot exceed full count');
- r:=pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',500,'reservedCash',500),gen_random_uuid());
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',nextcash,'countedCash',500,'reservedCash',500),gen_random_uuid());
  perform pg_temp.check_cash((r->>'difference')::numeric=50 and (r->>'declared_delivery')::numeric=0,'surplus50 remains after reserving all physical500');
  p:=jsonb_build_object('registerId',reg,'reserveSessionId',nextcash,'receivedCash',500,'additionalCash',50,'additionalReason','Synthetic new physical top-up');
- r:=pos_retail_cash_command_v1(slug,host,ss,'open',p,gen_random_uuid());
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'open',p,gen_random_uuid());
  perform pg_temp.check_cash((r->>'opening_amount')::numeric=550 and (r->>'received_cash')::numeric=500 and (r->>'additional_cash')::numeric=50 and (r->>'receipt_difference')::numeric=0,'confirmed500 plus distinct new contribution50 opens550, not1050');
  perform pg_temp.check_cash((pos_retail_cash_totals_v1(slug,array[(r->>'id')::uuid])->0->>'expected')::numeric=550,'received plus contribution affect expected once without movement');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',550,'reservedCash',0.001),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',550,'reservedCash',0.001),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
  perform pg_temp.check_cash(failed,'sub-cent reserve rejected');
- r:=pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',550,'reservedCash',0),gen_random_uuid());
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',550,'reservedCash',0),gen_random_uuid());
  perform pg_temp.check_cash((r->>'declared_delivery')::numeric=550 and (r->>'reserved_cash')::numeric=0,'explicit zero reserve accepted; all count declared for delivery');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',jsonb_build_object('registerId',reg,'reserveSessionId',cash,'receivedCash',500,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RESERVE_RECEIPT_REQUIRED';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',jsonb_build_object('registerId',reg,'reserveSessionId',cash,'receivedCash',500,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RESERVE_RECEIPT_REQUIRED';end;
  perform pg_temp.check_cash(failed,'consumed older reserve cannot be reused');
  -- Legacy empty shift: closed today, opened before today, no money in period.
  mk:=gen_random_uuid();movement:=gen_random_uuid();
@@ -71,27 +80,27 @@ begin
  values(movement,b,slug,loc,mk,'closed',0,0,0,0,now()-interval '2 days',now());
  q:=pos_retail_report_v1(slug,(now() at time zone 'America/Mexico_City')::date,(now() at time zone 'America/Mexico_City')::date,loc);
  perform pg_temp.check_cash(exists(select 1 from jsonb_array_elements(q->'sessions') x where x->>'id'=movement::text and x->'reserved_cash'='null'::jsonb and x->'close_snapshot'='null'::jsonb),'report includes empty legacy cut by close date; historical allocation remains unknown');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',jsonb_build_object('registerId',mk,'reserveSessionId',cash,'receivedCash',500,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RESERVE_NOT_PENDING';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',jsonb_build_object('registerId',mk,'reserveSessionId',cash,'receivedCash',500,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_RESERVE_NOT_PENDING';end;
  perform pg_temp.check_cash(failed,'reserve cannot be moved to another physical register');
  update pos_staff_sessions set last_human_at=clock_timestamp()-interval '4 minutes' where id=ss;
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'open',jsonb_build_object('registerId',mk,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_STAFF_PERMISSION_REQUIRED';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'open',jsonb_build_object('registerId',mk,'additionalCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_STAFF_PERMISSION_REQUIRED';end;
  perform pg_temp.check_cash(failed,'expired PIN session blocks opening');
  update pos_staff_sessions set last_human_at=clock_timestamp() where id=ss;
  perform pg_temp.check_cash(not has_table_privilege('authenticated','pos_cash_sessions','select') and not has_table_privilege('authenticated','pos_cash_movements','select') and not has_table_privilege('authenticated','pos_payments','select'),'host-authenticated direct financial reads cannot bypass PIN API');
- r:=pos_retail_cash_command_v1(slug,host,ss,'open',jsonb_build_object('registerId',mk,'receivedCash',0,'additionalCash',0),gen_random_uuid());
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'movement',jsonb_build_object('sessionId',r->>'id','movementType','income','amount',400,'reason','Synthetic fund separation'),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_PHYSICAL_CONTRIBUTION_REQUIRED';end;
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'open',jsonb_build_object('registerId',mk,'receivedCash',0,'additionalCash',0),gen_random_uuid());
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'movement',jsonb_build_object('sessionId',r->>'id','movementType','income','amount',400,'reason','Synthetic fund separation'),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_PHYSICAL_CONTRIBUTION_REQUIRED';end;
  perform pg_temp.check_cash(failed and (pos_retail_cash_totals_v1(slug,array[(r->>'id')::uuid])->0->>'expected')::numeric=0,'manual entry cannot be used to separate existing fund without physical contribution declaration');
- perform pos_retail_cash_command_v1(slug,host,ss,'movement',jsonb_build_object('sessionId',r->>'id','movementType','income','amount',400,'reason','Synthetic physically contributed400','physicalContributionConfirmed',true),gen_random_uuid());
+ perform pg_temp.cash_allocation_test_command(slug,host,ss,'movement',jsonb_build_object('sessionId',r->>'id','movementType','income','amount',400,'reason','Synthetic physically contributed400','physicalContributionConfirmed',true),gen_random_uuid());
  perform pg_temp.check_cash((pos_retail_cash_totals_v1(slug,array[(r->>'id')::uuid])->0->>'expected')::numeric=400,'declared physical contribution400 is recorded as incoming cash once');
- r:=pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',400,'reservedCash',400),gen_random_uuid());
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash',400,'reservedCash',400),gen_random_uuid());
  perform pg_temp.check_cash((r->>'difference')::numeric=0 and (r->>'declared_delivery')::numeric=0,'separating existing400 as reserve creates no second entry or expense');
  mk:=gen_random_uuid();insert into pos_registers(id,brand_id,brand_slug,location_id,name,code) values(mk,b,slug,loc,'SYNTHETIC INDEPENDENT','INDEPENDENT');
- r:=pos_retail_cash_command_v1(slug,host,ss,'open',jsonb_build_object('registerId',mk,'receivedCash',500,'receiptReason','Synthetic existing fund confirmed, historical origin unproven','additionalCash',0),gen_random_uuid());
+ r:=pg_temp.cash_allocation_test_command(slug,host,ss,'open',jsonb_build_object('registerId',mk,'receivedCash',500,'receiptReason','Synthetic existing fund confirmed, historical origin unproven','additionalCash',0),gen_random_uuid());
  perform pg_temp.check_cash((r->>'opening_amount')::numeric=500 and (r->>'received_cash')::numeric=500 and r->'source_cash_session_id'='null'::jsonb and r->'receipt_difference'='null'::jsonb,'independent existing fund confirmed500 is not mislabeled new contribution or inferred historical handover');
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash','NaN','reservedCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',r->>'id','countedCash','NaN','reservedCash',0),gen_random_uuid());exception when others then failed:=sqlerrm='POS_CASH_ALLOCATION_INVALID';end;
  perform pg_temp.check_cash(failed and (select status='open' from pos_cash_sessions where id=(r->>'id')::uuid),'non-finite numeric input cannot create an invalid financial close');
  update pos_staff set retail_permissions=array['SELL'] where id=st;
- failed:=false;begin perform pos_retail_cash_command_v1(slug,host,ss,'close',jsonb_build_object('sessionId',cash,'countedCash',2400,'reservedCash',500),ck);exception when others then failed:=sqlerrm='POS_STAFF_PERMISSION_REQUIRED';end;
+ failed:=false;begin perform pg_temp.cash_allocation_test_command(slug,host,ss,'close',jsonb_build_object('sessionId',cash,'countedCash',2400,'reservedCash',500),ck);exception when others then failed:=sqlerrm='POS_STAFF_PERMISSION_REQUIRED';end;
  perform pg_temp.check_cash(failed,'revoked CASH permission blocks even monetary retries');
  perform pg_temp.check_cash(not has_function_privilege('authenticated','pos_retail_cash_command_v1(text,uuid,uuid,text,jsonb,uuid,text)','execute') and not has_function_privilege('authenticated','pos_retail_cash_command_internal_v1(text,uuid,uuid,text,jsonb,uuid,text)','execute'),'public and internal commands unavailable to host-authenticated direct RPC');
 end $$;

@@ -1,0 +1,9 @@
+{
+  "commit": "508cbc5",
+  "opening": 500,
+  "cash_charge_during_count": 100,
+  "stale_count": 500,
+  "accepted": true,
+  "recorded_expected": 600.0,
+  "recorded_difference": -100.0
+}
