@@ -1,3 +1,4 @@
+import { blindOpenCash } from "@/lib/pos/cash-visibility";
 import {getStaffSession} from "@/lib/pos/staff-server";
 import {retailPermissions} from "@/lib/pos/retail-permissions";
 import {
@@ -420,7 +421,7 @@ export async function GET(request: Request) {
         membership?.effectiveRole || ""
       ));
     const openSessions = (openSessionsResult.data || []).map((session) =>
-      canViewOpenExpectedCash
+      resolvePosMode(profileResult.data.profile_code) === "RETAIL" ? blindOpenCash(session) : canViewOpenExpectedCash
         ? session
         : {
             ...session,

@@ -1,0 +1,40 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE TRIGGER
+psql:<stdin>:97: NOTICE:  PASS opening retry exactly once
+psql:<stdin>:97: NOTICE:  PASS document failure rolls back close, allocation, reserve and close audit atomically
+psql:<stdin>:97: NOTICE:  PASS full audited scenario persisted atomically: expected2500 counted2400 shortage100 reserve500 delivery1900
+psql:<stdin>:97: NOTICE:  PASS same-key close retry preserves original allocation
+psql:<stdin>:97: NOTICE:  PASS reserve creates no expense or withdrawal
+psql:<stdin>:97: NOTICE:  PASS transactional immutable snapshot v2 and declared delivery
+psql:<stdin>:97: NOTICE:  PASS snapshot cannot be rewritten
+psql:<stdin>:97: NOTICE:  PASS closed allocation immutable
+psql:<stdin>:97: NOTICE:  PASS receipt discrepancy requires reason
+psql:<stdin>:97: NOTICE:  PASS actual received450 opens450; discrepancy minus50 recorded
+psql:<stdin>:97: NOTICE:  PASS reserve consumed and linked to same box once
+psql:<stdin>:97: NOTICE:  PASS receipt does not change prior close
+psql:<stdin>:97: NOTICE:  PASS retry of receipt returns same opening
+psql:<stdin>:97: NOTICE:  PASS second opening on same register rejected
+psql:<stdin>:97: NOTICE:  PASS same-key changed contribution rejected
+psql:<stdin>:97: NOTICE:  PASS missing reserve rejects entire close, no partial financial update
+psql:<stdin>:97: NOTICE:  PASS reserve cannot exceed full count
+psql:<stdin>:97: NOTICE:  PASS surplus50 remains after reserving all physical500
+psql:<stdin>:97: NOTICE:  PASS confirmed500 plus distinct new contribution50 opens550, not1050
+psql:<stdin>:97: NOTICE:  PASS received plus contribution affect expected once without movement
+psql:<stdin>:97: NOTICE:  PASS sub-cent reserve rejected
+psql:<stdin>:97: NOTICE:  PASS explicit zero reserve accepted; all count declared for delivery
+psql:<stdin>:97: NOTICE:  PASS consumed older reserve cannot be reused
+psql:<stdin>:97: NOTICE:  PASS report includes empty legacy cut by close date; historical allocation remains unknown
+psql:<stdin>:97: NOTICE:  PASS reserve cannot be moved to another physical register
+psql:<stdin>:97: NOTICE:  PASS expired PIN session blocks opening
+psql:<stdin>:97: NOTICE:  PASS host-authenticated direct financial reads cannot bypass PIN API
+psql:<stdin>:97: NOTICE:  PASS manual entry cannot be used to separate existing fund without physical contribution declaration
+psql:<stdin>:97: NOTICE:  PASS declared physical contribution400 is recorded as incoming cash once
+psql:<stdin>:97: NOTICE:  PASS separating existing400 as reserve creates no second entry or expense
+psql:<stdin>:97: NOTICE:  PASS independent existing fund confirmed500 is not mislabeled new contribution or inferred historical handover
+psql:<stdin>:97: NOTICE:  PASS non-finite numeric input cannot create an invalid financial close
+psql:<stdin>:97: NOTICE:  PASS revoked CASH permission blocks even monetary retries
+psql:<stdin>:97: NOTICE:  PASS public and internal commands unavailable to host-authenticated direct RPC
+DO
+ROLLBACK

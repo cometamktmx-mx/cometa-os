@@ -1,10 +1,12 @@
 import { thermalReceipt } from "./thermal";
 
 export type CashCloseReceipt = {
-  version: 1; sessionId: string; brand: string; location: string; register: string;
+  version: 1 | 2; sessionId: string; brand: string; location: string; register: string;
   operator: string; openingOperator: string; openedAt: string; closedAt: string;
   currency: string; timezone: string; opening: number; expected: number; counted: number;
   difference: number; summary: Record<string, number> | null;
+  reservedCash?: number; declaredDelivery?: number; deliveryStatus?: "declared";
+  fundReceipt?: { sourceSessionId: string | null; receivedCash: number | null; difference: number | null; reason: string | null; additionalCash: number | null; additionalReason: string | null };
   transfers: { verified: number; pending: number } | null;
 };
 
@@ -30,7 +32,20 @@ export function cashCloseReceiptHtml(receipt: CashCloseReceipt, copy: boolean) {
       "Abonos en efectivo incluidos en depósitos; no sumar dos veces."] : ["Desglose original no conservado. No se recalcularon operaciones."]),
     ...(receipt.transfers ? [`Transferencias verificadas: ${money(receipt.transfers.verified)}`, `Transferencias pendientes: ${money(receipt.transfers.pending)}`, "Verificación al cierre. Pendientes conservan su tratamiento actual en conciliación."] : ["Verificación de transferencias: no conservada / no aplica."]),
     `Efectivo esperado: ${money(receipt.expected)}`, `Efectivo contado: ${money(receipt.counted)}`,
-    `Diferencia: ${money(receipt.difference)}`, "Documento del cierre guardado. Sin movimientos nuevos.",
+    `Diferencia: ${money(receipt.difference)}`,
+    ...(receipt.version === 2 && receipt.reservedCash != null && receipt.declaredDelivery != null ? [
+      `Fondo reservado: ${money(receipt.reservedCash)}`, `Efectivo a entregar (declarado): ${money(receipt.declaredDelivery)}`,
+      "Entrega externa: recepción no confirmada.", "La reserva no modifica la diferencia ni crea una salida.",
+    ] : ["Fondo reservado: no registrado.", "Efectivo a entregar: no registrado."]),
+    ...(receipt.fundReceipt ? [
+      ...(receipt.fundReceipt.sourceSessionId ? [`Origen del fondo: ${receipt.fundReceipt.sourceSessionId}`] : []),
+      `Fondo recibido al abrir: ${receipt.fundReceipt.receivedCash == null ? "No registrado / sin reserva vinculada" : money(receipt.fundReceipt.receivedCash)}`,
+      `Discrepancia de recepción: ${receipt.fundReceipt.difference == null ? "No registrada / no aplica" : money(receipt.fundReceipt.difference)}`,
+      ...(receipt.fundReceipt.reason ? [`Motivo de recepción: ${receipt.fundReceipt.reason}`] : []),
+      `Aporte adicional al abrir: ${receipt.fundReceipt.additionalCash == null ? "No registrado" : money(receipt.fundReceipt.additionalCash)}`,
+      ...(receipt.fundReceipt.additionalReason ? [`Motivo del aporte: ${receipt.fundReceipt.additionalReason}`] : []),
+    ] : ["Recepción de fondo anterior: no registrada."]),
+    "Documento del cierre guardado. Sin movimientos nuevos.",
   ] });
 }
 

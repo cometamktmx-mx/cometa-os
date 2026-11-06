@@ -1,0 +1,42 @@
+{
+  "next": "16.4.4",
+  "build_engine": "webpack",
+  "deployment": false,
+  "production_access_during_implementation": false,
+  "postgres_fresh_migration_database": "cometa_cash_retail_final",
+  "postgres_assertions": 34,
+  "postgres_suite_rolled_back": true,
+  "concurrent_order_checks": 14,
+  "unit_cash_v2": 10,
+  "unit_cash_regression": 11,
+  "unit_staff_access": 9,
+  "other_suites": [
+    "test-pos-cash-close-navigation.mjs",
+    "test-pos-retail-report.mjs",
+    "test-pos-retail-report-api.mjs"
+  ],
+  "ui": "Real loopback Auth login + two operator PINs + Next APIs + PostgreSQL",
+  "ui_flow": {
+    "opening": 500,
+    "cash_sale": 1500,
+    "cash_order_deposit": 500,
+    "expected": 2500,
+    "counted": 2400,
+    "difference": -100,
+    "reserved": 500,
+    "declared_delivery": 1900,
+    "next_received": 450,
+    "receipt_difference": -50,
+    "additional_new_cash": 50,
+    "next_opening": 500
+  },
+  "ui_independent_opening": "preview existing500/additional0; SQL persisted case also passed",
+  "physical_printing": false,
+  "original_qz_database_migrated": false,
+  "main_qz_files_hashes_unchanged": true,
+  "build_exit_code": 0,
+  "typescript_errors": 0,
+  "targeted_eslint_errors": 0,
+  "http_idempotent_close_replay": "passed; same request key after reserve receipt",
+  "schema_gate": "contract2 required before financial RPC"
+}

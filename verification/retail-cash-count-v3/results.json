@@ -1,0 +1,26 @@
+{
+  "base_commit": "508cbc5",
+  "production_access": false,
+  "deployment": false,
+  "before": "accepted stale count500 after cash charge100; recorded difference-100",
+  "after": "HTTP409 requires explicit recount; no expected or delta returned",
+  "postgres_count_guard_checks": 37,
+  "postgres_allocation_assertions": 34,
+  "concurrency_regression_checks": 16,
+  "api_tests": 14,
+  "frontend_recount_tests": 3,
+  "ticket_regression_tests": 11,
+  "pin_access_tests": 9,
+  "next": "16.4.4",
+  "build": "webpack; exit0",
+  "typescript_errors": 0,
+  "targeted_eslint_errors": 0,
+  "migration_order": [
+    "20261103010000",
+    "20261103020000"
+  ],
+  "required_cash_contract": 3,
+  "legacy_open_before_both_migrations": "opening500 + cash100 retained; closed counted600/reserved500/delivery100/difference0",
+  "historical_synthetic_balances_and_receipts": "unchanged",
+  "final_build_permission_mode": "workspace sandbox; no escalation"
+}

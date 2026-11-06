@@ -1,0 +1,14 @@
+PASS close wins concurrent movement: late movement rejected, zero cash entries
+PASS movement wins concurrent close: expected includes committed income exactly once
+PASS close wins concurrent sale: sale rejected atomically with zero payments/sale
+PASS sale wins concurrent close: close includes net cash100 once
+PASS sale same-key retry after close returns original sale without duplicate cash
+PASS two concurrent same-key closes return same result and one close audit
+PASS simultaneous different-key openings: exactly one consumes reserve
+PASS one linked receipt450 plus additional50, old reserve500 preserved
+PASS simultaneous same-key receipts500 share one opening without duplication
+PASS actual order activation retry reuses one receipt
+PASS actual settlement retry creates only one prepaid sale
+PASS actual order RPC: cash50+25 once, card25 excluded, prepaid sale no extra receipt
+PASS zero-balance settlement creates no additional receipt/deposit
+PASS synthetic concurrency fixture removed; existing isolated fixtures untouched

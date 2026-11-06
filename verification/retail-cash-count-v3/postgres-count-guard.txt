@@ -1,0 +1,37 @@
+PASS both migrations preserve every pre-existing synthetic historical financial row and original receipt
+PASS pre-existing OPEN turn remains open and its opening/timestamps/balances are unchanged by migrations
+PASS count-start response contains only opaque token, session and time; no expected/revision/amounts
+PASS legacy turn closes through new flow after both migrations: counted600 reserve500 delivery100
+PASS legacy opening components remain unknown in the new saved snapshot, without assumptions
+PASS cash sale between start and confirm rejects stale count instead of recording false shortage100
+PASS retry of stale close still rejects; never silently refreshes the token
+PASS start-count retry after money changed returns ORIGINAL token, not a fresh baseline
+PASS stale rejection leaves session open, no allocation/document/close
+PASS explicit recount after charge closes with current cash600
+PASS committed close retry returns identical result after token consumption
+PASS new-key second close cannot consume the same count twice
+PASS income during count requires recount
+PASS income retry changes no cash/revision and fresh count closes once
+PASS deposit during count requires recount
+PASS deposit retry changes no cash/revision and fresh count closes once
+PASS expense during count requires recount
+PASS expense retry changes no cash/revision and fresh count closes once
+PASS withdrawal during count requires recount
+PASS withdrawal retry changes no cash/revision and fresh count closes once
+PASS net-zero pair returns expected to500
+PASS net-zero money changes still invalidate the count (no amount-based shortcut)
+PASS activate cash order payment during count requires recount
+PASS activate payment retry reuses original receipt
+PASS activate payment retry after fresh count does not invalidate or double-count linked deposit
+PASS pay cash order payment during count requires recount
+PASS pay payment retry reuses original receipt
+PASS pay payment retry after fresh count does not invalidate or double-count linked deposit
+PASS sale wins simultaneous close: revision checked AFTER waiting, stale close rejected atomically
+PASS recount after blocked close sees committed sale once
+PASS count-start waits for in-flight sale and captures the completed baseline
+PASS close wins: subsequent movement rejected, no post-close cash
+PASS simultaneous same-key closes return one saved closure with one audit
+PASS another PIN session cannot reuse an uncommitted count token
+PASS fresh count in new PIN session closes correctly
+PASS host/direct RPC cannot read revisions or bypass the new count guard
+PASS own synthetic fixture removed, other isolated data preserved

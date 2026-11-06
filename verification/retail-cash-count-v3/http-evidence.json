@@ -1,0 +1,27 @@
+{
+  "syntheticOnly": true,
+  "opening": 500,
+  "cashChargedDuringCount": 100,
+  "rejected": {
+    "ok": false,
+    "error": "La caja cambió durante el conteo. Inicia un nuevo conteo y vuelve a contar TODO el efectivo antes de confirmar.",
+    "code": "POS_CASH_CHANGED_RECOUNT_REQUIRED",
+    "details": null
+  },
+  "startCountKeys": [
+    "countId",
+    "cashSessionId",
+    "startedAt"
+  ],
+  "staleFieldsCleared": [
+    "",
+    ""
+  ],
+  "closed": {
+    "expected": 600,
+    "counted": 600,
+    "difference": 0,
+    "reserved": 500,
+    "declaredDelivery": 100
+  }
+}

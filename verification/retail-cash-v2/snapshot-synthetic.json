@@ -1,0 +1,60 @@
+{
+  "brand": "SYNTHETIC CASH CLOSE — NOT A REAL BUSINESS",
+  "counted": 2400,
+  "opening": 500,
+  "summary": {
+    "card_sales": 0,
+    "cash_sales": 1500,
+    "order_card": 0,
+    "order_cash": 500,
+    "cash_income": 0,
+    "other_sales": 0,
+    "sales_total": 1500,
+    "wallet_sales": 0,
+    "cash_deposits": 500,
+    "cash_expenses": 0,
+    "expected_cash": 2500,
+    "tickets_count": 1,
+    "order_transfer": 0,
+    "transfer_sales": 0,
+    "cash_withdrawals": 0,
+    "recent_movements": [
+      {
+        "id": "894fbcd0-4b47-42f6-9569-f7841e82c1e2",
+        "amount": 500,
+        "reason": "Apartado N-F0C65F88D7AA · anticipo/abono recibido",
+        "createdAt": "2026-11-03T01:41:10.019732+00:00",
+        "createdBy": "fe2286ea-f560-4ff6-a56f-d6f8b9c1e9dc",
+        "movementType": "deposit"
+      }
+    ],
+    "net_cash_movements": 500
+  },
+  "version": 2,
+  "closedAt": "2026-11-03T01:41:49.692579+00:00",
+  "currency": "MXN",
+  "expected": 2500,
+  "location": "Synthetic branch",
+  "openedAt": "2026-11-02T01:41:10.019732+00:00",
+  "operator": "Cajera · prueba de relevo",
+  "register": "Caja RELEVO · sintética",
+  "timezone": "America/Mexico_City",
+  "sessionId": "99b1dfe9-4b55-4ab4-ab2a-4b65eb869b20",
+  "transfers": {
+    "pending": 0,
+    "verified": 0
+  },
+  "difference": -100,
+  "fundReceipt": {
+    "reason": null,
+    "difference": null,
+    "receivedCash": null,
+    "additionalCash": 500,
+    "sourceSessionId": null,
+    "additionalReason": "Aporte físico inicial sintético"
+  },
+  "reservedCash": 500,
+  "deliveryStatus": "declared",
+  "openingOperator": "Cajera · prueba de relevo",
+  "declaredDelivery": 1900
+}
