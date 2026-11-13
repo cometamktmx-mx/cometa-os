@@ -35,6 +35,7 @@ const VARIANT_SELECT = `
     description,
     product_type,
     inventory_mode,
+    track_inventory,
     default_unit_code,
     has_variants,
     sellable,
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
         .from("pos_product_variants")
         .select(VARIANT_SELECT)
         .eq("brand_slug", brand.slug)
-        .ilike("sku", normalizedCode.replace(/[\\%_]/g, "\\$&"))
+        .ilike("sku", normalizedCode.replace(/[\\%_*]/g, "\\$&"))
         .eq("active", true)
         .maybeSingle();
 
@@ -120,7 +121,7 @@ export async function GET(request: Request) {
 
     if (!variant) {
       const productResult = await admin.from("pos_products").select("id")
-        .eq("brand_slug", brand.slug).eq("product_code", normalizedCode)
+        .eq("brand_slug", brand.slug).ilike("product_code", normalizedCode.replace(/[\\%_*]/g, "\\$&"))
         .eq("active", true).eq("sellable", true).maybeSingle();
       assertDatabaseResult(productResult.error, "No se pudo buscar el código de producto.");
       const productMatch = productResult.data &&

@@ -252,6 +252,7 @@ type ScanFoundResponse = {
       description: string | null;
       product_type: string;
       inventory_mode: string;
+      track_inventory: boolean;
       default_unit_code: string;
       has_variants: boolean;
       sellable: boolean;
@@ -651,9 +652,19 @@ export default function PosRegisterPage() {
         setAttributeDefinitions(
           productConfig.attributes || []
         );
-        setProducts(
-          productData.products || []
+        // The catalog endpoint is paginated; loading only its first page makes
+        // otherwise sellable products invisible to manual catalog searches.
+        const remainingPages = await Promise.all(
+          Array.from({ length: Math.max(0, Math.ceil(productData.pagination.total / 100) - 1) }, (_, index) =>
+            apiRequest<ProductsResponse>(
+              `/api/pos/products?brandSlug=${encodeURIComponent(brand.slug)}&pageSize=100&active=true&channel=physical&page=${index + 2}`
+            )
+          )
         );
+        setProducts([
+          ...(productData.products || []),
+          ...remainingPages.flatMap((page) => page.products || []),
+        ]);
         setCustomers(
           customerData.customers || []
         );
@@ -1337,6 +1348,15 @@ export default function PosRegisterPage() {
   }
 
   function selectProduct(group: ProductGroup) {
+    const code = search.trim();
+    if (code && group.variants.some((variant) =>
+      variant.productCode?.toLowerCase() === code.toLowerCase() ||
+      variant.sku?.toLowerCase() === code.toLowerCase() ||
+      variant.barcode === code
+    )) {
+      if (!isScanning) void handleScan(undefined, code);
+      return;
+    }
     if (group.variants.length === 1) {
       addVariantToCart(group.variants[0]);
       return;
@@ -1462,9 +1482,19 @@ export default function PosRegisterPage() {
         );
 
       if (!result.found) {
-        const group = result.productMatch && productGroups.find(item => item.productId === result.productMatch?.id);
-        if (group) {
-          selectProduct(group);
+        if (result.productMatch) {
+          // Resolve by the returned product ID, not a partial SKU or the
+          // currently loaded catalog, and refresh its branch inventory.
+          const detail = await apiRequest<ProductsResponse>(
+            `/api/pos/products?brandSlug=${encodeURIComponent(brand.slug)}&productId=${encodeURIComponent(result.productMatch.id)}&active=true&channel=physical`
+          );
+          const product = detail.products.find((item) => item.id === result.productMatch?.id && item.active && item.sellable);
+          if (!product || !product.variants.some((variant) => variant.active)) {
+            setError("El producto no tiene variantes disponibles para venta.");
+            return;
+          }
+          setProducts((current) => [...current.filter((item) => item.id !== product.id), product]);
+          setSelectedProductId(product.id);
           return;
         }
         setSearch(result.code);
@@ -1488,7 +1518,7 @@ export default function PosRegisterPage() {
       const inventoryTracked =
         result.variant.product
           .inventory_mode ===
-        "direct";
+        "direct" && result.variant.product.track_inventory;
 
       const availableStock =
         inventoryTracked
@@ -2258,7 +2288,13 @@ export default function PosRegisterPage() {
                       event.target.value
                     )
                   }
-                  placeholder="Buscar producto, talla, SKU..."
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && search.trim() && !isScanning) {
+                      event.preventDefault();
+                      void handleScan(undefined, search);
+                    }
+                  }}
+                  placeholder="Buscar producto, talla, SKU... (Enter para código)"
                   className="pos-ui-focus h-11 w-full rounded-[var(--pos-radius-sm)] border border-[var(--pos-line)] bg-[var(--pos-canvas)] pl-11 pr-12 text-sm font-medium text-[var(--pos-text-primary)] outline-none placeholder:text-[var(--pos-text-muted)]"
                 />
 
